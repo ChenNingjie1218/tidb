@@ -1,0 +1,117 @@
+name: TiDB-CD
+
+on:
+  push:
+    branches:
+      - main-8.5-keyspace
+      - release-8.5-keyspace*
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  prepare:
+    name: Prepare Build Tag
+    runs-on: self-hosted
+    outputs:
+      tag: ${{ steps.prep.outputs.tag }}
+    steps:
+      - name: Setup build tag
+        id: prep
+        run: |
+          TAG="$(date -u +'%Y%m%d')-${{ github.sha }}"
+          echo "Generated tag: ${TAG}"
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+  build-arm64:
+    name: Build ARM64 Image
+    runs-on: arm64
+    needs: ["prepare"]
+    steps:
+      - name: Check out Code
+        uses: actions/checkout@v4
+      - name: Login to Harbor
+        uses: docker/login-action@v3
+        with:
+          registry: hub.pingcap.net
+          username: ${{ secrets.HARBOR_USER }}
+          password: ${{ secrets.HARBOR_TOKEN }}
+      - name: Build and Push Images
+        uses: docker/build-push-action@v2
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: "linux/arm64"
+          push: true
+          secrets: |
+            GIT_AUTH_TOKEN=${{ secrets.GIT_ACTION_BOT }}
+          build-args: |
+            GITHUB_TOKEN=${{ secrets.GIT_ACTION_BOT }}
+            TIDB_GIT_HASH=${{ needs.prepare.outputs.tag }}
+            TIDB_GIT_BRANCH=${{ github.ref_name }}
+          tags: hub.pingcap.net/sunxiaoguang/serverless/tidb:${{ needs.prepare.outputs.tag }}-arm64
+
+  build-amd64:
+    name: Build AMD64 Image
+    runs-on: amd64
+    needs: ["prepare"]
+    steps:
+      - name: Check out Code
+        uses: actions/checkout@v4
+      - name: Login to Harbor
+        uses: docker/login-action@v3
+        with:
+          registry: hub.pingcap.net
+          username: ${{ secrets.HARBOR_USER }}
+          password: ${{ secrets.HARBOR_TOKEN }}
+      - name: Build and Push Images
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: "linux/amd64"
+          push: true
+          secrets: |
+            GIT_AUTH_TOKEN=${{ secrets.GIT_ACTION_BOT }}
+          build-args: |
+            GITHUB_TOKEN=${{ secrets.GIT_ACTION_BOT }}
+            TIDB_GIT_HASH=${{ needs.prepare.outputs.tag }}
+            TIDB_GIT_BRANCH=${{ github.ref_name }}
+          tags: hub.pingcap.net/sunxiaoguang/serverless/tidb:${{ needs.prepare.outputs.tag }}-amd64
+  multi-arch:
+    name: Create Multi-Architecture Image
+    runs-on: amd64
+    needs: ["prepare", "build-arm64", "build-amd64"]
+    steps:
+      - name: Login to Harbor
+        uses: docker/login-action@v3
+        with:
+          registry: hub.pingcap.net
+          username: ${{ secrets.HARBOR_USER }}
+          password: ${{ secrets.HARBOR_TOKEN }}
+      - name: create-manifest
+        run: |
+          docker manifest create hub.pingcap.net/sunxiaoguang/serverless/tidb:${{ needs.prepare.outputs.tag }} \
+          --amend hub.pingcap.net/sunxiaoguang/serverless/tidb:${{ needs.prepare.outputs.tag }}-amd64 \
+          --amend hub.pingcap.net/sunxiaoguang/serverless/tidb:${{ needs.prepare.outputs.tag }}-arm64
+      - name: push-manifest
+        run: |
+          docker manifest push hub.pingcap.net/sunxiaoguang/serverless/tidb:${{ needs.prepare.outputs.tag }}
+      - name: Login to Harbor (keyspace)
+        uses: docker/login-action@v3
+        with:
+          registry: hub.pingcap.net
+          username: "robot$keyspace+cdbot"
+          password: ${{ secrets.HARBOR_KEYSPACE_TOKEN }}
+      - name: set-additional-tags
+        if: ${{ (startsWith(github.ref_name, 'release-8.5-keyspace') || github.ref_name == 'main-8.5-keyspace') && github.event_name == 'push' }}
+        run: |
+          # Remove the local manifest entry if it exists
+          docker manifest rm hub.pingcap.net/keyspace/tidb:v8.5.3 || true
+
+          docker manifest create hub.pingcap.net/keyspace/tidb:v8.5.3 \
+          --amend hub.pingcap.net/sunxiaoguang/serverless/tidb:${{ needs.prepare.outputs.tag }}-amd64 \
+          --amend hub.pingcap.net/sunxiaoguang/serverless/tidb:${{ needs.prepare.outputs.tag }}-arm64
+
+          docker manifest push hub.pingcap.net/keyspace/tidb:v8.5.3

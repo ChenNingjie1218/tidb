@@ -1,0 +1,47 @@
+name: Label
+on:
+  pull_request:
+    branches:
+      - main-8.5-keyspace
+      - release-8.5-keyspace*
+    types:
+      - opened
+      - reopened
+      - labeled
+      - unlabeled
+      - synchronize
+
+permissions:
+  contents: read
+jobs:
+  # Must choose one of the two labels: 'serverless-only' or 'not-serverless-only'.
+  label-check:
+    runs-on: x64
+    steps:
+      - name: Check PR Labels
+        run: |
+          label_count=0
+          labels=$(echo '${{ toJson(github.event.pull_request.labels) }}' | jq -r '.[] | .name')
+          for label in $labels
+          do
+            if [[ "$label" == "do-not-merge/needs-linked-issue" ]]; then
+              echo "PR has 'do-not-merge/needs-linked-issue' label. Cannot merge."
+              exit 1
+            fi
+            
+            if [[ "$label" == "do-not-merge/needs-tests-checked" ]]; then
+              echo "PR has 'do-not-merge/needs-tests-checked' label. Cannot merge."
+              exit 1
+            fi
+
+            echo "label: $label"
+            if [[ "$label" == "serverless-only" || "$label" == "not-serverless-only" ]]; then
+              label_count=$((label_count + 1))
+            fi
+          done
+          if [[ "$label_count" -eq 1 ]]; then
+            echo "Merge is allowed"
+          else
+            echo "Merge is not allowed. Please choose one of the two labels: 'serverless-only' or 'not-serverless-only'."
+            exit 1
+          fi

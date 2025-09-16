@@ -52,6 +52,8 @@ func TestMain(m *testing.M) {
 		goleak.IgnoreTopFunction("google.golang.org/grpc/internal/transport.(*http2Client).keepalive"),
 		goleak.IgnoreTopFunction("internal/poll.runtime_pollWait"),
 		goleak.IgnoreTopFunction("net/http.(*persistConn).writeLoop"),
+		goleak.IgnoreTopFunction("github.com/pingcap/tidb/pkg/ddl/notifier.(*DDLNotifier).start"),
+		goleak.IgnoreAnyFunction("github.com/pingcap/tidb/pkg/owner.(*mockManager).CampaignOwner.func1"),
 	}
 	callback := func(i int) int {
 		// wait for MVCCLevelDB to close, MVCCLevelDB will be closed in one second

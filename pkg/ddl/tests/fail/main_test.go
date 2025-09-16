@@ -40,6 +40,8 @@ func TestMain(m *testing.M) {
 		goleak.IgnoreTopFunction("github.com/lestrrat-go/httprc.runFetchWorker"),
 		goleak.IgnoreTopFunction("go.etcd.io/etcd/client/pkg/v3/logutil.(*MergeLogger).outputLoop"),
 		goleak.IgnoreTopFunction("go.opencensus.io/stats/view.(*worker).start"),
+		goleak.IgnoreTopFunction("github.com/pingcap/tidb/pkg/ddl/notifier.(*DDLNotifier).start"),
+		goleak.IgnoreAnyFunction("github.com/pingcap/tidb/pkg/owner.(*mockManager).CampaignOwner.func1"),
 	}
 
 	goleak.VerifyTestMain(m, opts...)

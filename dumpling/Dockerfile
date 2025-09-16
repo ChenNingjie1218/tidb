@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.3
-# Copyright 2022 PingCAP, Inc.
+# Copyright 2024 PingCAP, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -32,36 +32,30 @@ ARG GITHUB_TOKEN
 RUN if [ -n "$GITHUB_TOKEN" ]; then git config --global url."https://${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"; fi
 
 ENV GOPRIVATE=github.com/tidbcloud
-# Overwrite the minimum required tikv version to be compatible with cloud-storage-engine
-ENV MIN_TIKV_VERSION=6.1.0
+
+# Overwrite metrics.EnvRegisterMetricsAtInit when we build dumpling binary file.
 ENV REGISTER_METRICS_INIT=false
-ENV TIDB_VERSION=v8.5.3-serverless
+ENV MIN_TIKV_VERSION=6.1.0
 
 RUN --mount=type=cache,target=/go/cache \
     GO111MODULE=on go mod download
-
-# Add build arguments for git information
-ARG TIDB_GIT_HASH
-ARG TIDB_GIT_BRANCH
-ENV TIDB_GIT_HASH=${TIDB_GIT_HASH}
-ENV TIDB_GIT_BRANCH=${TIDB_GIT_BRANCH:-release-8.5-serverless}
 
 # Build real binaries
 COPY . .
 RUN --mount=type=cache,target=/go/cache \
     --mount=type=cache,target=/root/.cache/go-build,sharing=locked \
-    make \
-    && cp /go/src/github.com/pingcap/tidb/bin/tidb-server /tidb-server
+    make build_dumpling\
+    && cp /go/src/github.com/pingcap/tidb/bin/dumpling /tidb-dumpling
 
 
 # Executable image
 FROM hub.pingcap.net/keyspace/builder/debian:bullseye-slim
-RUN apt update && apt install -y bash curl netcat dumb-init && rm /bin/sh && ln -s /bin/bash /bin/sh && apt-get clean
+RUN apt update && apt install -y bash curl netcat procps dumb-init && rm /bin/sh && ln -s /bin/bash /bin/sh && apt-get clean
 
-COPY --from=builder /tidb-server /tidb-server
+COPY --from=builder /go/src/github.com/pingcap/tidb/bin/dumpling /tidb-dumpling
 
 WORKDIR /
 
 EXPOSE 4000
 
-ENTRYPOINT ["/usr/bin/dumb-init", "/tidb-server"]
+ENTRYPOINT ["/usr/bin/dumb-init", "/tidb-dumpling"]

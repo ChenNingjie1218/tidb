@@ -40,6 +40,8 @@ GOTEST          := $(GO) test -p $(P)
 OVERALLS        := GO111MODULE=on overalls
 STATICCHECK     := GO111MODULE=on staticcheck
 TIDB_EDITION    ?= Community
+TIDB_GIT_HASH   := $(shell if [ -n "$$TIDB_GIT_HASH" ]; then echo "$$TIDB_GIT_HASH"; else git rev-parse HEAD; fi)
+TIDB_GIT_BRANCH := $(shell if [ -n "$$TIDB_GIT_BRANCH" ]; then echo "$$TIDB_GIT_BRANCH"; else git rev-parse --abbrev-ref HEAD; fi)
 
 # Ensure TIDB_EDITION is set to Community or Enterprise before running build process.
 ifneq "$(TIDB_EDITION)" "Community"
@@ -69,8 +71,8 @@ FAILPOINT_DISABLE := find $$PWD/ -type d | grep -vE "(\.git|tools)" | xargs tool
 
 LDFLAGS += -X "github.com/pingcap/tidb/pkg/parser/mysql.TiDBReleaseVersion=$(shell git describe --tags --dirty --always)"
 LDFLAGS += -X "github.com/pingcap/tidb/pkg/util/versioninfo.TiDBBuildTS=$(shell date -u '+%Y-%m-%d %H:%M:%S')"
-LDFLAGS += -X "github.com/pingcap/tidb/pkg/util/versioninfo.TiDBGitHash=$(shell git rev-parse HEAD)"
-LDFLAGS += -X "github.com/pingcap/tidb/pkg/util/versioninfo.TiDBGitBranch=$(shell git rev-parse --abbrev-ref HEAD)"
+LDFLAGS += -X "github.com/pingcap/tidb/pkg/util/versioninfo.TiDBGitHash=$(TIDB_GIT_HASH)"
+LDFLAGS += -X "github.com/pingcap/tidb/pkg/util/versioninfo.TiDBGitBranch=$(TIDB_GIT_BRANCH)"
 LDFLAGS += -X "github.com/pingcap/tidb/pkg/util/versioninfo.TiDBEdition=$(TIDB_EDITION)"
 
 EXTENSION_FLAG =
@@ -80,6 +82,11 @@ endif
 
 TEST_LDFLAGS =  -X "github.com/pingcap/tidb/pkg/config.checkBeforeDropLDFlag=1"
 COVERAGE_SERVER_LDFLAGS =  -X "github.com/pingcap/tidb/cmd/tidb-server.isCoverageServer=1"
+
+# Overwrites the minimum required TiKV version if MIN_TIKV_VERSION is explicitly set.
+ifneq "$(MIN_TIKV_VERSION)" ""
+    LDFLAGS += -X "github.com/pingcap/tidb/br/pkg/version.TiKVMinVersionSupportRewrite=$(MIN_TIKV_VERSION)"
+endif
 
 CHECK_LDFLAGS += $(LDFLAGS) ${TEST_LDFLAGS}
 
@@ -103,6 +110,7 @@ endif
 BR_PKG := github.com/pingcap/tidb/br
 BR_PACKAGES       := go list ./...| grep "github.com\/pingcap\/tidb\/br"
 BR_PACKAGE_DIRECTORIES := $(BR_PACKAGES) | sed 's|github.com/pingcap/$(PROJECT)/||'
+LIGHTNING_PACKAGES:= go list ./...| grep "github.com\/pingcap\/tidb\/lightning"
 LIGHTNING_BIN     := bin/tidb-lightning
 LIGHTNING_CTL_BIN := bin/tidb-lightning-ctl
 BR_BIN            := bin/br
@@ -125,12 +133,6 @@ DUMPLING_GOBUILD := CGO_ENABLED=1 GO111MODULE=on go build -trimpath -ldflags '$(
 DUMPLING_GOTEST  := CGO_ENABLED=1 GO111MODULE=on go test -ldflags '$(DUMPLING_LDFLAGS)'
 
 TEST_COVERAGE_DIR := "test_coverage"
-
-ifneq ("$(CI)", "")
-	BAZEL_GLOBAL_CONFIG := --output_user_root=/home/jenkins/.tidb/tmp
-	BAZEL_CMD_CONFIG := --config=ci --repository_cache=/home/jenkins/.tidb/tmp
-	BAZEL_SYNC_CONFIG := --repository_cache=/home/jenkins/.tidb/tmp
-endif
 BAZEL_INSTRUMENTATION_FILTER := --instrument_test_targets --instrumentation_filter=//pkg/...,//br/...,//dumpling/...
 
 NOGO_FLAG=true

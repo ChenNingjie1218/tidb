@@ -47,7 +47,7 @@ check-setup:tools/bin/revive
 precheck: fmt bazel_prepare
 
 .PHONY: check
-check: check-bazel-prepare parser_yacc check-parallel lint tidy testSuite errdoc license
+check: fmt check-bazel-prepare parser_yacc check-parallel lint tidy testSuite errdoc
 
 .PHONY: fmt
 fmt:
@@ -126,7 +126,7 @@ test: test_part_1 test_part_2
 test_part_1: checklist integrationtest
 
 .PHONY: test_part_2
-test_part_2: test_part_parser ut gogenerate br_unit_test dumpling_unit_test
+test_part_2: test_part_parser gogenerate 
 
 .PHONY: test_part_parser
 test_part_parser: parser_yacc test_part_parser_dev
@@ -171,6 +171,11 @@ ut: tools/bin/ut tools/bin/xprog failpoint-enable
 	tools/bin/ut $(X) || { $(FAILPOINT_DISABLE); exit 1; }
 	@$(FAILPOINT_DISABLE)
 	@$(CLEAN_UT_BINARY)
+
+.PHONY: ci-test-job
+ci-test-job: tools/bin/ut tools/bin/xprog failpoint-enable
+	@export TZ='Asia/Shanghai';
+	@tools/bin/ut run-multi $(shell ./tools/scripts/ci-subtask.sh $(JOB_COUNT) $(JOB_INDEX))
 
 .PHONY: gotest_in_verify_ci
 gotest_in_verify_ci: tools/bin/xprog tools/bin/ut failpoint-enable
@@ -296,10 +301,11 @@ failpoint-disable: tools/bin/failpoint-ctl
 # Restoring gofail failpoints...
 	@$(FAILPOINT_DISABLE)
 
-.PHONY: tools/bin/ut
-tools/bin/ut: tools/check/ut.go
+.PHONY: tools/bin/ut tools/check/longtests.go tools/check/flakytests.go
+tools/bin/ut: tools/check/ut.go tools/check/longtests.go tools/check/flakytests.go
 	cd tools/check; \
-	$(GO) build -o ../bin/ut ut.go
+	$(GO) build -o ../bin/ut ut.go longtests.go flakytests.go
+
 
 .PHONY: tools/bin/xprog
 tools/bin/xprog: tools/check/xprog/xprog.go
@@ -449,6 +455,13 @@ br_unit_test:
 	$(GOTEST) $(RACE_FLAG) -ldflags '$(LDFLAGS)' $(ARGS) -coverprofile=coverage.txt || ( make failpoint-disable && exit 1 )
 	@make failpoint-disable
 
+lightning_unit_test: export ARGS=$$($(LIGHTNING_PACKAGES))
+lightning_unit_test:
+	@make failpoint-enable
+	@export TZ='Asia/Shanghai';
+	$(GOTEST) --tags=deadlock,intest $(RACE_FLAG) -ldflags '$(LDFLAGS)' $(ARGS) -coverprofile=coverage.txt || ( make failpoint-disable && exit 1 )
+	@make failpoint-disable
+
 .PHONY: br_unit_test_in_verify_ci
 br_unit_test_in_verify_ci: export ARGS=$$($(BR_PACKAGES))
 br_unit_test_in_verify_ci: tools/bin/gotestsum
@@ -549,7 +562,7 @@ dumpling_unit_test_in_verify_ci: failpoint-enable tools/bin/gotestsum
 	@mkdir -p $(TEST_COVERAGE_DIR)
 	CGO_ENABLED=1 tools/bin/gotestsum --junitfile "$(TEST_COVERAGE_DIR)/dumpling-junit-report.xml" -- $(DUMPLING_ARGS) \
 	$(RACE_FLAG) -coverprofile="$(TEST_COVERAGE_DIR)/dumpling_cov.unit_test.out" || ( make failpoint-disable && exit 1 )
-	@make failpoint-disable
+	@make failpoint-disabletest_part_2
 
 .PHONY: dumpling_integration_test
 dumpling_integration_test: dumpling_bins failpoint-enable

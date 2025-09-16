@@ -1,0 +1,166 @@
+name: CI Maintenance
+
+on:
+  push:
+    branches:
+      - main-8.5-keyspace
+      - release-8.5-keyspace*
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  cache-build:
+    name: CI Cache Build
+    runs-on: [X64, gcp]
+    env:
+      GITHUB_TOKEN: ${{ secrets.GIT_ACTION_BOT }}
+      GOPRIVATE: github.com/tidbcloud
+    steps:
+      - name: checkout code
+        uses: actions/checkout@v4
+
+      - name: configure git for private modules
+        env:
+          TOKEN: ${{ secrets.GIT_ACTION_BOT }}
+        run: git config --global url."https://${TOKEN}@github.com/".insteadOf "https://github.com/"
+
+      - name: setup go
+        uses: actions/setup-go@v4
+        with:
+          go-version-file: ./go.mod
+          cache: false # Use our own cache directly for more effective caching
+        env:
+          GOPRIVATE: "github.com/tidbcloud,github.com/pingcap/dbaas"
+
+      - name: Load Go module cache
+        uses: breezewish/gcs-cache/restore@017eacc3417cc8c77f2e7ca1f92cc1be5d54ac1e
+        with:
+          gcs-bucket: pingcap-dbaas-build_cloudbuild
+          path: |
+            ~/go/pkg/mod
+          key: tidb-cse/daily/mod/${{ runner.os }}-${{ runner.arch }}/${{ github.ref_name }}/${{ hashFiles('./go.sum') }}
+          restore-keys: |
+            tidb-cse/daily/mod/${{ runner.os }}-${{ runner.arch }}/${{ github.ref_name }}
+
+      - name: Load Go build cache
+        uses: breezewish/gcs-cache/restore@017eacc3417cc8c77f2e7ca1f92cc1be5d54ac1e
+        with:
+          gcs-bucket: pingcap-dbaas-build_cloudbuild
+          path: |
+            ~/.cache/go-build
+          key: tidb-cse/daily/build/${{ runner.os }}-${{ runner.arch }}/${{ github.ref_name }}
+
+      - name: Cleanup old Go build cache
+        run: |
+          find ~/.cache/go-build -type f -mtime +7 -delete
+
+      - name: Build tidb-server
+        shell: bash
+        run: |
+          make
+
+      - name: Build tools for cache
+        if: success() || failure()
+        shell: bash
+        run: |
+          make tools/bin/ut
+          make tools/bin/xprog
+          make tools/bin/failpoint-ctl
+
+      - name: Generate build cache for unit tests
+        if: success() || failure()
+        shell: bash
+        run: |
+          make failpoint-enable
+          cd cmd/tidb-server
+          go test -tags intest -exec true -vet off -toolexec=$(pwd)/../../tools/check/go-compile-without-link.sh
+
+      - name: Save Go module cache
+        uses: breezewish/gcs-cache/save@017eacc3417cc8c77f2e7ca1f92cc1be5d54ac1e
+        if: success() || failure()
+        with:
+          gcs-bucket: pingcap-dbaas-build_cloudbuild
+          path: |
+            ~/go/pkg/mod
+          key: tidb-cse/daily/mod/${{ runner.os }}-${{ runner.arch }}/${{ github.ref_name }}/${{ hashFiles('./go.sum') }}
+
+      - name: Save Go build cache
+        uses: breezewish/gcs-cache/save@017eacc3417cc8c77f2e7ca1f92cc1be5d54ac1e
+        if: success() || failure()
+        with:
+          gcs-bucket: pingcap-dbaas-build_cloudbuild
+          path: |
+            ~/.cache/go-build
+          key: tidb-cse/daily/build/${{ runner.os }}-${{ runner.arch }}/${{ github.ref_name }}
+
+  cache-bazel:
+    name: CI Cache Bazel
+    runs-on: [X64, gcp]
+    env:
+      GITHUB_TOKEN: ${{ secrets.GIT_ACTION_BOT }}
+      GOPRIVATE: github.com/tidbcloud
+    steps:
+      - name: checkout code
+        uses: actions/checkout@v4
+
+      - name: configure git for private modules
+        env:
+          TOKEN: ${{ secrets.GIT_ACTION_BOT }}
+        run: git config --global url."https://${TOKEN}@github.com/".insteadOf "https://github.com/"
+
+      - name: setup go
+        uses: actions/setup-go@v4
+        with:
+          go-version-file: ./go.mod
+          cache: false # Use our own cache directly for more effective caching
+        env:
+          GOPRIVATE: "github.com/tidbcloud,github.com/pingcap/dbaas"
+
+      - name: Load Bazel cache
+        uses: breezewish/gcs-cache/restore@017eacc3417cc8c77f2e7ca1f92cc1be5d54ac1e
+        with:
+          gcs-bucket: pingcap-dbaas-build_cloudbuild
+          path: |
+            ~/.cache/bazel
+          key: tidb-cse/daily/bazel/${{ runner.os }}-${{ runner.arch }}/${{ github.ref_name }}/${{ hashFiles('./go.sum') }}
+          restore-keys: |
+            tidb-cse/daily/bazel/${{ runner.os }}-${{ runner.arch }}/${{ github.ref_name }}
+
+      - name: Load Go module cache
+        uses: breezewish/gcs-cache/restore@017eacc3417cc8c77f2e7ca1f92cc1be5d54ac1e
+        with:
+          gcs-bucket: pingcap-dbaas-build_cloudbuild
+          path: |
+            ~/go/pkg/mod
+          key: tidb-cse/daily/mod/${{ runner.os }}-${{ runner.arch }}/${{ github.ref_name }}/${{ hashFiles('./go.sum') }}
+          restore-keys: |
+            tidb-cse/daily/mod/${{ runner.os }}-${{ runner.arch }}/${{ github.ref_name }}
+
+      - name: Load Go build cache
+        uses: breezewish/gcs-cache/restore@017eacc3417cc8c77f2e7ca1f92cc1be5d54ac1e
+        with:
+          gcs-bucket: pingcap-dbaas-build_cloudbuild
+          path: |
+            ~/.cache/go-build
+          key: tidb-cse/daily/build/${{ runner.os }}-${{ runner.arch }}/${{ github.ref_name }}
+
+      - name: setup bazel
+        uses: jwlawson/actions-setup-bazel@v1.9.0
+        with:
+          bazel-version: "7.4.1"
+
+      - name: Run bazel
+        shell: bash
+        run: |
+          make bazel_prepare
+
+      - name: Save Bazel cache
+        uses: breezewish/gcs-cache/save@017eacc3417cc8c77f2e7ca1f92cc1be5d54ac1e
+        if: success() || failure()
+        with:
+          gcs-bucket: pingcap-dbaas-build_cloudbuild
+          path: |
+            ~/.cache/bazel
+          key: tidb-cse/daily/bazel/${{ runner.os }}-${{ runner.arch }}/${{ github.ref_name }}/${{ hashFiles('./go.sum') }}

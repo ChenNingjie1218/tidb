@@ -1,28 +1,62 @@
-# For loading data to TiDB
-FROM golang:1.18.9-alpine as go-ycsb-builder
-WORKDIR /go/src/github.com/pingcap/
+# syntax=docker/dockerfile:1.3
+# Copyright 2022 PingCAP, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
-RUN apk add --no-cache \
-    wget \
-    make \
-    git \
-    binutils-gold \
-    gcc \
-    musl-dev
+# Builder image
+FROM hub.pingcap.net/keyspace/builder/golang:1.24-bullseye as builder
 
-RUN git clone https://github.com/pingcap/go-ycsb.git --depth=1 && \
-    cd go-ycsb && \
-    make
+RUN apt install -y wget make git gcc && mkdir -p /go/src/github.com/pingcap/tidb
 
-# For operating minio S3 compatible storage
-FROM minio/mc as mc-builder
+WORKDIR /go/src/github.com/pingcap/tidb
 
-FROM golang:1.18.9-alpine
+ENV GOMODCACHE=/go/cache
 
-WORKDIR /go/src/github.com/pingcap/br
+# Cache dependencies
+COPY go.mod .
+COPY go.sum .
+COPY pkg/parser/go.mod pkg/parser/go.mod
+COPY pkg/parser/go.sum pkg/parser/go.sum
+
+ARG GITHUB_TOKEN
+RUN if [ -n "$GITHUB_TOKEN" ]; then git config --global url."https://${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"; fi
+
+ENV GOPRIVATE=github.com/tidbcloud
+
+# Overwrite metrics.EnvRegisterMetricsAtInit when we build tidb-server and br cmd
+ENV REGISTER_METRICS_INIT=false
+ENV MIN_TIKV_VERSION=6.1.0
+
+RUN --mount=type=cache,target=/go/cache \
+    GO111MODULE=on go mod download
+
+# Build real binaries
 COPY . .
+RUN --mount=type=cache,target=/go/cache \
+    --mount=type=cache,target=/root/.cache/go-build,sharing=locked \
+    make build_br\
+    && cp /go/src/github.com/pingcap/tidb/bin/br /br
 
-COPY --from=go-ycsb-builder /go/src/github.com/pingcap/go-ycsb/bin/go-ycsb /go/bin/go-ycsb
-COPY --from=mc-builder /usr/bin/mc /usr/bin/mc
 
-ENTRYPOINT ["/bin/bash"]
+# Executable image
+FROM hub.pingcap.net/keyspace/builder/debian:bullseye-slim
+RUN apt update && apt install -y bash curl netcat procps dumb-init && rm /bin/sh && ln -s /bin/bash /bin/sh && apt-get clean
+ENV BR_LOG_TO_TERM=1
+
+COPY --from=builder /go/src/github.com/pingcap/tidb/bin/br /br
+
+WORKDIR /
+
+EXPOSE 4000
+
+ENTRYPOINT ["/usr/bin/dumb-init", "/br"]

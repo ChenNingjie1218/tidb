@@ -15,11 +15,13 @@
 package keyspace
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/pingcap/tidb/pkg/config"
 	"github.com/tikv/client-go/v2/tikv"
+	pd "github.com/tikv/pd/client"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -68,4 +70,28 @@ func WrapZapcoreWithKeyspace() zap.Option {
 		}
 		return core
 	})
+}
+
+// BuildAPIContext is used to build APIContext.
+func BuildAPIContext(keyspaceName string) (apiContext pd.APIContext) {
+	if len(keyspaceName) == 0 {
+		apiContext = pd.NewAPIContextV1()
+	} else {
+		apiContext = pd.NewAPIContextV2(keyspaceName)
+	}
+	return
+}
+
+// CodecFromName is used to get the corresponding codec according to the keyspace name.
+func CodecFromName(ctx context.Context, pdCli pd.Client, keyspaceName string) (tikv.Codec, error) {
+	if len(keyspaceName) == 0 {
+		return tikv.NewCodecV1(tikv.ModeTxn), nil
+	}
+
+	meta, err := pdCli.LoadKeyspace(ctx, keyspaceName)
+	if err != nil {
+		return nil, err
+	}
+
+	return tikv.NewCodecV2(tikv.ModeTxn, meta)
 }

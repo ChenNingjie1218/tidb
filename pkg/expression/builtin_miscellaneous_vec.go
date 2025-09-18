@@ -339,8 +339,8 @@ func (b *builtinSleepSig) vecEvalInt(ctx EvalContext, input *chunk.Chunk, result
 			continue
 		}
 
-		if val > math.MaxFloat64/float64(time.Second.Nanoseconds()) {
-			return errIncorrectArgs.GenWithStackByArgs("sleep")
+		if val > maxSleepSeconds {
+			return errIncorrectArgs.GenWithStack("sleep() argument is greater than %v", maxSleepSeconds)
 		}
 
 		if isKilled := doSleep(val, vars); isKilled {

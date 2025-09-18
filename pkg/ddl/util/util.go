@@ -64,7 +64,7 @@ const (
 	// ServerGlobalState is the path on etcd that is used to store the server global state.
 	ServerGlobalState = "/tidb/server/global_state"
 	// SessionTTL is the etcd session's TTL in seconds.
-	SessionTTL = 90
+	SessionTTL = 20
 )
 
 // DelRangeTask is for run delete-range command in gc_worker.

@@ -298,12 +298,18 @@ func (s *Server) startHTTPServer() {
 		router.PathPrefix("/static/").Handler(http.StripPrefix("/static", http.FileServer(static.Data)))
 	}
 
-	router.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
-	router.HandleFunc("/debug/pprof/profile", cpuprofile.ProfileHTTPHandler)
-	router.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
-	router.HandleFunc("/debug/pprof/trace", pprof.Trace)
-	// Other /debug/pprof paths not covered above are redirected to pprof.Index.
-	router.PathPrefix("/debug/pprof/").HandlerFunc(pprof.Index)
+	serverMux := http.NewServeMux()
+	if s.StandbyController != nil {
+		path, handler := s.StandbyController.Handler(s)
+		serverMux.Handle(path, handler)
+	}
+	serverMux.Handle("/", router)
+
+	serverMux.HandleFunc("/debug/pprof/", pprof.Index)
+	serverMux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	serverMux.HandleFunc("/debug/pprof/profile", cpuprofile.ProfileHTTPHandler)
+	serverMux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	serverMux.HandleFunc("/debug/pprof/trace", pprof.Trace)
 
 	ballast := newBallast(s.cfg.MaxBallastObjectSize)
 	{
@@ -470,8 +476,6 @@ func (s *Server) startHTTPServer() {
 		}
 	})
 
-	serverMux := http.NewServeMux()
-	serverMux.Handle("/", router)
 	s.startStatusServerAndRPCServer(serverMux)
 }
 

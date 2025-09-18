@@ -53,6 +53,7 @@ import (
 	"github.com/pingcap/tidb/pkg/session"
 	"github.com/pingcap/tidb/pkg/session/txninfo"
 	"github.com/pingcap/tidb/pkg/sessionctx/variable"
+	"github.com/pingcap/tidb/pkg/standby"
 	"github.com/pingcap/tidb/pkg/statistics"
 	kvstore "github.com/pingcap/tidb/pkg/store"
 	"github.com/pingcap/tidb/pkg/store/copr"
@@ -139,6 +140,10 @@ const (
 
 	// Serverless flag names
 	nmWaitKeyspaceEnabled = "wait-keyspace-enabled"
+	nmStandby             = "standby"
+	nmActivationTimeout   = "activation-timeout"
+	nmMaxIdleSeconds      = "max-idle-seconds"
+	nmKeyspaceActivate    = "keyspace-activate"
 )
 
 var (
@@ -198,6 +203,12 @@ var (
 
 	// Serverless flags
 	waitKeyspaceEnabled *bool
+	// Standby
+	standbyMode       *bool
+	activationTimeout *uint
+	maxIdleSeconds    *uint
+	// Keyspace Activate
+	keyspaceActivateMode *bool
 )
 
 func initFlagSet() *flag.FlagSet {
@@ -257,6 +268,12 @@ func initFlagSet() *flag.FlagSet {
 
 	// Serverless flags
 	waitKeyspaceEnabled = flagBoolean(fset, nmWaitKeyspaceEnabled, true, "wait for keyspace to become enabled during bootstrap")
+	// Standby
+	standbyMode = flagBoolean(fset, nmStandby, false, "start tidb-server as standby")
+	activationTimeout = fset.Uint(nmActivationTimeout, 0, "max time in second allowed for tidb to activate from standby, 0 means no limit")
+	maxIdleSeconds = fset.Uint(nmMaxIdleSeconds, 0, "max idle seconds for a connection, 0 means no limit")
+	// Keyspace Activate
+	keyspaceActivateMode = flagBoolean(fset, nmKeyspaceActivate, false, "start tidb-server as keyspaceActivate")
 
 	session.RegisterMockUpgradeFlag(fset)
 	// Ignore errors; CommandLine is set for ExitOnError.
@@ -287,12 +304,38 @@ func main() {
 		fmt.Println(printer.GetTiDBInfo())
 		os.Exit(0)
 	}
+
+	mainErrHandler := func(err error) { terror.MustNil(err) }
+
+	quit := make(chan struct{})
+	defer close(quit)
+	// serverless.StartMemoryScaler(quit) // FIXME: 8.5-keyspace @disksing
+
+	var standbyController server.StandbyController
+	if config.GetGlobalConfig().StandByMode {
+		standbyController = standby.NewLoadKeyspaceController()
+	}
+
+	// If running standby mode, overwrite the keyspace config and error handlers.
+	if standbyController != nil {
+		standbyController.WaitForActivate()
+		// replace mainErrHandler to make sure standby handler can exit gracefully.
+		mainErrHandler = func(err error) {
+			if err != nil {
+				standbyController.EndStandby(err)
+				terror.MustNil(err)
+			}
+		}
+	} else {
+		// If not set keyspace in config, try to get keyspace name from env and update config.
+		keyspace.GetKeyspaceNameBySettings()
+	}
+
 	registerStores()
 	err := metricsutil.RegisterMetrics()
-	terror.MustNil(err)
+	mainErrHandler(err)
 
 	// Serverless logic ===================
-	mainErrHandler := func(err error) { terror.MustNil(err) }
 
 	// load keyspace and set metric labels.
 	keyspaceMeta, pdCli, err := getServerlessInfo()
@@ -305,7 +348,7 @@ func main() {
 	if variable.EnableTmpStorageOnOOM.Load() {
 		config.GetGlobalConfig().UpdateTempStoragePath()
 		err := disk.InitializeTempDir()
-		terror.MustNil(err)
+		mainErrHandler(err)
 		checkTempStorageQuota()
 	}
 	setupLog()
@@ -314,7 +357,7 @@ func main() {
 	setupStmtSummary()
 
 	err = cpuprofile.StartCPUProfiler()
-	terror.MustNil(err)
+	mainErrHandler(err)
 
 	if config.GetGlobalConfig().DisaggregatedTiFlash && config.GetGlobalConfig().UseAutoScaler {
 		err = tiflashcompute.InitGlobalTopoFetcher(
@@ -322,7 +365,7 @@ func main() {
 			config.GetGlobalConfig().TiFlashComputeAutoScalerAddr,
 			config.GetGlobalConfig().AutoScalerClusterID,
 			config.GetGlobalConfig().IsTiFlashComputeFixedPool)
-		terror.MustNil(err)
+		mainErrHandler(err)
 	}
 
 	// Enable failpoints in tikv/client-go if the test API is enabled.
@@ -343,6 +386,16 @@ func main() {
 	resourcemanager.InstanceResourceManager.Start()
 	storage, dom := createStoreDDLOwnerMgrAndDomain(driverOpenOpts)
 	svr := createServer(storage, dom)
+	if standbyController != nil {
+		svr.StandbyController = standbyController
+		standbyController.OnServerCreated(svr)
+	}
+
+	if standbyController != nil {
+		logutil.BgLogger().Info("standby controller starts to wait stats load")
+		<-dom.StatsHandle().InitStatsDone
+		standbyController.EndStandby(nil)
+	}
 
 	exited := make(chan struct{})
 	signal.SetupSignalHandler(func() {

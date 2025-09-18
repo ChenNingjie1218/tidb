@@ -20,6 +20,7 @@ go_library(
         "resource_group.go",
         "resourcemanager.go",
         "server.go",
+        "serverless.go",
         "session.go",
         "sli.go",
         "stats.go",

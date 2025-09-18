@@ -280,6 +280,18 @@ type Config struct {
 	// It can be used to set GLOBAL system variable values
 	InitializeSQLFile string `toml:"initialize-sql-file" json:"initialize-sql-file"`
 
+	// Serverless related configs.
+	StandByMode          bool `toml:"standby" json:"standby"`
+	KeyspaceActivateMode bool `toml:"keyspace-activate" json:"keyspace-activate"`
+	MaxIdleSeconds       uint `toml:"max-idle-seconds" json:"max-idle-seconds"`
+	// ActivationTimeout specifies the maximum allowed time for tidb to activate from standby mode.
+	ActivationTimeout uint `toml:"activation-timeout" json:"activation-timeout"`
+
+	AuditLog AuditLog `toml:"audit-log" json:"audit-log"`
+
+	EnableAlterUserPessimistic bool   `toml:"enable-alter-user-pessimistic" json:"enable-alter-user-pessimistic"`
+	ExportID                   string `toml:"export-id" json:"export-id"`
+
 	// The following items are deprecated. We need to keep them here temporarily
 	// to support the upgrade process. They can be removed in future.
 
@@ -317,6 +329,14 @@ type Config struct {
 	InMemSlowQueryTopNNum int `toml:"in-mem-slow-query-topn-num" json:"in-mem-slow-query-topn-num"`
 	// InMemSlowQueryRecentNum indicates the number of recent slow queries stored in memory.
 	InMemSlowQueryRecentNum int `toml:"in-mem-slow-query-recent-num" json:"in-mem-slow-query-recent-num"`
+
+	// SkipGCWorker is used to control whether to skip run gc worker.
+	SkipGCWorker bool `toml:"skip-gc-worker" json:"skip-gc-worker"`
+
+	// EnableZeroBackend is used to control the behavior of standby idle watcher.
+	// It's introduced to make gateway zero backend feature release more smooth.
+	// We should remove this config when the feature become stable.
+	EnableZeroBackend bool `toml:"enable-zero-backend" json:"enable-zero-backend"`
 }
 
 // UpdateTempStoragePath is to update the `TempStoragePath` if port/statusPort was changed
@@ -1402,6 +1422,11 @@ func (c *Config) Valid() error {
 		if c.TiFlashComputeAutoScalerAddr == "" {
 			return fmt.Errorf("autoscaler-addr cannot be empty when disaggregated-tiflash mode is true")
 		}
+	}
+
+	// check mode
+	if c.StandByMode && c.KeyspaceActivateMode {
+		return fmt.Errorf("can't set standby and keyspace-activate mode at the same time")
 	}
 
 	// test log level

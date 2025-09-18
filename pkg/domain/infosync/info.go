@@ -95,6 +95,8 @@ const (
 	RequestRetryInterval = 200 * time.Millisecond
 	// SyncBundlesMaxRetry is the max retry times for sync placement bundles
 	SyncBundlesMaxRetry = 3
+	// KeyspaceConfig store the keyspace config information
+	KeyspaceConfig = "/pd/api/v2/keyspaces/%s/config"
 )
 
 // ErrPrometheusAddrIsNotSet is the error that Prometheus address is not set in PD and etcd
@@ -1576,4 +1578,25 @@ func (is *InfoSyncer) setDynamicServerInfo(ds *DynamicServerInfo) {
 		DynamicServerInfo: *ds,
 	}
 	is.info.Store(newInfo)
+}
+
+// SetKeyspaceConfig sets the keyspace config information in merge style
+func SetKeyspaceConfig(ctx context.Context, keyspaceName string, config any) error {
+	// TODO: uncomment after meta server client merge
+
+	// is, err := getGlobalInfoSyncer()
+	// if err != nil {
+	// 	return errors.Trace(err)
+	// }
+
+	// url := fmt.Sprintf(KeyspaceConfig, keyspaceName)
+
+	// j, err := json.Marshal(config)
+	// if err != nil {
+	// 	return errors.Trace(err)
+	// }
+
+	// _, err = DoRequestWithMetaServiceClient(ctx, "SetKeyspaceConfig", is.metaServiceClient, url, "PATCH", j)
+	// return err
+	return nil
 }

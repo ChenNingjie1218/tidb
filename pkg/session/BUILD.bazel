@@ -5,6 +5,7 @@ go_library(
     srcs = [
         "advisory_locks.go",
         "bootstrap.go",
+        "bootstrap_serverless.go",
         "contextimpl.go",
         "mock_bootstrap.go",
         "nontransactional.go",
@@ -42,6 +43,7 @@ go_library(
         "//pkg/extension/extensionimpl",
         "//pkg/infoschema",
         "//pkg/infoschema/context",
+        "//pkg/keyspace",
         "//pkg/kv",
         "//pkg/meta",
         "//pkg/meta/metabuild",
@@ -94,6 +96,7 @@ go_library(
         "//pkg/tablecodec",
         "//pkg/telemetry",
         "//pkg/testkit/testenv",
+        "//pkg/tidbworker",
         "//pkg/timer/tablestore",
         "//pkg/ttl/ttlworker",
         "//pkg/types",

@@ -1,0 +1,15 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "tidbworker",
+    srcs = [
+        "tidb_worker.go",
+        "util.go",
+    ],
+    importpath = "github.com/pingcap/tidb/pkg/tidbworker",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//pkg/sessionctx",
+        "@com_github_pingcap_kvproto//pkg/keyspacepb",
+    ],
+)

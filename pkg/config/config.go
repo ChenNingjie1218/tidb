@@ -195,6 +195,9 @@ type Config struct {
 	TiDBEdition                string                  `toml:"tidb-edition" json:"tidb-edition"`
 	TiDBReleaseVersion         string                  `toml:"tidb-release-version" json:"tidb-release-version"`
 	KeyspaceName               string                  `toml:"keyspace-name" json:"keyspace-name"`
+	IsBranch                   bool                    `toml:"is-branch" json:"is-branch"`
+	IsBranchBootstrapped       string                  `toml:"is-branch-bootstrapped" json:"is-branch-bootstrapped"`
+	IsBootstrappedForRestore   string                  `toml:"is-bootstrapped-for-restore" json:"is-bootstrapped-for-restore"`
 	Log                        Log                     `toml:"log" json:"log"`
 	Instance                   Instance                `toml:"instance" json:"instance"`
 	Security                   Security                `toml:"security" json:"security"`
@@ -329,6 +332,14 @@ type Config struct {
 	InMemSlowQueryTopNNum int `toml:"in-mem-slow-query-topn-num" json:"in-mem-slow-query-topn-num"`
 	// InMemSlowQueryRecentNum indicates the number of recent slow queries stored in memory.
 	InMemSlowQueryRecentNum int `toml:"in-mem-slow-query-recent-num" json:"in-mem-slow-query-recent-num"`
+
+	// Serverless Only Config.
+
+	// BootstrapControl is used to control serverless bootstrap procedure.
+	BootstrapControl BootstrapControl `toml:"bootstrap-control" json:"bootstrap-control"`
+
+	// ExtendedErrorMsgs is used to store the extended error message for some error.
+	ExtendedErrorMsgs map[string]string `toml:"extended-error-msgs" json:"extended-error-msgs"`
 
 	// SkipGCWorker is used to control whether to skip run gc worker.
 	SkipGCWorker bool `toml:"skip-gc-worker" json:"skip-gc-worker"`
@@ -1095,6 +1106,12 @@ var defaultConf = Config{
 	TiDBEnableExitCheck:                  false,
 	InMemSlowQueryTopNNum:                30,
 	InMemSlowQueryRecentNum:              500,
+
+	// Serverless only configs.
+
+	BootstrapControl: defaultBootstrapControl(),
+
+	ExtendedErrorMsgs: make(map[string]string),
 }
 
 var (

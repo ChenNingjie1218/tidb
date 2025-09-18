@@ -3496,6 +3496,13 @@ func bootstrapSessionImpl(ctx context.Context, store kv.Storage, createSessionsI
 		}
 	}
 
+	// Upgrade serverless version if necessary.
+	runServerlessUpgrade(store)
+	// Fix database users if it's a branch.
+	runBranchDBUsersAmendment(store)
+	// Fix database users if the cluster is from restore.
+	runClusterDBUsersAmendment(store)
+
 	// initiate disttask framework components which need a store
 	scheduler.RegisterSchedulerFactory(
 		proto.ImportInto,
@@ -3762,6 +3769,10 @@ func runInBootstrapSession(store kv.Storage, ver int64) {
 	// For the bootstrap SQLs, the following variables should be compatible with old TiDB versions.
 	// TODO we should have a createBootstrapSession to init those special variables.
 	s.sessionVars.EnableClusteredIndex = variable.ClusteredIndexDefModeIntOnly
+
+	originalFastReorg := variable.EnableFastReorg.Load()
+	variable.EnableFastReorg.Store(false)
+	defer variable.EnableFastReorg.Store(originalFastReorg)
 
 	s.SetValue(sessionctx.Initing, true)
 	if startMode == ddl.Bootstrap {

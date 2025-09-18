@@ -36,6 +36,7 @@ import (
 	"github.com/pingcap/tidb/pkg/expression"
 	"github.com/pingcap/tidb/pkg/infoschema"
 	infoschemacontext "github.com/pingcap/tidb/pkg/infoschema/context"
+	"github.com/pingcap/tidb/pkg/keyspace"
 	"github.com/pingcap/tidb/pkg/kv"
 	"github.com/pingcap/tidb/pkg/meta"
 	"github.com/pingcap/tidb/pkg/owner"
@@ -1490,9 +1491,16 @@ func upgrade(s sessiontypes.Session) {
 	ver, err = getBootstrapVersion(s)
 	terror.MustNil(err)
 	if ver >= currentBootstrapVersion {
+		logutil.BgLogger().Info("[upgrade] The current version is greater than or equal to the target version, skip upgrade",
+			zap.Int64("current-version", ver),
+			zap.Int64("target-version", currentBootstrapVersion),
+		)
 		// It is already bootstrapped/upgraded by a higher version TiDB server.
 		return
 	}
+
+	// Abort upgrade if TiDB is running as gcv2 worker.
+	abortGCV2()
 
 	printClusterState(s, ver)
 
@@ -3413,6 +3421,14 @@ func doDDLWorks(s sessiontypes.Session) {
 	mustExecute(s, CreateIndexAdvisorTable)
 	// create mysql.tidb_kernel_options
 	mustExecute(s, CreateKernelOptionsTable)
+	// create auto_analyze_tasks
+	mustExecute(s, CreateAutoAnalyzeTasks)
+	// create auto_analyze_tasks_history
+	mustExecute(s, CreateAutoAnalyzeTasksHistory)
+	// create mysql.index_advisor_results
+	mustExecute(s, CreateIndexAdvisorTable)
+	// create mysql.tidb_kernel_options
+	mustExecute(s, CreateKernelOptionsTable)
 }
 
 // doBootstrapSQLFile executes SQL commands in a file as the last stage of bootstrap.
@@ -3457,6 +3473,13 @@ func doBootstrapSQLFile(s sessiontypes.Session) error {
 // doDMLWorks executes DML statements in bootstrap stage.
 // All the statements run in a single transaction.
 func doDMLWorks(s sessiontypes.Session) {
+	rootUserName, cloudAdminName := "root", "cloud_admin"
+	if variants := keyspace.GetUsernamePolicy().GetUsernameVariants(rootUserName); len(variants) > 0 {
+		rootUserName = variants[0]
+	}
+	if variants := keyspace.GetUsernamePolicy().GetUsernameVariants(cloudAdminName); len(variants) > 0 {
+		cloudAdminName = variants[0]
+	}
 	mustExecute(s, "BEGIN")
 	if config.GetGlobalConfig().Security.SecureBootstrap {
 		// If secure bootstrap is enabled, we create a root@localhost account which can login with auth_socket.
@@ -3469,12 +3492,12 @@ func doDMLWorks(s sessiontypes.Session) {
 		mustExecute(s, `INSERT HIGH_PRIORITY INTO mysql.user (Host,User,authentication_string,plugin,Select_priv,Insert_priv,Update_priv,Delete_priv,Create_priv,Drop_priv,Process_priv,Grant_priv,References_priv,Alter_priv,Show_db_priv,
 			Super_priv,Create_tmp_table_priv,Lock_tables_priv,Execute_priv,Create_view_priv,Show_view_priv,Create_routine_priv,Alter_routine_priv,Index_priv,Create_user_priv,Event_priv,Repl_slave_priv,Repl_client_priv,Trigger_priv,Create_role_priv,Drop_role_priv,Account_locked,
 		    Shutdown_priv,Reload_priv,FILE_priv,Config_priv,Create_Tablespace_Priv,User_attributes,Token_issuer) VALUES
-		("localhost", "root", %?, "auth_socket", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "N", "Y", "Y", "Y", "Y", "Y", null, "")`, u.Username)
+		("localhost", %?, %?, "auth_socket", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "N", "Y", "Y", "Y", "Y", "Y", null, "")`, rootUserName, u.Username)
 	} else {
 		mustExecute(s, `INSERT HIGH_PRIORITY INTO mysql.user (Host,User,authentication_string,plugin,Select_priv,Insert_priv,Update_priv,Delete_priv,Create_priv,Drop_priv,Process_priv,Grant_priv,References_priv,Alter_priv,Show_db_priv,
 			Super_priv,Create_tmp_table_priv,Lock_tables_priv,Execute_priv,Create_view_priv,Show_view_priv,Create_routine_priv,Alter_routine_priv,Index_priv,Create_user_priv,Event_priv,Repl_slave_priv,Repl_client_priv,Trigger_priv,Create_role_priv,Drop_role_priv,Account_locked,
 		    Shutdown_priv,Reload_priv,FILE_priv,Config_priv,Create_Tablespace_Priv,User_attributes,Token_issuer) VALUES
-		("%", "root", "", "mysql_native_password", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "N", "Y", "Y", "Y", "Y", "Y", null, "")`)
+		("%", %?, "", "mysql_native_password", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "N", "Y", "Y", "Y", "Y", "Y", null, "")`, rootUserName)
 	}
 
 	// For GLOBAL scoped system variables, insert the initial value
@@ -3511,6 +3534,40 @@ func doDMLWorks(s sessiontypes.Session) {
 	writeStmtSummaryVars(s)
 
 	writeDDLTableVersion(s)
+
+	// Serverless Bootstrap function.
+	bootstrapControl := config.GetGlobalConfig().BootstrapControl
+
+	// If running in test, skip all the privilege bootstrap steps.
+	if intest.InTest {
+		bootstrapControl = config.BootstrapControl{
+			SkipServerlessVariables: true,
+			SkipRootPriv:            true,
+			SkipRoleAdminPriv:       true,
+			SkipCloudAdminPriv:      true,
+			SkipPushdownBlacklist:   true,
+		}
+	}
+	if !bootstrapControl.SkipServerlessVariables {
+		bootstrapServerlessVariables(s) // Write serverless variables.
+	}
+	if !bootstrapControl.SkipRootPriv {
+		bootstrapServerlessRoot(s, rootUserName) // Configure root's privilege.
+	}
+	if !bootstrapControl.SkipRoleAdminPriv {
+		bootstrapRoleAdmin(s) // Create and configure role_admin.
+	}
+	if !bootstrapControl.SkipCloudAdminPriv {
+		bootstrapCloudAdmin(s, cloudAdminName) // Create and configure cloud_admin.
+	}
+	if !bootstrapControl.SkipPushdownBlacklist {
+		bootstrapServerlessPushdownBlacklist(s) // Add incompatible executors to pushdown_blacklist.
+	}
+
+	// Finish serverless bootstrap and write current serverless version.
+	mustExecute(s, `INSERT HIGH_PRIORITY INTO %n.%n VALUES(%?, %?, "Serverless bootstrap version. Do not delete.")`,
+		mysql.SystemDB, mysql.TiDBTable, serverlessVersionVar, currentServerlessVersion,
+	)
 
 	ctx := kv.WithInternalSourceType(context.Background(), kv.InternalTxnBootstrap)
 	_, err := s.ExecuteInternal(ctx, "COMMIT")

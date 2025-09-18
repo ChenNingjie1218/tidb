@@ -660,8 +660,9 @@ func TestColumnTable(t *testing.T) {
 				where TABLE_SCHEMA = 'test' and TABLE_NAME = 'tbl1' and COLUMN_NAME = 'col_2';`).Check(
 		testkit.RowsWithSep("|",
 			"test|tbl1|col_2"))
-	tk.MustQuery(`select count(*) from information_schema.columns;`).Check(
-		testkit.RowsWithSep("|", "4986"))
+	tk.MustQuery(`select count(*) from information_schema.columns
+				where TABLE_SCHEMA = 'test' and TABLE_NAME in ('tbl1', 'tbl2', 'view1');`).Check(
+		testkit.RowsWithSep("|", "9"))
 }
 
 func TestIndexUsageTable(t *testing.T) {
@@ -707,8 +708,9 @@ func TestIndexUsageTable(t *testing.T) {
 				where TABLE_SCHEMA = 'test' and TABLE_NAME = 'idt2' and INDEX_NAME = 'idx_4';`).Check(
 		testkit.RowsWithSep("|",
 			"test|idt2|idx_4"))
-	tk.MustQuery(`select count(*) from information_schema.tidb_index_usage;`).Check(
-		testkit.RowsWithSep("|", "80"))
+	tk.MustQuery(`select count(*) from information_schema.tidb_index_usage
+				where TABLE_SCHEMA = 'test' and TABLE_NAME in ('idt1', 'idt2');`).Check(
+		testkit.RowsWithSep("|", "6"))
 
 	tk.MustQuery(`select TABLE_SCHEMA, TABLE_NAME, INDEX_NAME from information_schema.tidb_index_usage
 				where TABLE_SCHEMA = 'test1';`).Check(testkit.Rows())
@@ -913,22 +915,22 @@ func TestInfoSchemaDDLJobs(t *testing.T) {
 	tk2 := testkit.NewTestKit(t, store)
 	tk2.MustQuery(`SELECT JOB_ID, JOB_TYPE, SCHEMA_STATE, SCHEMA_ID, TABLE_ID, table_name, STATE
 				   FROM information_schema.ddl_jobs WHERE table_name = "t1";`).Check(testkit.RowsWithSep("|",
-		"131|add index|public|124|129|t1|synced",
-		"130|create table|public|124|129|t1|synced",
-		"117|add index|public|110|115|t1|synced",
-		"116|create table|public|110|115|t1|synced",
+		"135|add index|public|128|133|t1|synced",
+		"134|create table|public|128|133|t1|synced",
+		"121|add index|public|114|119|t1|synced",
+		"120|create table|public|114|119|t1|synced",
 	))
 	tk2.MustQuery(`SELECT JOB_ID, JOB_TYPE, SCHEMA_STATE, SCHEMA_ID, TABLE_ID, table_name, STATE
 				   FROM information_schema.ddl_jobs WHERE db_name = "d1" and JOB_TYPE LIKE "add index%%";`).Check(testkit.RowsWithSep("|",
-		"137|add index|public|124|135|t3|synced",
-		"134|add index|public|124|132|t2|synced",
-		"131|add index|public|124|129|t1|synced",
-		"128|add index|public|124|126|t0|synced",
+		"141|add index|public|128|139|t3|synced",
+		"138|add index|public|128|136|t2|synced",
+		"135|add index|public|128|133|t1|synced",
+		"132|add index|public|128|130|t0|synced",
 	))
 	tk2.MustQuery(`SELECT JOB_ID, JOB_TYPE, SCHEMA_STATE, SCHEMA_ID, TABLE_ID, table_name, STATE
 				   FROM information_schema.ddl_jobs WHERE db_name = "d0" and table_name = "t3";`).Check(testkit.RowsWithSep("|",
-		"123|add index|public|110|121|t3|synced",
-		"122|create table|public|110|121|t3|synced",
+		"127|add index|public|114|125|t3|synced",
+		"126|create table|public|114|125|t3|synced",
 	))
 	tk2.MustQuery(`SELECT JOB_ID, JOB_TYPE, SCHEMA_STATE, SCHEMA_ID, TABLE_ID, table_name, STATE
 					FROM information_schema.ddl_jobs WHERE state = "running";`).Check(testkit.Rows())
@@ -939,15 +941,15 @@ func TestInfoSchemaDDLJobs(t *testing.T) {
 		if job.SchemaState == model.StateWriteOnly && loaded.CompareAndSwap(false, true) {
 			tk2.MustQuery(`SELECT JOB_ID, JOB_TYPE, SCHEMA_STATE, SCHEMA_ID, TABLE_ID, table_name, STATE
 				   FROM information_schema.ddl_jobs WHERE table_name = "t0" and state = "running";`).Check(testkit.RowsWithSep("|",
-				"138 add index write only 110 112 t0 running",
+				"142 add index write only 114 116 t0 running",
 			))
 			tk2.MustQuery(`SELECT JOB_ID, JOB_TYPE, SCHEMA_STATE, SCHEMA_ID, TABLE_ID, table_name, STATE
 				   FROM information_schema.ddl_jobs WHERE db_name = "d0" and state = "running";`).Check(testkit.RowsWithSep("|",
-				"138 add index write only 110 112 t0 running",
+				"142 add index write only 114 116 t0 running",
 			))
 			tk2.MustQuery(`SELECT JOB_ID, JOB_TYPE, SCHEMA_STATE, SCHEMA_ID, TABLE_ID, table_name, STATE
 				   FROM information_schema.ddl_jobs WHERE state = "running";`).Check(testkit.RowsWithSep("|",
-				"138 add index write only 110 112 t0 running",
+				"142 add index write only 114 116 t0 running",
 			))
 		}
 	})
@@ -963,8 +965,8 @@ func TestInfoSchemaDDLJobs(t *testing.T) {
 	tk.MustExec("create table test2.t1(id int)")
 	tk.MustQuery(`SELECT JOB_ID, JOB_TYPE, SCHEMA_STATE, SCHEMA_ID, TABLE_ID, table_name, STATE
 				   FROM information_schema.ddl_jobs WHERE db_name = "test2" and table_name = "t1"`).Check(testkit.RowsWithSep("|",
-		"147|create table|public|144|146|t1|synced",
-		"142|create table|public|139|141|t1|synced",
+		"151|create table|public|148|150|t1|synced",
+		"146|create table|public|143|145|t1|synced",
 	))
 
 	// Test explain output, since the output may change in future.
@@ -1141,7 +1143,7 @@ func TestStatisticShowPublicIndexes(t *testing.T) {
 		if job.Type != model.ActionAddIndex || job.SchemaState == model.StatePublic {
 			return
 		}
-		rs := tk1.MustQuery(`SELECT count(1) FROM INFORMATION_SCHEMA.STATISTICS where 
+		rs := tk1.MustQuery(`SELECT count(1) FROM INFORMATION_SCHEMA.STATISTICS where
 			TABLE_SCHEMA = 'test' and table_name = 't' and index_name = 'idx';`).Rows()
 		require.Equal(t, "0", rs[0][0].(string))
 	})

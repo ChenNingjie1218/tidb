@@ -59,6 +59,10 @@ var flakyTests = map[string][]string{
 	"./pkg/executor/test/aggregate": {
 		"TestRandomPanicConsume",
 	},
+	"./pkg/planner/core/casetest/instanceplancache": {
+		// https://github.com/pingcap/tidb/issues/57514
+		"TestInstancePlanCacheConcurrencySysbench",
+	},
 }
 
 func isFlakyTest(task task) bool {

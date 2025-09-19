@@ -39,6 +39,13 @@ import (
 
 const gcpBucket = "pingcapmirror"
 
+// ignoreRepos lists repos we don't want to mirror private repositories for serverless.
+var ignoreRepos = map[string]struct{}{
+	"com_github_tikv_client_go_v2": {},
+	"com_github_tikv_pd_client":    {},
+	"com_github_pingcap_kvproto":   {},
+}
+
 // downloadedModule captures `go mod download -json` output.
 type downloadedModule struct {
 	Path    string `json:"Path"`
@@ -361,6 +368,7 @@ def go_deps():
 			return err
 		}
 		oldMirror, ok := existingMirrors[repoName]
+		_, ignored := ignoreRepos[repoName]
 		if ok &&
 			slices.Contains(oldMirror.URL, expectedCDNURL) &&
 			slices.Contains(oldMirror.URL, expectedPublicURL) {
@@ -372,7 +380,7 @@ def go_deps():
 			"%s",
         ],
 `, oldMirror.Sha256, replaced.Path, replaced.Version, expectedPublicURL, expectedCDNURL)
-		} else if isMirror {
+		} else if isMirror && !ignored {
 			// We'll have to mirror our copy of the zip ourselves.
 			d := downloaded[replaced.Path]
 			sha, err := getSha256OfFile(d.Zip)

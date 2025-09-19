@@ -86,7 +86,7 @@ require (
 	github.com/pingcap/errors v0.11.5-0.20250523034308-74f78ae071ee
 	github.com/pingcap/failpoint v0.0.0-20240528011301-b51a646c7c86
 	github.com/pingcap/fn v1.0.0
-	github.com/pingcap/kvproto v0.0.0-20240924080114-4a3e17f5e62d
+	github.com/pingcap/kvproto v0.0.0-20250728031536-f08901d17bf4
 	github.com/pingcap/log v1.1.1-0.20250514022801-14f3b4ca066e
 	github.com/pingcap/sysutil v1.0.1-0.20240311050922-ae81ee01f3a5
 	github.com/pingcap/tidb/pkg/parser v0.0.0-20211011031125-9b13dc409c5e
@@ -320,7 +320,10 @@ require (
 
 replace (
 	github.com/go-ldap/ldap/v3 => github.com/YangKeao/ldap/v3 v3.4.5-0.20230421065457-369a3bab1117
+	github.com/pingcap/kvproto => github.com/tidbcloud/kvproto v0.0.0-20250916081355-a2c1af80452d
 	github.com/pingcap/tidb/pkg/parser => ./pkg/parser
+	github.com/tikv/client-go/v2 => github.com/tidbcloud/client-go-cse/v2 v2.0.0-20250918172621-8a2bb0088854
+	github.com/tikv/pd/client => github.com/tidbcloud/pd-cse/client v0.0.0-20250917031303-6f2260e7c78e
 
 	// TODO: `sourcegraph.com/sourcegraph/appdash` has been archived, and the original host has been removed.
 	// Please remove these dependencies.

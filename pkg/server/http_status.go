@@ -306,6 +306,9 @@ func (s *Server) startHTTPServer(store kv.Storage) {
 		router.HandleFunc("/remote-query/{query-id}/error", rqs.HandleError).Methods("POST")
 	}
 
+	healthHandler := NewHealthHandler(s.dom, s)
+	router.Handle("/health", healthHandler).Name("Health")
+
 	serverMux := http.NewServeMux()
 	if s.StandbyController != nil {
 		path, handler := s.StandbyController.Handler(s)

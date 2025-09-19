@@ -10,6 +10,7 @@ go_library(
         "driver_tidb.go",
         "extension.go",
         "extract.go",
+        "health_handler.go",
         "http_handler.go",
         "http_status.go",
         "mock_conn.go",

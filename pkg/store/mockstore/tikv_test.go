@@ -35,7 +35,7 @@ func TestConfig(t *testing.T) {
 	}
 
 	var driver MockTiKVDriver
-	store, err := driver.Open("mocktikv://")
+	store, err := driver.Open("mocktikv://", nil)
 	require.NoError(t, err)
 	require.True(t, store.(LatchEnableChecker).IsLatchEnabled())
 	store.Close()
@@ -46,18 +46,18 @@ func TestConfig(t *testing.T) {
 			Capacity: 10240,
 		}
 	})
-	store, err = driver.Open("mocktikv://")
+	store, err = driver.Open("mocktikv://", nil)
 	require.NoError(t, err)
 	require.False(t, store.(LatchEnableChecker).IsLatchEnabled())
 	store.Close()
 
-	store, err = driver.Open(":")
+	store, err = driver.Open(":", nil)
 	require.Error(t, err)
 	if store != nil {
 		store.Close()
 	}
 
-	store, err = driver.Open("faketikv://")
+	store, err = driver.Open("faketikv://", nil)
 	require.Error(t, err)
 	if store != nil {
 		store.Close()

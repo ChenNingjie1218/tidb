@@ -61,7 +61,7 @@ func createTestStore(t *testing.T) (kv.Storage, *domain.Domain) {
 
 func createTiKVStore(t *testing.T) (kv.Storage, *domain.Domain) {
 	var d TiKVDriver
-	store, err := d.Open(fmt.Sprintf("tikv://%s", *pdAddrs))
+	store, err := d.Open(fmt.Sprintf("tikv://%s", *pdAddrs), nil)
 	require.NoError(t, err)
 	config.GetGlobalConfig().Store = "tikv"
 	require.NoError(t, ddl.StartOwnerManager(context.Background(), store))

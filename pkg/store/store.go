@@ -16,8 +16,10 @@ package store
 
 import (
 	"net/url"
+	"runtime/debug"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/pdpb"
@@ -55,11 +57,11 @@ func Register(name string, driver kv.Driver) error {
 //	boltdb:///absolute/path
 //
 // The engine should be registered before creating storage.
-func New(path string) (kv.Storage, error) {
-	return newStoreWithRetry(path, util.DefaultMaxRetries)
+func New(path string, driverOpenOption *kv.DriverOpenOption) (kv.Storage, error) {
+	return newStoreWithRetry(path, util.DefaultMaxRetries, driverOpenOption)
 }
 
-func newStoreWithRetry(path string, maxRetries int) (kv.Storage, error) {
+func newStoreWithRetry(path string, maxRetries int, driverOpenOption *kv.DriverOpenOption) (kv.Storage, error) {
 	storeURL, err := url.Parse(path)
 	if err != nil {
 		return nil, err
@@ -73,8 +75,11 @@ func newStoreWithRetry(path string, maxRetries int) (kv.Storage, error) {
 
 	var s kv.Storage
 	err = util.RunWithRetry(maxRetries, util.RetryInterval, func() (bool, error) {
-		logutil.BgLogger().Info("new store", zap.String("path", path))
-		s, err = d.Open(path)
+		logutil.BgLogger().Info("new store", zap.String("path", path), zap.String("stack", string(debug.Stack())))
+		start := time.Now()
+		s, err = d.Open(path, driverOpenOption)
+		elapsed := time.Since(start)
+		logutil.BgLogger().Info("[STARTUP-DEBUG]new store", zap.Int64("elapsed-ms", elapsed.Milliseconds()))
 		return isNewStoreRetryableError(err), err
 	})
 

@@ -472,14 +472,19 @@ func (s *Server) reportConfig() {
 	metrics.ConfigStatus.WithLabelValues("max_connections").Set(float64(s.cfg.Instance.MaxConnections))
 }
 
-// Run runs the server.
+// Run runs the server only for test now.
 func (s *Server) Run(dom *domain.Domain) error {
+	return s.RunWithStore(dom, nil)
+}
+
+// RunWithStore runs the server with keyspace meta.
+func (s *Server) RunWithStore(dom *domain.Domain, store kv.Storage) error {
 	metrics.ServerEventCounter.WithLabelValues(metrics.ServerStart).Inc()
 	s.reportConfig()
-
+	startTime := time.Now()
 	// Start HTTP API to report tidb info such as TPS.
 	if s.cfg.Status.ReportStatus {
-		err := s.startStatusHTTP()
+		err := s.startStatusHTTP(store)
 		if err != nil {
 			log.Error("failed to create the server", zap.Error(err), zap.Stack("stack"))
 			return err
@@ -497,6 +502,8 @@ func (s *Server) Run(dom *domain.Domain) error {
 		log.Error("failed to create the server", zap.Error(err), zap.Stack("stack"))
 		return err
 	}
+	elapsed := time.Since(startTime)
+	logutil.BgLogger().Info("[STARTUP-DEBUG]server start", zap.Int64("elapsed-ms", elapsed.Milliseconds()))
 	// Register error API is not thread-safe, the caller MUST NOT register errors after initialization.
 	// To prevent misuse, set a flag to indicate that register new error will panic immediately.
 	// For regression of issue like https://github.com/pingcap/tidb/issues/28190

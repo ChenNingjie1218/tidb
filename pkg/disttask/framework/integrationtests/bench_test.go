@@ -113,7 +113,7 @@ func prepareForBenchTest(b *testing.B) {
 
 	var d driver.TiKVDriver
 	var err error
-	store, err := d.Open("tikv://" + *testkit.WithTiKV)
+	store, err := d.Open("tikv://"+*testkit.WithTiKV, nil)
 	require.NoError(b, err)
 	config.GetGlobalConfig().Store = "tikv"
 	require.NoError(b, ddl.StartOwnerManager(context.Background(), store))

@@ -29,12 +29,12 @@ func TestGetCachedStore(t *testing.T) {
 	defer view.Stop()
 	var d driver.TiKVDriver
 	// when get the cached store, there should not have routine leak.
-	store1, err := d.Open(*realtikvtest.TiKVPath)
+	store1, err := d.Open(*realtikvtest.TiKVPath, nil)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, store1.Close())
 	}()
-	store2, err := d.Open(*realtikvtest.TiKVPath)
+	store2, err := d.Open(*realtikvtest.TiKVPath, nil)
 	require.NoError(t, err)
 	require.Equal(t, store1, store2)
 }

@@ -37,7 +37,7 @@ import (
 type MockTiKVDriver struct{}
 
 // Open creates a MockTiKV storage.
-func (d MockTiKVDriver) Open(path string) (kv.Storage, error) {
+func (d MockTiKVDriver) Open(path string, _ *kv.DriverOpenOption) (kv.Storage, error) {
 	u, err := url.Parse(path)
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -59,7 +59,7 @@ func (d MockTiKVDriver) Open(path string) (kv.Storage, error) {
 type EmbedUnistoreDriver struct{}
 
 // Open creates a EmbedUnistore storage.
-func (d EmbedUnistoreDriver) Open(path string) (kv.Storage, error) {
+func (d EmbedUnistoreDriver) Open(path string, _ *kv.DriverOpenOption) (kv.Storage, error) {
 	u, err := url.Parse(path)
 	if err != nil {
 		return nil, errors.Trace(err)

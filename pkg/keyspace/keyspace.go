@@ -17,6 +17,7 @@ package keyspace
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/pingcap/tidb/pkg/config"
@@ -24,6 +25,8 @@ import (
 	pd "github.com/tikv/pd/client"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/keepalive"
 )
 
 const (
@@ -94,4 +97,28 @@ func CodecFromName(ctx context.Context, pdCli pd.Client, keyspaceName string) (t
 	}
 
 	return tikv.NewCodecV2(tikv.ModeTxn, meta)
+}
+
+// GetPDClient is used to get pd client by etcd addrs and keyspace name.
+func GetPDClient(keyspaceName string, etcdAddrs []string) (pd.Client, error) {
+	cfg := config.GetGlobalConfig()
+	opts := append(cfg.GetPDClientOpts(),
+		pd.WithGRPCDialOptions(
+			grpc.WithKeepaliveParams(keepalive.ClientParameters{
+				Time:    time.Duration(cfg.TiKVClient.GrpcKeepAliveTime) * time.Second,
+				Timeout: time.Duration(cfg.TiKVClient.GrpcKeepAliveTimeout) * time.Second,
+			}),
+			grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(256*1024*1024)),
+			grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(256*1024*1024)),
+		),
+		pd.WithForwardingOption(cfg.EnableForwarding),
+		// pd.WithMetricsLabels(metrics.GetConstLabels()),
+	)
+	pdCli, err := pd.NewClientWithAPIContext(context.Background(), BuildAPIContext(keyspaceName),
+		etcdAddrs, pd.SecurityOption{
+			CAPath:   cfg.Security.ClusterSSLCA,
+			CertPath: cfg.Security.ClusterSSLCert,
+			KeyPath:  cfg.Security.ClusterSSLKey,
+		}, opts...)
+	return pdCli, err
 }

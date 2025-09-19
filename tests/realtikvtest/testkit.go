@@ -130,7 +130,7 @@ func CreateMockStoreAndDomainAndSetup(t *testing.T, opts ...mockstore.MockTiKVSt
 			conf.KeyspaceName = *KeyspaceName
 			conf.Store = "tikv"
 		})
-		store, err = d.Open(*TiKVPath)
+		store, err = d.Open(*TiKVPath, nil)
 		require.NoError(t, err)
 		require.NoError(t, ddl.StartOwnerManager(context.Background(), store))
 		dom, err = session.BootstrapSession(store)

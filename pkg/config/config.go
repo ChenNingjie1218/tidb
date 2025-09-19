@@ -40,6 +40,7 @@ import (
 	"github.com/pingcap/tidb/pkg/util/tikvutil"
 	"github.com/pingcap/tidb/pkg/util/versioninfo"
 	tikvcfg "github.com/tikv/client-go/v2/config"
+	pd "github.com/tikv/pd/client"
 	tracing "github.com/uber/jaeger-client-go/config"
 	atomicutil "go.uber.org/atomic"
 	"go.uber.org/zap"
@@ -375,6 +376,14 @@ func (c *Config) GetTiKVConfig() *tikvcfg.Config {
 		Path:                  c.Path,
 		EnableForwarding:      c.EnableForwarding,
 		TxnScope:              c.Labels["zone"],
+	}
+}
+
+// GetPDClientOpts returns the PD client options based on the configuration.
+func (c *Config) GetPDClientOpts() []pd.ClientOption {
+	return []pd.ClientOption{
+		pd.WithCustomTimeoutOption(time.Duration(c.PDClient.PDServerTimeout) * time.Second),
+		//pd.WithResourceManagerProxyOption(c.PDClient.UseResourceManagerProxy),
 	}
 }
 
@@ -1112,6 +1121,8 @@ var defaultConf = Config{
 	BootstrapControl: defaultBootstrapControl(),
 
 	ExtendedErrorMsgs: make(map[string]string),
+
+	SkipGCWorker: false,
 }
 
 var (

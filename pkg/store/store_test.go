@@ -37,7 +37,7 @@ const (
 
 type brokenStore struct{}
 
-func (s *brokenStore) Open(_ string) (kv.Storage, error) {
+func (s *brokenStore) Open(_ string, _ *kv.DriverOpenOption) (kv.Storage, error) {
 	return nil, kv.ErrTxnRetryable
 }
 
@@ -135,7 +135,7 @@ func mustGet(t *testing.T, txn kv.Transaction) {
 }
 
 func TestNew(t *testing.T) {
-	store, err := New("goleveldb://relative/path")
+	store, err := New("goleveldb://relative/path", nil)
 	require.Error(t, err)
 	require.Nil(t, store)
 }
@@ -739,7 +739,7 @@ func TestIsolationMultiInc(t *testing.T) {
 func TestRetryOpenStore(t *testing.T) {
 	begin := time.Now()
 	require.NoError(t, Register("dummy", &brokenStore{}))
-	store, err := newStoreWithRetry("dummy://dummy-store", 3)
+	store, err := newStoreWithRetry("dummy://dummy-store", 3, nil)
 	if store != nil {
 		defer func() {
 			require.NoError(t, store.Close())
@@ -752,7 +752,7 @@ func TestRetryOpenStore(t *testing.T) {
 
 func TestOpenStore(t *testing.T) {
 	require.NoError(t, Register("open", &brokenStore{}))
-	store, err := newStoreWithRetry(":", 3)
+	store, err := newStoreWithRetry(":", 3, nil)
 	if store != nil {
 		defer func() {
 			require.NoError(t, store.Close())

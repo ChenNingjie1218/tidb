@@ -103,7 +103,7 @@ func main() {
 		config.StoreGlobalConfig(tidbCfg)
 	}
 	driver := driver.TiKVDriver{}
-	store, err := driver.Open(fmt.Sprintf("tikv://%s?disableGC=true", *pdAddr))
+	store, err := driver.Open(fmt.Sprintf("tikv://%s?disableGC=true", *pdAddr), nil)
 	if err != nil {
 		log.Panic("create tikv client failed", zap.Error(err))
 	}

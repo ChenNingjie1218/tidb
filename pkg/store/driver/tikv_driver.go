@@ -20,13 +20,16 @@ import (
 	"fmt"
 	"math"
 	"net/url"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/pingcap/errors"
 	deadlockpb "github.com/pingcap/kvproto/pkg/deadlock"
+	"github.com/pingcap/kvproto/pkg/keyspacepb"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
+	tidb_config "github.com/pingcap/tidb/pkg/config"
 	"github.com/pingcap/tidb/pkg/keyspace"
 	"github.com/pingcap/tidb/pkg/kv"
 	"github.com/pingcap/tidb/pkg/metrics"
@@ -94,10 +97,6 @@ func WithPDClientConfig(client config.PDClient) Option {
 	}
 }
 
-func getKVStore(path string, tls config.Security) (kv.Storage, error) {
-	return TiKVDriver{}.OpenWithOptions(path, WithSecurity(tls))
-}
-
 // TiKVDriver implements engine TiKV.
 type TiKVDriver struct {
 	pdConfig        config.PDClient
@@ -108,8 +107,8 @@ type TiKVDriver struct {
 
 // Open opens or creates an TiKV storage with given path using global config.
 // Path example: tikv://etcd-node1:port,etcd-node2:port?cluster=1&disableGC=false
-func (d TiKVDriver) Open(path string) (kv.Storage, error) {
-	return d.OpenWithOptions(path)
+func (d TiKVDriver) Open(path string, driverOpenOptions *kv.DriverOpenOption) (kv.Storage, error) {
+	return d.OpenWithOptions(path, driverOpenOptions)
 }
 
 func (d *TiKVDriver) setDefaultAndOptions(options ...Option) {
@@ -143,16 +142,70 @@ func GetPDClient(keyspaceName string, pdEtcdAddrs []string) (pd.Client, error) {
 		pd.WithCustomTimeoutOption(time.Duration(cfg.PDClient.PDServerTimeout)*time.Second),
 		pd.WithForwardingOption(cfg.EnableForwarding),
 	)
+	// TODO(metrics)
+	// pd.WithMetricsLabels(metrics.GetConstLabels()))
+	return pdCli, err
+}
+
+func (d TiKVDriver) getCodecPDClient(keyspaceMeta *keyspacepb.KeyspaceMeta, disableGC bool, pdCli pd.Client) (*tikv.CodecPDClient, bool, error) {
+	var pdClient *tikv.CodecPDClient
+	var err error
+
+	if keyspaceMeta == nil {
+		logutil.BgLogger().Info("using API V1.", zap.Any("keyspace-meta", keyspaceMeta))
+		pdClient = tikv.NewCodecPDClient(tikv.ModeTxn, pdCli)
+	} else {
+		logutil.BgLogger().Info("using API V2.", zap.Any("keyspace-meta", keyspaceMeta), zap.String("stack", string(debug.Stack())))
+		start := time.Now()
+		pdClient, err = tikv.NewCodecPDClientWithKeyspace(tikv.ModeTxn, pdCli, keyspaceMeta.Name)
+		elapsed := time.Since(start)
+		logutil.BgLogger().Info("[STARTUP-DEBUG]tidb startup time", zap.Int64("elapsed-ms", elapsed.Milliseconds()))
+		if err != nil {
+			return nil, false, errors.Trace(err)
+		}
+	}
+
+	globalCfg := tidb_config.GetGlobalConfig()
+	disableGCInPath := disableGC
+	disableGC = disableGCInPath || globalCfg.SkipGCWorker
+	if disableGC {
+		logutil.BgLogger().Info("[gc worker] skip run gc worker.", zap.Bool("disableGCInPath", disableGCInPath), zap.Bool("globalCfg.SkipGCWorker", globalCfg.SkipGCWorker))
+	}
+	return pdClient, disableGC, nil
+}
+
+func getPDCliWithDriverOpenOption(etcdAddrs []string, driverOpenOptions *kv.DriverOpenOption) (pd.Client, error) {
+	var keyspaceName string
+	var keyspaceMeta *keyspacepb.KeyspaceMeta
+	if driverOpenOptions != nil && driverOpenOptions.KeyspaceMeta != nil {
+		keyspaceMeta = driverOpenOptions.KeyspaceMeta
+		keyspaceName = keyspaceMeta.Name
+	}
+
+	var pdCli pd.Client
+	var err error
+	if driverOpenOptions != nil && driverOpenOptions.PdCli != nil {
+		logutil.BgLogger().Info("reuse pd client")
+		pdCli = driverOpenOptions.PdCli
+	} else {
+		start := time.Now()
+		pdCli, err = GetPDClient(keyspaceName, etcdAddrs)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		elapsed := time.Since(start)
+		logutil.BgLogger().Info("[STARTUP-DEBUG]new pd client with API context", zap.Int64("elapsed-ms", elapsed.Milliseconds()))
+	}
 	return pdCli, err
 }
 
 // OpenWithOptions is used by other program that use tidb as a library, to avoid modifying GlobalConfig
 // unspecified options will be set to global config
-func (d TiKVDriver) OpenWithOptions(path string, options ...Option) (resStore kv.Storage, err error) {
+func (d TiKVDriver) OpenWithOptions(path string, driverOpenOptions *kv.DriverOpenOption, options ...Option) (resStore kv.Storage, err error) {
 	mc.Lock()
 	defer mc.Unlock()
 	d.setDefaultAndOptions(options...)
-	etcdAddrs, disableGC, keyspaceName, err := config.ParsePath(path)
+	etcdAddrs, disableGC, _, err := config.ParsePath(path)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -178,22 +231,7 @@ func (d TiKVDriver) OpenWithOptions(path string, options ...Option) (resStore kv
 		}
 	}()
 
-	pdCli, err = pd.NewClient(etcdAddrs, pd.SecurityOption{
-		CAPath:   d.security.ClusterSSLCA,
-		CertPath: d.security.ClusterSSLCert,
-		KeyPath:  d.security.ClusterSSLKey,
-	},
-		pd.WithGRPCDialOptions(
-			// keep the same with etcd, see
-			// https://github.com/etcd-io/etcd/blob/5704c6148d798ea444db26a966394406d8c10526/server/etcdserver/api/v3rpc/grpc.go#L34
-			grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(math.MaxInt32)),
-			grpc.WithKeepaliveParams(keepalive.ClientParameters{
-				Time:    time.Duration(d.tikvConfig.GrpcKeepAliveTime) * time.Second,
-				Timeout: time.Duration(d.tikvConfig.GrpcKeepAliveTimeout) * time.Second,
-			}),
-		),
-		pd.WithCustomTimeoutOption(time.Duration(d.pdConfig.PDServerTimeout)*time.Second),
-		pd.WithForwardingOption(config.GetGlobalConfig().EnableForwarding))
+	pdCli, err = getPDCliWithDriverOpenOption(etcdAddrs, driverOpenOptions)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -218,28 +256,22 @@ func (d TiKVDriver) OpenWithOptions(path string, options ...Option) (resStore kv
 
 	// ---------------- keyspace logic  ----------------
 	var (
-		pdClient *tikv.CodecPDClient
+		pdCodecClient *tikv.CodecPDClient
 	)
 
-	if keyspaceName == "" {
-		logutil.BgLogger().Info("using API V1.")
-		pdClient = tikv.NewCodecPDClient(tikv.ModeTxn, pdCli)
-	} else {
-		logutil.BgLogger().Info("using API V2.", zap.String("keyspaceName", keyspaceName))
-		pdClient, err = tikv.NewCodecPDClientWithKeyspace(tikv.ModeTxn, pdCli, keyspaceName)
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
+	pdCodecClient, disableGC, err = d.getCodecPDClient(driverOpenOptions.KeyspaceMeta, disableGC, pdCli)
+	if err != nil {
+		return nil, errors.Trace(err)
 	}
 
-	codec := pdClient.GetCodec()
+	codec := pdCodecClient.GetCodec()
 
 	rpcClient := tikv.NewRPCClient(
 		tikv.WithSecurity(d.security),
 		tikv.WithCodec(codec),
 	)
 
-	s, err = tikv.NewKVStore(uuid, pdClient, spkv, &injectTraceClient{Client: rpcClient},
+	s, err = tikv.NewKVStore(uuid, pdCodecClient, spkv, &injectTraceClient{Client: rpcClient},
 		tikv.WithPDHTTPClient("tikv-driver", etcdAddrs, pdhttp.WithTLSConfig(tlsConfig), pdhttp.WithMetrics(metrics.PDAPIRequestCounter, metrics.PDAPIExecutionHistogram)))
 	if err != nil {
 		return nil, errors.Trace(err)

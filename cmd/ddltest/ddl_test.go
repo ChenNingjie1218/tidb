@@ -98,7 +98,7 @@ func createDDLSuite(t *testing.T) (s *ddlSuite) {
 	s.quit = make(chan struct{})
 
 	config.GetGlobalConfig().Store = "tikv"
-	s.store, err = store.New(fmt.Sprintf("tikv://%s%s", *etcd, *tikvPath))
+	s.store, err = store.New(fmt.Sprintf("tikv://%s%s", *etcd, *tikvPath), nil)
 	require.NoError(t, err)
 
 	// Make sure the schema lease of this session is equal to other TiDB servers'.
@@ -126,7 +126,7 @@ func createDDLSuite(t *testing.T) (s *ddlSuite) {
 	s.dom.Close()
 	require.NoError(t, s.store.Close())
 
-	s.store, err = store.New(fmt.Sprintf("tikv://%s%s", *etcd, *tikvPath))
+	s.store, err = store.New(fmt.Sprintf("tikv://%s%s", *etcd, *tikvPath), nil)
 	require.NoError(t, err)
 	s.s, err = session.CreateSession(s.store)
 	require.NoError(t, err)

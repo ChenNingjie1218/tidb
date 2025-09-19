@@ -53,7 +53,7 @@ func CreateMockStore(t testing.TB, opts ...mockstore.MockTiKVStoreOption) kv.Sto
 	if *WithTiKV != "" {
 		var d driver.TiKVDriver
 		var err error
-		store, err := d.Open("tikv://" + *WithTiKV)
+		store, err := d.Open("tikv://"+*WithTiKV, nil)
 		require.NoError(t, err)
 		config.GetGlobalConfig().Store = "tikv"
 		require.NoError(t, ddl.StartOwnerManager(context.Background(), store))

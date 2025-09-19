@@ -679,7 +679,7 @@ type BatchGetter interface {
 type Driver interface {
 	// Open returns a new Storage.
 	// The path is the string for storage specific format.
-	Open(path string) (Storage, error)
+	Open(path string, driverOpenOption *DriverOpenOption) (Storage, error)
 }
 
 // DriverOpenOption is the option for open driver.

@@ -36,6 +36,7 @@ go_library(
         "//pkg/util/dbterror",
         "//pkg/util/engine",
         "//pkg/util/hack",
+        "//pkg/util/intest",
         "//pkg/util/logutil",
         "//pkg/util/syncutil",
         "//pkg/util/versioninfo",

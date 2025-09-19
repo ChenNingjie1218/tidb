@@ -51,6 +51,7 @@ import (
 	"github.com/pingcap/tidb/pkg/util/dbterror"
 	"github.com/pingcap/tidb/pkg/util/engine"
 	"github.com/pingcap/tidb/pkg/util/hack"
+	"github.com/pingcap/tidb/pkg/util/intest"
 	"github.com/pingcap/tidb/pkg/util/logutil"
 	"github.com/pingcap/tidb/pkg/util/versioninfo"
 	"github.com/tikv/client-go/v2/oracle"
@@ -760,24 +761,27 @@ func (info *ServerInfo) asTopologyInfo() TopologyInfo {
 
 // StoreTopologyInfo stores the topology of tidb to etcd.
 func (is *InfoSyncer) StoreTopologyInfo(ctx context.Context) error {
-	if is.etcdCli == nil {
-		return nil
+	if intest.InTest {
+		if is.etcdCli == nil {
+			return nil
+		}
+		info := is.info.Load()
+		topologyInfo := info.asTopologyInfo()
+		infoBuf, err := json.Marshal(topologyInfo)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		str := string(hack.String(infoBuf))
+		key := fmt.Sprintf("%s/%s/info", TopologyInformationPath, net.JoinHostPort(info.IP, strconv.Itoa(int(info.Port))))
+		// Note: no lease is required here.
+		err = util.PutKVToEtcd(ctx, is.etcdCli, keyOpDefaultRetryCnt, key, str)
+		if err != nil {
+			return err
+		}
+		// Initialize ttl.
+		return is.updateTopologyAliveness(ctx)
 	}
-	info := is.info.Load()
-	topologyInfo := info.asTopologyInfo()
-	infoBuf, err := json.Marshal(topologyInfo)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	str := string(hack.String(infoBuf))
-	key := fmt.Sprintf("%s/%s/info", TopologyInformationPath, net.JoinHostPort(info.IP, strconv.Itoa(int(info.Port))))
-	// Note: no lease is required here.
-	err = util.PutKVToEtcd(ctx, is.etcdCli, keyOpDefaultRetryCnt, key, str)
-	if err != nil {
-		return err
-	}
-	// Initialize ttl.
-	return is.updateTopologyAliveness(ctx)
+	return nil
 }
 
 // GetMinStartTS get min start timestamp.

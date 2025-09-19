@@ -407,7 +407,7 @@ func main() {
 		close(exited)
 	})
 	topsql.SetupTopSQL(svr)
-	terror.MustNil(svr.Run(dom))
+	terror.MustNil(svr.RunWithStore(dom, storage))
 	<-exited
 	syncLog()
 }
@@ -569,7 +569,7 @@ func createStoreDDLOwnerMgrAndDomain(driverOpenOption *kv.DriverOpenOption) (kv.
 	}
 	log.Info("test-yjy fullPath", zap.String("fullPath", fullPath))
 	var err error
-	storage, err := kvstore.New(fullPath)
+	storage, err := kvstore.New(fullPath, driverOpenOption)
 	terror.MustNil(err)
 	copr.GlobalMPPFailedStoreProber.Run()
 	mppcoordmanager.InstanceMPPCoordinatorManager.Run()

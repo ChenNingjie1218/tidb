@@ -21,6 +21,7 @@ import (
 	"sync/atomic"
 
 	"github.com/pingcap/tidb/pkg/util"
+	"github.com/pingcap/tidb/pkg/util/memory"
 )
 
 var (
@@ -73,7 +74,7 @@ func SetDefaultGOGC() {
 // Tuning sets the threshold of heap which will be respect by gogc tuner.
 // When Tuning, the env GOGC will not be take effect.
 // threshold: disable tuning if threshold == 0
-func Tuning(threshold uint64) {
+func Tuning(threshold uint32) {
 	// disable gc tuner if percent is zero
 	if threshold <= 0 && globalTuner != nil {
 		globalTuner.stop()
@@ -117,10 +118,10 @@ var globalTuner *tuner
 type tuner struct {
 	finalizer *finalizer
 	gcPercent atomic.Uint32
-	threshold atomic.Uint64 // high water level, in bytes
+	threshold atomic.Uint32 // high water level, percent of total memory.
 }
 
-func newTuner(threshold uint64) *tuner {
+func newTuner(threshold uint32) *tuner {
 	t := &tuner{}
 	t.gcPercent.Store(defaultGCPercent)
 	t.threshold.Store(threshold)
@@ -132,12 +133,21 @@ func (t *tuner) stop() {
 	t.finalizer.stop()
 }
 
-func (t *tuner) setThreshold(threshold uint64) {
+func (t *tuner) setThreshold(threshold uint32) {
 	t.threshold.Store(threshold)
 }
 
-func (t *tuner) getThreshold() uint64 {
-	return t.threshold.Load()
+func (t *tuner) getThresholdBytes() uint64 {
+	memTotal := memory.ServerMemoryLimit.Load()
+	if memTotal == 0 {
+		var err error
+		memTotal, err = memory.MemTotal()
+		if err != nil {
+			// unlikely to happen, return 0 to stop tuning
+			return 0
+		}
+	}
+	return uint64(t.threshold.Load()) * memTotal / 100
 }
 
 func (t *tuner) setGCPercent(percent uint32) uint32 {
@@ -158,7 +168,7 @@ func (t *tuner) tuning() {
 	}
 
 	inuse := readMemoryInuse()
-	threshold := t.getThreshold()
+	threshold := t.getThresholdBytes()
 	// stop gc tuning
 	if threshold <= 0 {
 		return

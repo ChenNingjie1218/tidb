@@ -1121,23 +1121,13 @@ var defaultSysVars = []*SysVar{
 		SetGlobal: func(_ context.Context, s *SessionVars, val string) (err error) {
 			factor := tidbOptFloat64(val, DefTiDBGOGCTunerThreshold)
 			GOGCTunerThreshold.Store(factor)
-			memTotal := memory.ServerMemoryLimit.Load()
-			if memTotal == 0 {
-				memTotal, err = memory.MemTotal()
-				if err != nil {
-					return err
-				}
-			}
-			if factor > 0 {
-				threshold := float64(memTotal) * factor
-				gctuner.Tuning(uint64(threshold))
-			}
+			gctuner.Tuning(uint32(factor * 100))
 			return nil
 		},
 	},
 	{Scope: ScopeGlobal, Name: TiDBServerMemoryLimit, Value: DefTiDBServerMemoryLimit, Type: TypeStr,
 		GetGlobal: func(_ context.Context, s *SessionVars) (string, error) {
-			return memory.ServerMemoryLimitOriginText.Load(), nil
+			return memory.GetMaxServerMemoryLimitText(), nil
 		},
 		Validation: func(s *SessionVars, normalizedValue string, originalValue string, scope ScopeFlag) (string, error) {
 			_, str, err := parseMemoryLimit(s, normalizedValue, originalValue)
@@ -1147,6 +1137,10 @@ var defaultSysVars = []*SysVar{
 			return str, nil
 		},
 		SetGlobal: func(_ context.Context, s *SessionVars, val string) error {
+			if !intest.InTest {
+				// skip in serverless cluster.
+				return nil
+			}
 			bt, str, err := parseMemoryLimit(s, val, val)
 			if err != nil {
 				return err
@@ -1154,8 +1148,9 @@ var defaultSysVars = []*SysVar{
 			memory.ServerMemoryLimitOriginText.Store(str)
 			memory.ServerMemoryLimit.Store(bt)
 			threshold := float64(bt) * GOGCTunerThreshold.Load()
-			gctuner.Tuning(uint64(threshold))
+			gctuner.Tuning(uint32(threshold))
 			gctuner.GlobalMemoryLimitTuner.UpdateMemoryLimit()
+
 			return nil
 		},
 	},

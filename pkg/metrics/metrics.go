@@ -98,6 +98,7 @@ func InitMetrics() {
 	InitGlobalSortMetrics()
 	InitInfoSchemaV2Metrics()
 	timermetrics.InitTimerMetrics()
+	InitVPAMetrics()
 
 	PanicCounter = NewCounterVec(
 		prometheus.CounterOpts{
@@ -297,6 +298,9 @@ func RegisterMetrics() {
 	prometheus.MustRegister(BindingCacheMemLimit)
 	prometheus.MustRegister(BindingCacheNumBindings)
 	prometheus.MustRegister(InternalSessions)
+	prometheus.MustRegister(VPAReportCounter)
+	prometheus.MustRegister(VPAScaleMemoryCounter)
+	prometheus.MustRegister(VPAMemoryGauge)
 
 	tikvmetrics.InitMetrics(TiDB, TiKVClient)
 	tikvmetrics.RegisterMetrics()

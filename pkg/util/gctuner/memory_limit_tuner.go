@@ -150,7 +150,10 @@ func (t *memoryLimitTuner) SetPercentage(percentage float64) {
 
 // GetPercentage get the percentage from memory limit tuner.
 func (t *memoryLimitTuner) GetPercentage() float64 {
-	return t.percentage.Load()
+	if intest.InTest {
+		return t.percentage.Load()
+	}
+	return fallbackPercentage // serverless: always use 1.1 to make gc less frequent
 }
 
 // UpdateMemoryLimit updates the memory limit.

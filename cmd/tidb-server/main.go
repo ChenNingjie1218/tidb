@@ -74,6 +74,7 @@ import (
 	"github.com/pingcap/tidb/pkg/util/printer"
 	"github.com/pingcap/tidb/pkg/util/redact"
 	"github.com/pingcap/tidb/pkg/util/sem"
+	"github.com/pingcap/tidb/pkg/util/serverless"
 	"github.com/pingcap/tidb/pkg/util/servicescope"
 	"github.com/pingcap/tidb/pkg/util/signal"
 	stmtsummaryv2 "github.com/pingcap/tidb/pkg/util/stmtsummary/v2"
@@ -309,7 +310,7 @@ func main() {
 
 	quit := make(chan struct{})
 	defer close(quit)
-	// serverless.StartMemoryScaler(quit) // FIXME: 8.5-keyspace @disksing
+	serverless.StartMemoryScaler(quit)
 
 	var standbyController server.StandbyController
 	if config.GetGlobalConfig().StandByMode {

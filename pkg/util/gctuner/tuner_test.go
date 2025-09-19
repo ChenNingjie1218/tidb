@@ -19,6 +19,7 @@ import (
 	"testing"
 
 	"github.com/pingcap/tidb/pkg/util/intest"
+	"github.com/pingcap/tidb/pkg/util/memory"
 	"github.com/stretchr/testify/require"
 )
 
@@ -27,11 +28,13 @@ var testHeap []byte
 func TestTuner(t *testing.T) {
 	require.True(t, intest.InTest)
 	EnableGOGCTuner.Store(true)
-	memLimit := uint64(1000 * 1024 * 1024) //1000 MB
-	threshold := memLimit / 2
+	memory.ServerMemoryLimit.Store(uint64(1000 * 1024 * 1024)) //1000 MB
+	threshold := uint32(50)
+	thresholdBytes := uint64(500 * 1024 * 1024)
+
 	tn := newTuner(threshold)
 	currentGCPercent := tn.getGCPercent()
-	require.Equal(t, tn.getThreshold(), threshold)
+	require.Equal(t, tn.getThresholdBytes(), thresholdBytes)
 	require.Equal(t, defaultGCPercent, currentGCPercent)
 
 	// wait for tuner set gcPercent to maxGCPercent
@@ -42,7 +45,7 @@ func TestTuner(t *testing.T) {
 	}
 
 	// 1/4 threshold
-	testHeap = make([]byte, threshold/4)
+	testHeap = make([]byte, thresholdBytes/4)
 	// wait for tuner set gcPercent to ~= 300
 	t.Logf("old gc percent before gc: %d", tn.getGCPercent())
 	for tn.getGCPercent() == maxGCPercent.Load() {
@@ -54,7 +57,7 @@ func TestTuner(t *testing.T) {
 	require.LessOrEqual(t, currentGCPercent, uint32(300))
 
 	// 1/2 threshold
-	testHeap = make([]byte, threshold/2)
+	testHeap = make([]byte, thresholdBytes/2)
 	// wait for tuner set gcPercent to ~= 100
 	t.Logf("old gc percent before gc: %d", tn.getGCPercent())
 	for tn.getGCPercent() == currentGCPercent {
@@ -66,7 +69,7 @@ func TestTuner(t *testing.T) {
 	require.LessOrEqual(t, currentGCPercent, uint32(100))
 
 	// 3/4 threshold
-	testHeap = make([]byte, threshold/4*3)
+	testHeap = make([]byte, thresholdBytes/4*3)
 	// wait for tuner set gcPercent to minGCPercent
 	t.Logf("old gc percent before gc: %d", tn.getGCPercent())
 	for tn.getGCPercent() != minGCPercent.Load() {
@@ -76,7 +79,7 @@ func TestTuner(t *testing.T) {
 	require.Equal(t, minGCPercent.Load(), tn.getGCPercent())
 
 	// out of threshold
-	testHeap = make([]byte, threshold+1024)
+	testHeap = make([]byte, thresholdBytes+1024)
 	t.Logf("old gc percent before gc: %d", tn.getGCPercent())
 	runtime.GC()
 	for range 8 {

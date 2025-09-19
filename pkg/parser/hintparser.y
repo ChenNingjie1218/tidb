@@ -124,6 +124,7 @@ import (
 	hintLeading               "LEADING"
 	hintSemiJoinRewrite       "SEMI_JOIN_REWRITE"
 	hintNoDecorrelate         "NO_DECORRELATE"
+	hintUseWorker             "USE_WORKER"
 
 	/* Other keywords */
 	hintOLAP            "OLAP"
@@ -695,6 +696,7 @@ NullaryHintName:
 |	"STRAIGHT_JOIN"
 |	"SEMI_JOIN_REWRITE"
 |	"NO_DECORRELATE"
+|	"USE_WORKER"
 
 HintQueryType:
 	"OLAP"
@@ -778,6 +780,7 @@ Identifier:
 |	"LEADING"
 |	"SEMI_JOIN_REWRITE"
 |	"NO_DECORRELATE"
+|	"USE_WORKER"
 /* other keywords */
 |	"OLAP"
 |	"OLTP"

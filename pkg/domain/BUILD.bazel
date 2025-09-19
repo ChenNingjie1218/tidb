@@ -93,6 +93,7 @@ go_library(
         "//pkg/util/memoryusagealarm",
         "//pkg/util/printer",
         "//pkg/util/replayer",
+        "//pkg/util/serverless/remote-query",
         "//pkg/util/servermemorylimit",
         "//pkg/util/sqlexec",
         "//pkg/util/sqlkiller",

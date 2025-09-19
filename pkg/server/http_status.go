@@ -298,6 +298,14 @@ func (s *Server) startHTTPServer(store kv.Storage) {
 		router.PathPrefix("/static/").Handler(http.StripPrefix("/static", http.FileServer(static.Data)))
 	}
 
+	if s.dom != nil {
+		rqs := s.dom.GetRemoteQueryServer()
+		router.HandleFunc("/remote-query/{query-id}", rqs.HandleGetQuery).Methods("GET")
+		router.HandleFunc("/remote-query/{query-id}", rqs.HandlePostQuery).Methods("POST")
+		router.HandleFunc("/remote-query/{query-id}/ping", rqs.HandlePing).Methods("GET")
+		router.HandleFunc("/remote-query/{query-id}/error", rqs.HandleError).Methods("POST")
+	}
+
 	serverMux := http.NewServeMux()
 	if s.StandbyController != nil {
 		path, handler := s.StandbyController.Handler(s)

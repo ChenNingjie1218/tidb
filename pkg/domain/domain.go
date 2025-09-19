@@ -96,6 +96,7 @@ import (
 	"github.com/pingcap/tidb/pkg/util/memory"
 	"github.com/pingcap/tidb/pkg/util/memoryusagealarm"
 	"github.com/pingcap/tidb/pkg/util/replayer"
+	remotequery "github.com/pingcap/tidb/pkg/util/serverless/remote-query"
 	"github.com/pingcap/tidb/pkg/util/servermemorylimit"
 	"github.com/pingcap/tidb/pkg/util/sqlkiller"
 	"github.com/pingcap/tidb/pkg/util/syncutil"
@@ -220,6 +221,8 @@ type Domain struct {
 	minJobIDRefresher *systable.MinJobIDRefresher
 
 	instancePlanCache sessionctx.InstancePlanCache // the instance level plan cache
+
+	remoteQueryServer *remotequery.Server
 
 	statsOwner owner.Manager
 	// deferFn is used to release infoschema object lazily during v1 and v2 switch
@@ -1524,6 +1527,8 @@ func (do *Domain) Start(startMode ddl.StartMode) error {
 	if err != nil {
 		return err
 	}
+
+	do.remoteQueryServer = remotequery.NewServer()
 
 	return nil
 }
@@ -3264,6 +3269,11 @@ func (do *Domain) StartTTLJobManager() {
 // TTLJobManager returns the ttl job manager on this domain
 func (do *Domain) TTLJobManager() *ttlworker.JobManager {
 	return do.ttlJobManager.Load()
+}
+
+// GetRemoteQueryServer returns the remote query server.
+func (d *Domain) GetRemoteQueryServer() *remotequery.Server {
+	return d.remoteQueryServer
 }
 
 // StopAutoAnalyze stops (*Domain).autoAnalyzeWorker to launch new auto analyze jobs.

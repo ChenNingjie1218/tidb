@@ -21,6 +21,7 @@ import (
 	"strings"
 
 	"github.com/pingcap/errors"
+	"github.com/pingcap/tidb/pkg/domain"
 	"github.com/pingcap/tidb/pkg/expression"
 	"github.com/pingcap/tidb/pkg/extension"
 	"github.com/pingcap/tidb/pkg/kv"
@@ -35,6 +36,7 @@ import (
 	sessiontypes "github.com/pingcap/tidb/pkg/session/types"
 	"github.com/pingcap/tidb/pkg/sessionctx"
 	"github.com/pingcap/tidb/pkg/sessionctx/sessionstates"
+	"github.com/pingcap/tidb/pkg/tidbworker"
 	"github.com/pingcap/tidb/pkg/util/chunk"
 	contextutil "github.com/pingcap/tidb/pkg/util/context"
 	"github.com/pingcap/tidb/pkg/util/sqlexec"
@@ -278,6 +280,21 @@ func (tc *TiDBContext) checkSandBoxMode(stmt ast.StmtNode) error {
 	return nil
 }
 
+func isRemoteQueryStmt(stmt ast.StmtNode) bool {
+	if s, ok := stmt.(*ast.SelectStmt); ok {
+		// find if it has USE_WORKER hint
+		if s.SelectStmtOpts == nil {
+			return false
+		}
+		for _, hint := range s.SelectStmtOpts.TableHints {
+			if hint.HintName.L == core.HintUseWorker {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // ExecuteStmt implements QueryCtx interface.
 func (tc *TiDBContext) ExecuteStmt(ctx context.Context, stmt ast.StmtNode) (resultset.ResultSet, error) {
 	var rs sqlexec.RecordSet
@@ -287,6 +304,16 @@ func (tc *TiDBContext) ExecuteStmt(ctx context.Context, stmt ast.StmtNode) (resu
 	}
 	if s, ok := stmt.(*ast.NonTransactionalDMLStmt); ok {
 		rs, err = session.HandleNonTransactionalDML(ctx, s, tc.Session)
+	} else if isRemoteQueryStmt(stmt) {
+		if tidbworker.GlobalTiDBWorkerManager == nil {
+			err := errors.New("worker manager is not initialized")
+			tc.Session.GetSessionVars().StmtCtx.AppendError(err)
+			return nil, err
+		}
+		rms := domain.GetDomain(tc.Session).GetRemoteQueryServer()
+		user, db := tc.Session.GetSessionVars().User, tc.Session.GetSessionVars().CurrentDB
+		chunkInitCap, chunkMaxSize := tc.Session.GetSessionVars().InitChunkSize, tc.Session.GetSessionVars().MaxChunkSize
+		rs, err = rms.RegisterSession(ctx, stmt.OriginalText(), db, user, chunkInitCap, chunkMaxSize)
 	} else {
 		rs, err = tc.Session.ExecuteStmt(ctx, stmt)
 	}

@@ -398,6 +398,26 @@ func main() {
 		standbyController.EndStandby(nil)
 	}
 
+	// // remote query worker // TODO: 8.5-keyspace @disksing after cherry-pick worker.
+	// if config.GetGlobalConfig().TiDBWorker.Role == config.RoleRemoteQueryWorker && config.GetGlobalConfig().TiDBWorker.ExecID != "" {
+	// 	logutil.BgLogger().Info("remote query worker mode")
+	// 	remoteQueryWorker, err := remotequery.NewExecutor(config.GetGlobalConfig().TiDBWorker.ExecID)
+	// 	if err != nil {
+	// 		logutil.BgLogger().Error("create remote query executor failed", zap.Error(err))
+	// 		os.Exit(1)
+	// 	}
+	// 	s, err := session.CreateSessionWithDomain(storage, dom)
+	// 	if err != nil {
+	// 		logutil.BgLogger().Error("create session with domain failed", zap.Error(err))
+	// 		os.Exit(1)
+	// 	}
+	// 	err = remoteQueryWorker.Execute(context.TODO(), s)
+	// 	if err != nil {
+	// 		logutil.BgLogger().Error("remote query execute failed", zap.Error(err))
+	// 	}
+	// 	os.Exit(0)
+	// }
+
 	exited := make(chan struct{})
 	signal.SetupSignalHandler(func() {
 		svr.Close()

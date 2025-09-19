@@ -1,0 +1,30 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "remote-query",
+    srcs = [
+        "executor.go",
+        "recordset.go",
+        "server.go",
+    ],
+    importpath = "github.com/pingcap/tidb/pkg/util/serverless/remote-query",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//pkg/config",
+        "//pkg/meta/model",
+        "//pkg/metrics",
+        "//pkg/parser/auth",
+        "//pkg/parser/model",
+        "//pkg/planner/core/resolve",
+        "//pkg/sessionctx/variable",
+        "//pkg/tidbworker",
+        "//pkg/types",
+        "//pkg/util",
+        "//pkg/util/chunk",
+        "//pkg/util/logutil",
+        "//pkg/util/sqlexec",
+        "@com_github_google_uuid//:uuid",
+        "@com_github_gorilla_mux//:mux",
+        "@org_uber_go_zap//:zap",
+    ],
+)

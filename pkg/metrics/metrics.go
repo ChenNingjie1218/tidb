@@ -98,7 +98,10 @@ func InitMetrics() {
 	InitGlobalSortMetrics()
 	InitInfoSchemaV2Metrics()
 	timermetrics.InitTimerMetrics()
+	// InitTiDBWorkerMetrics() // FIXME: 8.5-keyspace @disksing
 	InitVPAMetrics()
+	// InitVectorSearchMetrics() // FIXME: 8.5-keyspace @disksing
+	InitRemoteQueryMetrics()
 
 	PanicCounter = NewCounterVec(
 		prometheus.CounterOpts{
@@ -302,7 +305,16 @@ func RegisterMetrics() {
 	prometheus.MustRegister(VPAScaleMemoryCounter)
 	prometheus.MustRegister(VPAMemoryGauge)
 
-	tikvmetrics.InitMetrics(TiDB, TiKVClient)
+	// RegisterVectorSearchMetrics() // FIXME: 8.5-keyspace @disksing
+	prometheus.MustRegister(RemoteQuerySessionGauge)
+	prometheus.MustRegister(RemoteQuerySessionCounter)
+	prometheus.MustRegister(RemoteQueryServerCounter)
+	prometheus.MustRegister(RemoteQueryRecordSetCounter)
+	prometheus.MustRegister(RemoteQueryRecordSetDuration)
+	prometheus.MustRegister(RemoteQueryWorkerCounter)
+	prometheus.MustRegister(RemoteQueryWorkerDuration)
+
+	tikvmetrics.InitMetricsWithConstLabels(TiDB, TiKVClient, GetConstLabels())
 	tikvmetrics.RegisterMetrics()
 	tikvmetrics.TiKVPanicCounter = PanicCounter // reset tidb metrics for tikv metrics
 }

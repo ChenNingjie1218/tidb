@@ -85,3 +85,8 @@ func (*Store) GetLockWaits() ([]*deadlockpb.WaitForEntry, error) {
 func (*Store) GetCodec() tikv.Codec {
 	return nil
 }
+
+// CurrentAllTSOKeyspaceGroupMinTs implements kv.Storage interface.
+func (*Store) CurrentAllTSOKeyspaceGroupMinTs() (uint64, error) {
+	return 0, nil
+}

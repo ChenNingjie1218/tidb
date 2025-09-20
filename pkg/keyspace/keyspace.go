@@ -16,11 +16,14 @@ package keyspace
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"time"
 
+	"github.com/pingcap/kvproto/pkg/keyspacepb"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/pingcap/tidb/pkg/config"
+	"github.com/pingcap/tidb/pkg/util/codec"
 	"github.com/tikv/client-go/v2/tikv"
 	pd "github.com/tikv/pd/client"
 	"go.uber.org/zap"
@@ -32,6 +35,35 @@ import (
 const (
 	// tidbKeyspaceEtcdPathPrefix is the keyspace prefix for etcd namespace
 	tidbKeyspaceEtcdPathPrefix = "/keyspaces/tidb/"
+
+	// KeyspaceMetaConfigGCManagementType is the name of the key for GC management type in keyspace meta config.
+	KeyspaceMetaConfigGCManagementType = "safe_point_version"
+	// KeyspaceMetaConfigGCManagementTypeKeyspaceLevelGC is a type of GC management in keyspace meta config,
+	// it means this keyspace will calculate GC safe point by its own.
+	KeyspaceMetaConfigGCManagementTypeKeyspaceLevelGC = "v2"
+	// KeyspaceMetaConfigGCManagementTypeGlobalGC is a type of GC management in keyspace meta config, it means this keyspace will use GC safe point by global GC(default).
+	KeyspaceMetaConfigGCManagementTypeGlobalGC = "global_gc"
+
+	// maxKeyspaceID is the maximum keyspace id that can be created, no keyspace can be created greater than this value.
+	maxKeyspaceID = 0xffffff
+
+	// API V2 key bounds:
+	// See https://github.com/tikv/rfcs/blob/master/text/0069-api-v2.md for more keyspace and API V2 details.
+
+	// KeyspaceTxnModePrefix is txn data prefix of keyspace.
+	KeyspaceTxnModePrefix byte = 'x'
+	// MaxKeyspaceRightBoundaryPrefix is the max keyspace txn right boundary.
+	// Because the keyspace ranges are all under the 'x' prefix, so MaxKeyspaceRightBoundaryPrefix = 'y'
+	MaxKeyspaceRightBoundaryPrefix byte = 'y'
+	// RawKVLeftBoundaryPrefix is RawKV left boundary.
+	RawKVLeftBoundaryPrefix byte = 'r'
+	// RawKVRightBoundaryPrefix is RawKV right boundary.
+	RawKVRightBoundaryPrefix byte = 's'
+	// EnvVarKeyspaceName is the system env name for keyspace name.
+	EnvVarKeyspaceName = "KEYSPACE_NAME"
+
+	// KeyspaceMetaConfigIsInETCDMigration is the name of the key for keyspace meta config migration.
+	KeyspaceMetaConfigIsInETCDMigration = "serverless_is_upgrade_etcd_group"
 )
 
 // CodecV1 represents api v1 codec.
@@ -97,6 +129,54 @@ func CodecFromName(ctx context.Context, pdCli pd.Client, keyspaceName string) (t
 	}
 
 	return tikv.NewCodecV2(tikv.ModeTxn, meta)
+}
+
+// IsKeyspaceUseKeyspaceLevelGC returns true if keyspace meta config set "gc_management_type" = "keyspace_level_gc" explicitly.
+func IsKeyspaceUseKeyspaceLevelGC(keyspaceMeta *keyspacepb.KeyspaceMeta) bool {
+	if keyspaceMeta == nil {
+		return false
+	}
+	if val, ok := keyspaceMeta.Config[KeyspaceMetaConfigGCManagementType]; ok {
+		return val == KeyspaceMetaConfigGCManagementTypeKeyspaceLevelGC
+	}
+	return false
+}
+
+// IsKeyspaceMetaNotNilAndUseGlobalGC returns whether the specified keyspace meta use global GC.
+func IsKeyspaceMetaNotNilAndUseGlobalGC(keyspaceMeta *keyspacepb.KeyspaceMeta) bool {
+	if keyspaceMeta == nil {
+		return false
+	}
+	if val, ok := keyspaceMeta.Config[KeyspaceMetaConfigGCManagementType]; ok {
+		return val == KeyspaceMetaConfigGCManagementTypeGlobalGC
+	}
+	return true
+}
+
+// GetKeyspaceTxnLeftBound returns the specified keyspace txn left boundary.
+func GetKeyspaceTxnLeftBound(keyspaceID uint32) []byte {
+	keyspaceIDBytes := make([]byte, 4)
+	binary.BigEndian.PutUint32(keyspaceIDBytes, keyspaceID)
+	txnLeftBound := codec.EncodeBytes(nil, append([]byte{'x'}, keyspaceIDBytes[1:]...))
+	return txnLeftBound
+}
+
+// GetKeyspaceTxnRange returns the specified keyspace txn left boundary and txn right boundary.
+func GetKeyspaceTxnRange(keyspaceID uint32) ([]byte, []byte) {
+	// Get keyspace txn left boundary
+	txnLeftBound := GetKeyspaceTxnLeftBound(keyspaceID)
+
+	var txnRightBound []byte
+	if keyspaceID == maxKeyspaceID {
+		// Directly set the right boundary of maxKeyspaceID to be {MaxKeyspaceRightBoundaryPrefix}
+		maxKeyspaceIDTxnRightBound := []byte{MaxKeyspaceRightBoundaryPrefix}
+		txnRightBound = codec.EncodeBytes(nil, maxKeyspaceIDTxnRightBound[:])
+	} else {
+		// The right boundary of the specified keyspace is the left boundary of keyspaceID + 1.
+		txnRightBound = GetKeyspaceTxnLeftBound(keyspaceID + 1)
+	}
+
+	return txnLeftBound, txnRightBound
 }
 
 // GetPDClient is used to get pd client by etcd addrs and keyspace name.

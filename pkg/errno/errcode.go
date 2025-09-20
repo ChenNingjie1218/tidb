@@ -1173,4 +1173,9 @@ const (
 	ErrTiFlashServerTimeout      = 9012
 	ErrTiFlashServerBusy         = 9013
 	ErrTiFlashBackfillIndex      = 9014
+
+	// Serverless tier errors.
+	ErrNotSupportedOnServerless = 20001
+	ErrUserPrefixMismatch       = 20003
+	ErrRecipientAccessDenied    = 20004
 )

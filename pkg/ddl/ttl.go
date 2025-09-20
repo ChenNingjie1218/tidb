@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/pingcap/errors"
+	"github.com/pingcap/tidb/pkg/config"
 	infoschemactx "github.com/pingcap/tidb/pkg/infoschema/context"
 	"github.com/pingcap/tidb/pkg/meta/model"
 	"github.com/pingcap/tidb/pkg/parser/ast"
@@ -28,6 +29,7 @@ import (
 	"github.com/pingcap/tidb/pkg/ttl/cache"
 	"github.com/pingcap/tidb/pkg/types"
 	"github.com/pingcap/tidb/pkg/util/dbterror"
+	"github.com/pingcap/tidb/pkg/util/intest"
 )
 
 // DefaultTTLJobInterval is the default value for ttl job interval.
@@ -99,6 +101,9 @@ func onTTLInfoChange(jobCtx *jobContext, job *model.Job) (ver int64, err error) 
 // The argument `isForForeignKeyCheck` is used to check the table should not be referenced by foreign key.
 // If `isForForeignKeyCheck` is `nil`, it will skip the foreign key check.
 func checkTTLInfoValid(schema pmodel.CIStr, tblInfo *model.TableInfo, foreignKeyCheckIs infoschemactx.MetaOnlyInfoSchema) error {
+	if !intest.InTest && !config.GetGlobalConfig().EnableSetTableTTL {
+		return dbterror.ErrNotSupportedOnServerless.GenWithStackByCause("TTL")
+	}
 	if tblInfo.TempTableType != model.TempTableNone {
 		return dbterror.ErrTempTableNotAllowedWithTTL
 	}

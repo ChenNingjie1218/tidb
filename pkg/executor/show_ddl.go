@@ -21,7 +21,9 @@ import (
 	"github.com/pingcap/tidb/pkg/ddl"
 	"github.com/pingcap/tidb/pkg/domain/infosync"
 	"github.com/pingcap/tidb/pkg/executor/internal/exec"
+	"github.com/pingcap/tidb/pkg/sessionctx/variable"
 	"github.com/pingcap/tidb/pkg/util/chunk"
+	"github.com/pingcap/tidb/pkg/util/sem"
 )
 
 // ShowDDLExec represents a show DDL executor.
@@ -54,15 +56,15 @@ func (e *ShowDDLExec) Next(ctx context.Context, req *chunk.Chunk) error {
 			query += "\n"
 		}
 	}
-
-	serverInfo, err := infosync.GetServerInfoByID(ctx, e.ddlOwnerID)
-	if err != nil {
-		return err
+	serverAddress := variable.DefHostname + ":4000"
+	if !sem.IsEnabled() {
+		serverInfo, err := infosync.GetServerInfoByID(ctx, e.ddlOwnerID)
+		if err != nil {
+			return err
+		}
+		serverAddress = serverInfo.IP + ":" +
+			strconv.FormatUint(uint64(serverInfo.Port), 10)
 	}
-
-	serverAddress := serverInfo.IP + ":" +
-		strconv.FormatUint(uint64(serverInfo.Port), 10)
-
 	req.AppendInt64(0, e.ddlInfo.SchemaVer)
 	req.AppendString(1, e.ddlOwnerID)
 	req.AppendString(2, serverAddress)

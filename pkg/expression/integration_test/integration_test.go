@@ -1783,7 +1783,7 @@ func TestSecurityEnhancedMode(t *testing.T) {
 	store := testkit.CreateMockStore(t)
 
 	tk := testkit.NewTestKit(t, store)
-	sem.Enable()
+	sem.Enable(config.SEMLevelBasic)
 	defer sem.Disable()
 
 	// When SEM is enabled these features are restricted to all users

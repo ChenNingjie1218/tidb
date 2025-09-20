@@ -548,6 +548,12 @@ func (e *SimpleExec) setRoleNone() error {
 }
 
 func (e *SimpleExec) executeSetRole(s *ast.SetRoleStmt) error {
+	// Security check: prevent set cloud_admin accounts as roles
+	for _, role := range s.RoleList {
+		if strings.HasSuffix(role.Username, ".cloud_admin") {
+			return plannererrors.ErrSpecificAccessDenied.GenWithStackByArgs("SET cloud_admin accounts as roles")
+		}
+	}
 	switch s.SetRoleOpt {
 	case ast.SetRoleRegular:
 		return e.setRoleRegular(s)
@@ -682,6 +688,10 @@ func (e *SimpleExec) executeRevokeRole(ctx context.Context, s *ast.RevokeRoleStm
 		}
 		if !exists {
 			return exeerrors.ErrCannotUser.GenWithStackByArgs("REVOKE ROLE", role.String())
+		}
+		// Security check: prevent revoking cloud_admin accounts as roles
+		if strings.HasSuffix(role.Username, ".cloud_admin") {
+			return plannererrors.ErrSpecificAccessDenied.GenWithStackByArgs("REVOKE cloud_admin accounts as roles")
 		}
 	}
 
@@ -1757,12 +1767,11 @@ func (e *SimpleExec) executeAlterUser(ctx context.Context, s *ast.AlterUserStmt)
 			// Thus, any user with SUPER can effectively ALTER/DROP a SYSTEM_USER, and
 			// any user with only CREATE USER can not modify the properties of users with SUPER privilege.
 			// We extend this in TiDB with SEM, where SUPER users can not modify users with RESTRICTED_USER_ADMIN.
-			// For simplicity: RESTRICTED_USER_ADMIN also counts for SYSTEM_USER here.
 
 			if !(hasCreateUserPriv || hasSystemSchemaPriv) {
 				return plannererrors.ErrSpecificAccessDenied.GenWithStackByArgs("CREATE USER")
 			}
-			if checker.RequestDynamicVerificationWithUser("SYSTEM_USER", false, spec.User) && !(hasSystemUserPriv || hasRestrictedUserPriv) {
+			if checker.RequestDynamicVerificationWithUser("SYSTEM_USER", false, spec.User) && !hasSystemUserPriv {
 				return plannererrors.ErrSpecificAccessDenied.GenWithStackByArgs("SYSTEM_USER or SUPER")
 			}
 			if sem.IsEnabled() && checker.RequestDynamicVerificationWithUser("RESTRICTED_USER_ADMIN", false, spec.User) && !hasRestrictedUserPriv {
@@ -2061,6 +2070,10 @@ func (e *SimpleExec) executeGrantRole(ctx context.Context, s *ast.GrantRoleStmt)
 		if !exists {
 			return exeerrors.ErrGrantRole.GenWithStackByArgs(role.String())
 		}
+		// Security check: prevent granting cloud_admin accounts as roles
+		if strings.HasSuffix(role.Username, ".cloud_admin") {
+			return plannererrors.ErrSpecificAccessDenied.GenWithStackByArgs("GRANT cloud_admin accounts as roles")
+		}
 	}
 	for _, user := range s.Users {
 		exists, err := userExists(ctx, e.Ctx(), user.Username, user.Hostname)
@@ -2255,7 +2268,6 @@ func (e *SimpleExec) executeDropUser(ctx context.Context, s *ast.DropUserStmt) e
 		}
 	}
 	hasSystemUserPriv := checker.RequestDynamicVerification(activeRoles, "SYSTEM_USER", false)
-	hasRestrictedUserPriv := checker.RequestDynamicVerification(activeRoles, "RESTRICTED_USER_ADMIN", false)
 	failedUsers := make([]string, 0, len(s.UserList))
 	sysSession, err := e.GetSysSession()
 	defer e.ReleaseSysSession(internalCtx, sysSession)
@@ -2286,8 +2298,7 @@ func (e *SimpleExec) executeDropUser(ctx context.Context, s *ast.DropUserStmt) e
 		// If this is the case, we need to rollback all changes and return a privilege error.
 		// Because in TiDB SUPER can be used as a substitute for any dynamic privilege, this effectively means that
 		// any user with SUPER requires a user with SUPER to be able to DROP the user.
-		// We also allow RESTRICTED_USER_ADMIN to count for simplicity.
-		if checker.RequestDynamicVerificationWithUser("SYSTEM_USER", false, user) && !(hasSystemUserPriv || hasRestrictedUserPriv) {
+		if checker.RequestDynamicVerificationWithUser("SYSTEM_USER", false, user) && !hasSystemUserPriv {
 			if _, err := sqlExecutor.ExecuteInternal(internalCtx, "rollback"); err != nil {
 				return err
 			}

@@ -167,6 +167,7 @@ go_library(
         "//pkg/util/dbterror/plannererrors",
         "//pkg/util/disjointset",
         "//pkg/util/domainutil",
+        "//pkg/util/errmsg",
         "//pkg/util/execdetails",
         "//pkg/util/filter",
         "//pkg/util/hack",

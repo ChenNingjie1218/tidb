@@ -16,6 +16,7 @@ lease = "0"
 host = "127.0.0.1"
 new_collations_enabled_on_first_bootstrap = true
 enable-table-lock = true
+enable-set-table-ttl = true
 
 [status]
 status-host = "127.0.0.1"
@@ -30,6 +31,9 @@ allowed-clock-drift = 0
 [experimental]
 enable-new-charset = true
 allow-expression-index = true
+
+[security]
+enable-sem = false
 
 [bootstrap-control]
 skip-serverless-variables = true

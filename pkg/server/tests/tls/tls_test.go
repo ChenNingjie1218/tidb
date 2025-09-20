@@ -181,6 +181,11 @@ func isTLSExpiredError(err error) bool {
 }
 
 func TestTLSVerify(t *testing.T) {
+	restoreConfig := config.RestoreFunc()
+	defer restoreConfig()
+	config.UpdateGlobal(func(conf *config.Config) {
+		conf.Security.EnableSEM = false
+	})
 	ts := servertestkit.CreateTidbTestSuite(t)
 
 	dir := t.TempDir()
@@ -206,9 +211,10 @@ func TestTLSVerify(t *testing.T) {
 	cfg.Socket = dir + "/tidbtest.sock"
 	cfg.Status.ReportStatus = false
 	cfg.Security = config.Security{
-		SSLCA:   fileName("ca-cert.pem"),
-		SSLCert: fileName("server-cert.pem"),
-		SSLKey:  fileName("server-key.pem"),
+		EnableSEM: false,
+		SSLCA:     fileName("ca-cert.pem"),
+		SSLCert:   fileName("server-cert.pem"),
+		SSLKey:    fileName("server-key.pem"),
 	}
 	tidbserver.RunInGoTestChan = make(chan struct{})
 	server, err := tidbserver.NewServer(cfg, ts.Tidbdrv)

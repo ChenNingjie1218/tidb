@@ -32,7 +32,9 @@ import (
 	"github.com/pingcap/tidb/pkg/table"
 	"github.com/pingcap/tidb/pkg/util/chunk"
 	"github.com/pingcap/tidb/pkg/util/dbterror/exeerrors"
+	"github.com/pingcap/tidb/pkg/util/dbterror/plannererrors"
 	"github.com/pingcap/tidb/pkg/util/logutil"
+	"github.com/pingcap/tidb/pkg/util/sem"
 	"github.com/pingcap/tidb/pkg/util/sqlescape"
 	"go.uber.org/zap"
 )
@@ -73,6 +75,19 @@ func (e *RevokeExec) Next(ctx context.Context, _ *chunk.Chunk) error {
 	}
 	defer func() { e.Ctx().GetSessionVars().SetInTxn(false) }()
 
+	// Adding additional permissions restrictions for SEM.
+	// Permissions listed in the SEM configuration requiring revocation demand additional RESTRICTED_PRIV_ADMIN permission.
+	if sem.IsEnabled() {
+		currentUser := e.ctx.GetSessionVars().User
+		checker := privilege.GetPrivilegeManager(e.ctx)
+		hasRestrictedPrivAdmin := checker.RequestDynamicVerificationWithUser("RESTRICTED_PRIV_ADMIN", false, currentUser)
+		for _, priv := range e.Privs {
+			if priv.Priv != mysql.ExtendedPriv && sem.IsStaticPermissionRestricted(priv.Priv) && !hasRestrictedPrivAdmin {
+				return plannererrors.ErrSpecificAccessDenied.GenWithStackByArgs("RESTRICTED_PRIV_ADMIN")
+			}
+		}
+	}
+
 	// Create internal session to start internal transaction.
 	isCommit := false
 	internalSession, err := e.GetSysSession()
@@ -86,7 +101,6 @@ func (e *RevokeExec) Next(ctx context.Context, _ *chunk.Chunk) error {
 				logutil.BgLogger().Error("rollback error occur at grant privilege", zap.Error(err))
 			}
 		}
-		e.ReleaseSysSession(internalCtx, internalSession)
 	}()
 
 	_, err = internalSession.GetSQLExecutor().ExecuteInternal(internalCtx, "begin")

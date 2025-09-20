@@ -292,6 +292,7 @@ func (sh *StmtHints) addHypoIndex(db, tbl, idx string, idxInfo *model.IndexInfo)
 func ParseStmtHints(hints []*ast.TableOptimizerHint,
 	setVarHintChecker func(varName, hint string) (ok bool, warning error),
 	hypoIndexChecker func(db, tbl, col pmodel.CIStr) (colOffset int, err error),
+	checkRestrictedHint func(hint string) (warn error),
 	currentDB string, replicaReadFollower byte) ( // to avoid cycle import
 	stmtHints StmtHints, offs []int, warns []error) {
 	if len(hints) == 0 {
@@ -303,6 +304,10 @@ func ParseStmtHints(hints []*ast.TableOptimizerHint,
 	setVars := make(map[string]string)
 	setVarsOffs := make([]int, 0, len(hints))
 	for i, hint := range hints {
+		if warn := checkRestrictedHint(hint.HintName.L); warn != nil {
+			warns = append(warns, warn)
+			continue
+		}
 		switch hint.HintName.L {
 		case "memory_quota":
 			hintOffs[hint.HintName.L] = i

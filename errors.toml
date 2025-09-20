@@ -1156,6 +1156,11 @@ error = '''
 %s is not supported. Reason: %s. Try %s.
 '''
 
+["ddl:20001"]
+error = '''
+'%s' is not supported on TiDB Serverless.
+'''
+
 ["ddl:3102"]
 error = '''
 Expression of generated column '%s' contains a disallowed function.
@@ -2456,6 +2461,11 @@ error = '''
 Running in read-only mode
 '''
 
+["planner:20004"]
+error = '''
+Access denied; the recipient needs (at least one of) the %-.128s privilege(s) for this operation.
+'''
+
 ["planner:3029"]
 error = '''
 Expression #%d of ORDER BY contains aggregate function and applies to the result of a non-aggregated query
@@ -2969,6 +2979,11 @@ Access denied for user '%-.48s'@'%-.255s'
 ["server:1820"]
 error = '''
 You must reset your password using ALTER USER statement before executing this statement
+'''
+
+["server:20003"]
+error = '''
+An internal error occurred, please retry.
 '''
 
 ["server:3159"]

@@ -47,6 +47,7 @@ import (
 	"github.com/pingcap/tidb/pkg/util/hint"
 	"github.com/pingcap/tidb/pkg/util/intest"
 	"github.com/pingcap/tidb/pkg/util/logutil"
+	"github.com/pingcap/tidb/pkg/util/sem"
 	"github.com/pingcap/tidb/pkg/util/topsql"
 	"github.com/pingcap/tidb/pkg/util/tracing"
 	"go.uber.org/zap"
@@ -173,7 +174,7 @@ func Optimize(ctx context.Context, sctx sessionctx.Context, node *resolve.NodeW,
 
 	tableHints := hint.ExtractTableHintsFromStmtNode(node.Node, sessVars.StmtCtx)
 	originStmtHints, _, warns := hint.ParseStmtHints(tableHints,
-		setVarHintChecker, hypoIndexChecker(ctx, is),
+		setVarHintChecker(sctx), hypoIndexChecker(ctx, is), sem.IsRestrictedHint,
 		sessVars.CurrentDB, byte(kv.ReplicaReadFollower))
 	sessVars.StmtCtx.StmtHints = originStmtHints
 	for _, warn := range warns {
@@ -307,7 +308,7 @@ func Optimize(ctx context.Context, sctx sessionctx.Context, node *resolve.NodeW,
 			}
 			hint.BindHint(stmtNode, binding.Hint)
 			curStmtHints, _, curWarns := hint.ParseStmtHints(binding.Hint.GetStmtHints(),
-				setVarHintChecker, hypoIndexChecker(ctx, is),
+				setVarHintChecker(sctx), hypoIndexChecker(ctx, is), sem.IsRestrictedHint,
 				sessVars.CurrentDB, byte(kv.ReplicaReadFollower))
 			sessVars.StmtCtx.StmtHints = curStmtHints
 			// update session var by hint /set_var/
@@ -600,15 +601,24 @@ func handleInvalidBinding(ctx context.Context, sctx planctx.PlanContext, level s
 }
 
 // setVarHintChecker checks whether the variable name in set_var hint is valid.
-func setVarHintChecker(varName, hint string) (ok bool, warning error) {
-	sysVar := variable.GetSysVar(varName)
-	if sysVar == nil { // no such a variable
-		return false, plannererrors.ErrUnresolvedHintName.FastGenByArgs(varName, hint)
+func setVarHintChecker(sctx sessionctx.Context) func(string, string) (bool, error) {
+	return func(varName, hint string) (ok bool, warning error) {
+		sysVar := variable.GetSysVar(varName)
+		if sysVar == nil { // no such a variable
+			return false, plannererrors.ErrUnresolvedHintName.FastGenByArgs(varName, hint)
+		}
+		if !sysVar.IsHintUpdatableVerified {
+			warning = plannererrors.ErrNotHintUpdatable.FastGenByArgs(varName)
+		}
+		sessionVars := sctx.GetSessionVars()
+		checker := privilege.GetPrivilegeManager(sctx)
+		privilege.GetPrivilegeManager(sctx)
+		if sem.IsEnabled() && sem.IsReadOnlySysVar(varName) && !checker.RequestDynamicVerification(sessionVars.ActiveRoles, "RESTRICTED_VARIABLES_ADMIN", false) {
+			warning = plannererrors.ErrSQLInReadOnlyMode.FastGenByArgs(varName)
+			return false, warning
+		}
+		return true, warning
 	}
-	if !sysVar.IsHintUpdatableVerified {
-		warning = plannererrors.ErrNotHintUpdatable.FastGenByArgs(varName)
-	}
-	return true, warning
 }
 
 func hypoIndexChecker(ctx context.Context, is infoschema.InfoSchema) func(db, tbl, col model.CIStr) (colOffset int, err error) {

@@ -148,6 +148,14 @@ func (e *SetExecutor) setSysVariable(ctx context.Context, name string, v *expres
 		sessionVars.StmtCtx.AppendWarning(exeerrors.ErrInstanceScope.FastGenByArgs(sysVar.Name))
 	}
 
+	// Check if the variable is read only under SEM.
+	if err := e.checkSysVarReadOnlyForSEM(ctx, v, sysVar); err != nil {
+		// If the assignment violates sem ReadOnly, we simply append warning and ignore it, instead of
+		// returning error.
+		sessionVars.StmtCtx.AppendWarning(err)
+		return nil
+	}
+
 	if v.IsGlobal {
 		valStr, err := e.getVarValue(ctx, v, sysVar)
 		if err != nil {
@@ -169,6 +177,15 @@ func (e *SetExecutor) setSysVariable(ctx context.Context, name string, v *expres
 			showValStr = ast.RedactURL(showValStr)
 		}
 		logutil.BgLogger().Info("set global var", zap.Uint64("conn", sessionVars.ConnectionID), zap.String("name", name), zap.String("val", showValStr))
+
+		// TODO: @AmoebaProtozoa add when tidb worker is ready
+		// if name == variable.TiDBGCLifetime && tidbworker.IsMaster() && config.GetGlobalConfig().EnableSafePointV2 {
+		// 	gcLifeTime, err := time.ParseDuration(valStr)
+		// 	if err != nil {
+		// 		err = tidbworker.GlobalTiDBWorkerManager.UpdateGCLifeTime(ctx, int64(gcLifeTime/time.Second))
+		// 	}
+		// }
+
 		if name == variable.TiDBServiceScope {
 			dom := domain.GetDomain(e.Ctx())
 			oldConfig := config.GetGlobalConfig()
@@ -301,6 +318,56 @@ func (e *SetExecutor) setCharset(cs, co string, isSetName bool) error {
 		return errors.Trace(err)
 	}
 	return errors.Trace(sessionVars.SetSystemVar(variable.CollationConnection, coDB))
+}
+
+// checkReadOnly checks if the variable assignment violates sem read-only rules.
+func (e *SetExecutor) checkSysVarReadOnlyForSEM(
+	ctx context.Context,
+	v *expression.VarAssignment,
+	sysVar *variable.SysVar) error {
+	if !sem.IsEnabled() {
+		return nil
+	}
+
+	nameLower := strings.ToLower(sysVar.Name)
+	if !sem.IsReadOnlySysVar(nameLower) && !sem.IsReadOnlyGlobalSysVar(nameLower) {
+		return nil
+	}
+
+	// If the user has SUPER or RESTRICTED_VARIABLES_ADMIN, skip check.
+	pm := privilege.GetPrivilegeManager(e.Ctx())
+	if pm == nil || pm.RequestDynamicVerification(e.Ctx().GetSessionVars().ActiveRoles, "RESTRICTED_VARIABLES_ADMIN", false) {
+		return nil
+	}
+	var (
+		targetValue  string // The value to be set.
+		currentValue string // The current value of the variable.
+		err          error
+	)
+	// Obtain the target and current value of the set statement, must use getVarValue to handle the default value.
+	if v.IsGlobal {
+		targetValue, err = e.getVarValue(ctx, v, sysVar)
+		if err != nil {
+			return err
+		}
+		currentValue = sysVar.Value
+	} else {
+		targetValue, err = e.getVarValue(ctx, v, nil)
+		if err != nil {
+			return err
+		}
+		currentValue, err = e.Ctx().GetSessionVars().GetGlobalSystemVar(ctx, v.Name)
+		if err != nil {
+			return err
+		}
+	}
+	// Normalize the target value without appending warnings.
+	targetValue = sysVar.ValidateWithRelaxedValidation(e.Ctx().GetSessionVars(), targetValue, sysVar.Scope)
+	// Skip check sem read-only if the target value is the same as the current value.
+	if targetValue == currentValue {
+		return nil
+	}
+	return plannererrors.ErrSpecificAccessDenied.GenWithStackByArgs("RESTRICTED_VARIABLES_ADMIN")
 }
 
 func (e *SetExecutor) getVarValue(ctx context.Context, v *expression.VarAssignment, sysVar *variable.SysVar) (value string, err error) {

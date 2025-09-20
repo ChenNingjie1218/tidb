@@ -19,6 +19,7 @@ import (
 	"testing"
 
 	"github.com/pingcap/errors"
+	"github.com/pingcap/tidb/pkg/config"
 	"github.com/pingcap/tidb/pkg/extension"
 	"github.com/pingcap/tidb/pkg/parser/auth"
 	"github.com/pingcap/tidb/pkg/parser/mysql"
@@ -596,6 +597,14 @@ func TestPluginUserModification(t *testing.T) {
 	defer extension.Reset()
 	extension.Reset()
 
+	originCfg := config.GetGlobalConfig()
+	newCfg := *originCfg
+	newCfg.Security.EnableSEM = false
+	config.StoreGlobalConfig(&newCfg)
+	defer func() {
+		config.StoreGlobalConfig(originCfg)
+	}()
+
 	p := new(MockAuthPlugin)
 	p.On("Name").Return("authentication_test_plugin")
 	authnMatcher1 := mock.MatchedBy(func(ctx extension.AuthenticateRequest) bool {
@@ -656,7 +665,7 @@ func TestPluginUserModification(t *testing.T) {
 	tk2.Session().SetExtensions(ext.NewSessionExtensions())
 	require.NoError(t, tk2.Session().Auth(&auth.UserIdentity{Username: "u2", Hostname: "localhost"}, nil, nil, nil))
 	// User u2 should not be able to alter user u1 or drop it.
-	tk2.MustContainErrMsg("drop user u1", "[planner:1227]Access denied; you need (at least one of) the SYSTEM_USER or SUPER privilege(s) for this operation")
+	tk2.MustContainErrMsg("drop user u1", "[planner:1227]Access denied; you need (at least one of) the SYSTEM_USER privilege(s) for this operation")
 	tk2.MustContainErrMsg("alter user u1 identified with 'authentication_test_plugin' as 'randompassword'", "[planner:1227]Access denied; you need (at least one of) the SYSTEM_USER or SUPER privilege(s) for this operation")
 	// Should not even call the plugin to verify privilege of u1 at all.
 	p.AssertNumberOfCalls(t, "VerifyPrivilege", 0)

@@ -19,9 +19,13 @@ import (
 	"strings"
 	"sync/atomic"
 
+	"github.com/pingcap/errors"
+	"github.com/pingcap/failpoint"
+	"github.com/pingcap/tidb/pkg/config"
 	"github.com/pingcap/tidb/pkg/parser/mysql"
 	"github.com/pingcap/tidb/pkg/sessionctx/variable"
 	"github.com/pingcap/tidb/pkg/util/logutil"
+	"go.uber.org/zap"
 )
 
 const (
@@ -62,29 +66,100 @@ const (
 	tidbGCLeaderDesc      = "tidb_gc_leader_desc"
 	restrictedPriv        = "RESTRICTED_"
 	tidbAuditRetractLog   = "tidb_audit_redact_log" // sysvar installed by a plugin
+
+	placementAdmin     = "PLACEMENT_ADMIN"
+	backupAdmin        = "BACKUP_ADMIN"
+	restoreAdmin       = "RESTORE_ADMIN"
+	resourceGroupAdmin = "RESOURCE_GROUP_ADMIN"
+
+	// Additional tables for serverless tier.
+	attributes            = "attributes"
+	clusterInfo           = "cluster_info"
+	tikvRegionStatus      = "tikv_region_status"
+	tikvStoreStatus       = "tikv_store_status"
+	resourceGroups        = "resource_groups"
+	tidbHotRegionsHistory = "tidb_hot_regions_history"
+	tidbServersInfo       = "tidb_servers_info"
+	placementPolicies     = "placement_policies"
+	tikvRegionPeers       = "tikv_region_peers"
+	tidbTTLJobHistory     = "tidb_ttl_job_history"
+	tidbTTLTableStatus    = "tidb_ttl_table_status"
+	tidbTTLTask           = "tidb_ttl_task"
+
+	// Serverless tier slow query related tables.
+	slowQuery                       = "slow_query"
+	clusterSlowQuery                = "cluster_slow_query"
+	statementsSummary               = "statements_summary"
+	statementsSummaryEvicted        = "statements_summary_evicted"
+	statementsSummaryHistory        = "statements_summary_history"
+	clusterStatementsSummary        = "cluster_statements_summary"
+	clusterStatementsSummaryEvicted = "cluster_statements_summary_evicted"
+	clusterStatementsSummaryHistory = "cluster_statements_summary_history"
 )
 
 var (
 	semEnabled int32
+	semLevel   int32
+)
+
+const (
+	levelBasicVal  int32 = 1
+	levelStrictVal       = 2
+	levelConfigVal       = 3
 )
 
 // Enable enables SEM. This is intended to be used by the test-suite.
 // Dynamic configuration by users may be a security risk.
-func Enable() {
-	atomic.StoreInt32(&semEnabled, 1)
-	variable.SetSysVar(variable.TiDBEnableEnhancedSecurity, variable.On)
-	variable.SetSysVar(variable.Hostname, variable.DefHostname)
+func Enable(level string) error {
+	failpoint.Inject("skipSEM", func() {
+		logutil.BgLogger().Info("skip enabling SEM")
+		failpoint.Return(nil)
+	})
+
+	if !atomic.CompareAndSwapInt32(&semEnabled, 0, 1) {
+		logutil.BgLogger().Info("SEM enable operation was skipped because it is already enabled")
+		return nil
+	}
+
+	switch level {
+	case config.SEMLevelBasic:
+		atomic.StoreInt32(&semLevel, levelBasicVal)
+		variable.SetSysVar(variable.TiDBEnableEnhancedSecurity, variable.On)
+		variable.SetSysVar(variable.Hostname, variable.DefHostname)
+	case config.SEMLevelStrict:
+		atomic.StoreInt32(&semLevel, levelStrictVal)
+		enableStrictMode()
+	case config.SEMLevelConfig:
+		atomic.StoreInt32(&semLevel, levelConfigVal)
+		enableConfigMode()
+	default:
+		return errors.Errorf("invalid level option for sem: %s", level)
+	}
 	// write to log so users understand why some operations are weird.
-	logutil.BgLogger().Info("tidb-server is operating with security enhanced mode (SEM) enabled")
+	logutil.BgLogger().Info("tidb-server is operating with security enhanced mode (SEM) enabled",
+		zap.String("level", level),
+	)
+	return nil
 }
 
 // Disable disables SEM. This is intended to be used by the test-suite.
 // Dynamic configuration by users may be a security risk.
 func Disable() {
-	atomic.StoreInt32(&semEnabled, 0)
-	variable.SetSysVar(variable.TiDBEnableEnhancedSecurity, variable.Off)
-	if hostname, err := os.Hostname(); err == nil {
-		variable.SetSysVar(variable.Hostname, hostname)
+	if !atomic.CompareAndSwapInt32(&semEnabled, 1, 0) {
+		logutil.BgLogger().Info("SEM disable operation was skipped because it is already disabled")
+		return
+	}
+
+	switch atomic.LoadInt32(&semLevel) {
+	case levelBasicVal:
+		variable.SetSysVar(variable.TiDBEnableEnhancedSecurity, variable.Off)
+		if hostname, err := os.Hostname(); err == nil {
+			variable.SetSysVar(variable.Hostname, hostname)
+		}
+	case levelStrictVal:
+		disableStrictMode()
+	case levelConfigVal:
+		disableConfigMode()
 	}
 }
 
@@ -96,12 +171,19 @@ func IsEnabled() bool {
 // IsInvisibleSchema returns true if the dbName needs to be hidden
 // when sem is enabled.
 func IsInvisibleSchema(dbName string) bool {
+	if isConfigMode() {
+		return configModeInvisibleSchema(dbName)
+	}
 	return strings.EqualFold(dbName, metricsSchema)
 }
 
 // IsInvisibleTable returns true if the table needs to be hidden
 // when sem is enabled.
 func IsInvisibleTable(dbLowerName, tblLowerName string) bool {
+	if isConfigMode() {
+		return configModeInvisibleTable(dbLowerName, tblLowerName)
+	}
+
 	switch dbLowerName {
 	case mysql.SystemDB:
 		switch tblLowerName {
@@ -111,7 +193,11 @@ func IsInvisibleTable(dbLowerName, tblLowerName string) bool {
 	case informationSchema:
 		switch tblLowerName {
 		case clusterConfig, clusterHardware, clusterLoad, clusterLog, clusterSystemInfo, inspectionResult,
-			inspectionRules, inspectionSummary, metricsSummary, metricsSummaryByLabel, metricsTables, tidbHotRegions:
+			inspectionRules, inspectionSummary, metricsSummary, metricsSummaryByLabel, metricsTables, tidbHotRegions,
+			clusterInfo, tikvRegionStatus, tikvStoreStatus, clusterSlowQuery,
+			slowQuery, statementsSummary, statementsSummaryEvicted, statementsSummaryHistory, clusterStatementsSummary,
+			clusterStatementsSummaryEvicted, clusterStatementsSummaryHistory, resourceGroups, tidbHotRegionsHistory,
+			tidbServersInfo:
 			return true
 		}
 	case performanceSchema:
@@ -124,16 +210,31 @@ func IsInvisibleTable(dbLowerName, tblLowerName string) bool {
 	case metricsSchema:
 		return true
 	}
-	return false
+	return isStrictMode() && strictModeInvisibleTable(dbLowerName, tblLowerName)
 }
 
-// IsInvisibleStatusVar returns true if the status var needs to be hidden
-func IsInvisibleStatusVar(varName string) bool {
-	return varName == tidbGCLeaderDesc
+// IsRestrictedStatus return the actual restricted status of the status variable.
+// false indicates no restriction.
+func IsRestrictedStatus(varName string) (bool, *config.RestrictedStatus) {
+	if isConfigMode() {
+		return configModeRestrictedStatus(varName)
+	}
+
+	if varName == tidbGCLeaderDesc {
+		return true, &config.RestrictedStatus{
+			Name:            tidbGCLeaderDesc,
+			RestrictionType: "hidden",
+		}
+	}
+	return false, nil
 }
 
 // IsInvisibleSysVar returns true if the sysvar needs to be hidden
 func IsInvisibleSysVar(varNameInLower string) bool {
+	if isConfigMode() {
+		return configModeInvisibleSysVar(varNameInLower)
+	}
+
 	switch varNameInLower {
 	case variable.TiDBDDLSlowOprThreshold, // ddl_slow_threshold
 		variable.TiDBCheckMb4ValueInUTF8,
@@ -158,17 +259,54 @@ func IsInvisibleSysVar(varNameInLower string) bool {
 		variable.TiDBRestrictedReadOnly,
 		variable.TiDBTopSQLMaxTimeSeriesCount,
 		variable.TiDBTopSQLMaxMetaCount,
+		// TODO: cp-7.5 variable.TiDBEnableVectorType,
 		tidbAuditRetractLog:
 		return true
 	}
-	return false
+	return isStrictMode() && strictModeInvisibleSysVar(varNameInLower)
+}
+
+// IsReadOnlySysVar returns true if the sysvar is read-only
+func IsReadOnlySysVar(varNameInLower string) bool {
+	if isConfigMode() {
+		return configModeReadOnlySysVar(varNameInLower)
+	}
+
+	return isStrictMode() && strictModeReadOnlySysVar(varNameInLower)
+}
+
+// IsReplacedSysVar returns true if the sysVar is replaced.
+func IsReplacedSysVar(varNameInLower string) bool {
+	return isConfigMode() && configModeReplacedSysVar(varNameInLower)
+}
+
+// IsReadOnlyGlobalSysVar returns true if global sysVar is read only.
+func IsReadOnlyGlobalSysVar(varNameInLower string) bool {
+	return isConfigMode() && configModeReadOnlyGlobalSysVar(varNameInLower)
+}
+
+// IsStaticPermissionRestricted returns true if the static privilege should be restricted in config mode.
+func IsStaticPermissionRestricted(privType mysql.PrivilegeType) bool {
+	return isConfigMode() && configModeStaticPermissionRestricted(privType)
 }
 
 // IsRestrictedPrivilege returns true if the privilege shuld not be satisfied by SUPER
 // As most dynamic privileges are.
 func IsRestrictedPrivilege(privNameInUpper string) bool {
-	if len(privNameInUpper) < 12 {
-		return false
+	if isConfigMode() {
+		return configModeRestrictedPrivilege(privNameInUpper)
 	}
-	return privNameInUpper[:11] == restrictedPriv
+
+	switch privNameInUpper {
+	case
+		placementAdmin,
+		backupAdmin,
+		restoreAdmin,
+		resourceGroupAdmin:
+		return true
+	}
+	if len(privNameInUpper) >= 12 && privNameInUpper[:11] == restrictedPriv {
+		return true
+	}
+	return isStrictMode() && strictModeRestrictedPrivilege(privNameInUpper)
 }

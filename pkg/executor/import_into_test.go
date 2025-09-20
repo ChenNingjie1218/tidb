@@ -19,6 +19,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/pingcap/tidb/pkg/config"
 	"github.com/pingcap/tidb/pkg/executor"
 	"github.com/pingcap/tidb/pkg/executor/importer"
 	"github.com/pingcap/tidb/pkg/parser"
@@ -32,7 +33,7 @@ func TestSecurityEnhancedMode(t *testing.T) {
 	store := testkit.CreateMockStore(t)
 
 	tk := testkit.NewTestKit(t, store)
-	sem.Enable()
+	sem.Enable(config.SEMLevelBasic)
 	defer sem.Disable()
 	tk.MustExec("create table test.t (id int);")
 

@@ -22,6 +22,7 @@ import (
 	"testing"
 
 	"github.com/pingcap/errors"
+	"github.com/pingcap/tidb/pkg/config"
 	"github.com/pingcap/tidb/pkg/expression"
 	"github.com/pingcap/tidb/pkg/extension"
 	"github.com/pingcap/tidb/pkg/parser/auth"
@@ -403,7 +404,7 @@ func TestExtensionFuncPrivilege(t *testing.T) {
 	tk1.MustQuery("select custom_both_dyn_priv_func()").Check(testkit.Rows("ghi"))
 	tk1.MustQuery("select custom_eval_int_func()").Check(testkit.Rows("1"))
 
-	sem.Enable()
+	sem.Enable(config.SEMLevelBasic)
 
 	// root in sem
 	require.NoError(t, tk1.Session().Auth(&auth.UserIdentity{Username: "root", Hostname: "localhost"}, nil, nil, nil))

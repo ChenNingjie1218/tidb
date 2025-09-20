@@ -952,7 +952,12 @@ func (e *ShowExec) fetchShowVariables(ctx context.Context) (err error) {
 				if infoschema.SysVarHiddenForSem(e.Ctx(), v.Name) {
 					continue
 				}
-				value, err = sessionVars.GetGlobalSystemVar(ctx, v.Name)
+				checker := privilege.GetPrivilegeManager(e.Ctx())
+				if sem.IsEnabled() && sem.IsReplacedSysVar(v.Name) && checker.RequestDynamicVerification(sessionVars.ActiveRoles, "RESTRICTED_VARIABLES_ADMIN", false) {
+					value = sem.GetOrigVar(v.Name)
+				} else {
+					value, err = sessionVars.GetGlobalSystemVar(ctx, v.Name)
+				}
 				if err != nil {
 					return errors.Trace(err)
 				}
@@ -977,9 +982,14 @@ func (e *ShowExec) fetchShowVariables(ctx context.Context) (err error) {
 		if infoschema.SysVarHiddenForSem(e.Ctx(), v.Name) {
 			continue
 		}
-		value, err = sessionVars.GetSessionOrGlobalSystemVar(context.Background(), v.Name)
-		if err != nil {
-			return errors.Trace(err)
+		checker := privilege.GetPrivilegeManager(e.Ctx())
+		if sem.IsEnabled() && sem.IsReplacedSysVar(v.Name) && checker.RequestDynamicVerification(sessionVars.ActiveRoles, "RESTRICTED_VARIABLES_ADMIN", false) {
+			value = sem.GetOrigVar(v.Name)
+		} else {
+			value, err = sessionVars.GetSessionOrGlobalSystemVar(context.Background(), v.Name)
+			if err != nil {
+				return errors.Trace(err)
+			}
 		}
 		e.appendRow([]any{v.Name, value})
 	}
@@ -997,12 +1007,6 @@ func (e *ShowExec) fetchShowStatus() error {
 		if e.GlobalScope && v.Scope == variable.ScopeSession {
 			continue
 		}
-		// Skip invisible status vars if permission fails.
-		if sem.IsEnabled() && sem.IsInvisibleStatusVar(status) {
-			if checker == nil || !checker.RequestDynamicVerification(sessionVars.ActiveRoles, "RESTRICTED_STATUS_ADMIN", false) {
-				continue
-			}
-		}
 		switch v.Value.(type) {
 		case []any, nil:
 			v.Value = fmt.Sprintf("%v", v.Value)
@@ -1010,6 +1014,19 @@ func (e *ShowExec) fetchShowStatus() error {
 		value, err := types.ToString(v.Value)
 		if err != nil {
 			return errors.Trace(err)
+		}
+		// If permission fails, then skip or replace the invisible 'Status' variable.
+		if sem.IsEnabled() {
+			isRestricted, statusVar := sem.IsRestrictedStatus(status)
+			if isRestricted {
+				unauthorized := checker == nil || !checker.RequestDynamicVerification(sessionVars.ActiveRoles, "RESTRICTED_STATUS_ADMIN", false)
+				if statusVar.RestrictionType == "hidden" && unauthorized {
+					continue
+				}
+				if statusVar.RestrictionType == "replace" && unauthorized {
+					value = statusVar.Value
+				}
+			}
 		}
 		e.appendRow([]any{status, value})
 	}
@@ -1946,6 +1963,10 @@ func (*ShowExec) fetchShowProcedureStatus() error {
 }
 
 func (e *ShowExec) fetchShowPlugins() error {
+	// If SEM enabled, return an empty list for plugins.
+	if sem.IsEnabled() {
+		return nil
+	}
 	tiPlugins := plugin.GetAll()
 	for _, ps := range tiPlugins {
 		for _, p := range ps {

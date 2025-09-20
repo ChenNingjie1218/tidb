@@ -63,10 +63,12 @@ var dynamicPrivs = []string{
 	"RESTRICTED_STATUS_ADMIN",         // Can see all status vars when SEM is enabled.
 	"RESTRICTED_VARIABLES_ADMIN",      // Can see all variables when SEM is enabled
 	"RESTRICTED_USER_ADMIN",           // User can not have their access revoked by SUPER users.
-	"RESTRICTED_CONNECTION_ADMIN",     // Can not be killed by PROCESS/CONNECTION_ADMIN privilege
 	"RESTRICTED_REPLICA_WRITER_ADMIN", // Can write to the sever even when tidb_restriced_read_only is turned on.
 	"RESOURCE_GROUP_ADMIN",            // Create/Drop/Alter RESOURCE GROUP
 	"RESOURCE_GROUP_USER",             // Can change the resource group of current session.
+	"RESTRICTED_PRIV_ADMIN",           // No longer subject to SEM-related special security restrictions.
+
+	// "RESTRICTED_CONNECTION_ADMIN", // deprecated, please use the new function RESTRICTED_USER_ADMIN instead
 }
 var dynamicPrivLock sync.Mutex
 var defaultTokenLife = 15 * time.Minute

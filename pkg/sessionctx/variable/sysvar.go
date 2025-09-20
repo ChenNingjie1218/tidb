@@ -77,7 +77,7 @@ var defaultSysVars = []*SysVar{
 	{Scope: ScopeNone, Name: Port, Value: "4000", Type: TypeUnsigned, MinValue: 0, MaxValue: math.MaxUint16},
 	{Scope: ScopeNone, Name: VersionComment, Value: "TiDB Server (Apache License 2.0) " + versioninfo.TiDBEdition + " Edition, MySQL 8.0 compatible"},
 	{Scope: ScopeNone, Name: Version, Value: mysql.ServerVersion},
-	{Scope: ScopeNone, Name: DataDir, Value: "/usr/local/mysql/data/"},
+	{Scope: ScopeNone, Name: DataDir, Value: DefDataDir},
 	{Scope: ScopeNone, Name: Socket, Value: ""},
 	{Scope: ScopeNone, Name: "license", Value: "Apache License 2.0"},
 	{Scope: ScopeNone, Name: "have_ssl", Value: "DISABLED", Type: TypeBool},
@@ -956,7 +956,7 @@ var defaultSysVars = []*SysVar{
 	}, SetGlobal: func(_ context.Context, s *SessionVars, val string) error {
 		return setTiDBTableValue(s, "tikv_gc_run_interval", val, "GC run interval, at least 10m, in Go format.")
 	}},
-	{Scope: ScopeGlobal, Name: TiDBGCLifetime, Value: "10m0s", Type: TypeDuration, MinValue: int64(time.Minute * 10), MaxValue: uint64(time.Hour * 24 * 365), GetGlobal: func(_ context.Context, s *SessionVars) (string, error) {
+	{Scope: ScopeGlobal, Name: TiDBGCLifetime, Value: "10m0s", Type: TypeDuration, MinValue: int64(time.Minute * 10), MaxValue: uint64(time.Hour * 24 * 7), GetGlobal: func(_ context.Context, s *SessionVars) (string, error) {
 		return getTiDBTableValue(s, "tikv_gc_life_time", "10m0s")
 	}, SetGlobal: func(_ context.Context, s *SessionVars, val string) error {
 		return setTiDBTableValue(s, "tikv_gc_life_time", val, "All versions within life time will not be collected by GC, at least 10m, in Go format.")

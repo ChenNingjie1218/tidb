@@ -34,6 +34,7 @@ import (
 	"github.com/pingcap/tidb/br/pkg/mock"
 	"github.com/pingcap/tidb/br/pkg/mock/mocklocal"
 	"github.com/pingcap/tidb/br/pkg/utils"
+	"github.com/pingcap/tidb/pkg/config"
 	"github.com/pingcap/tidb/pkg/disttask/framework/proto"
 	"github.com/pingcap/tidb/pkg/disttask/framework/scheduler"
 	"github.com/pingcap/tidb/pkg/disttask/framework/storage"
@@ -95,7 +96,7 @@ func (s *mockGCSSuite) TestImportIntoPrivilegePositiveCase() {
 	s.tk.MustQuery(sql)
 	s.tk.MustQuery("select * from t").Check(testkit.Rows("1 test1 11", "2 test2 22"))
 	// works even SEM enabled
-	sem.Enable()
+	sem.Enable(config.SEMLevelBasic)
 	s.T().Cleanup(func() {
 		sem.Disable()
 	})

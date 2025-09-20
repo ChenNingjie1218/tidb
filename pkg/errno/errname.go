@@ -1180,4 +1180,9 @@ var MySQLErrName = map[uint16]*mysql.ErrMessage{
 
 	ErrWarnGlobalIndexNeedManuallyAnalyze: mysql.Message("Auto analyze is not effective for index '%-.192s', need analyze manually", nil),
 	ErrTimeStampInDSTTransition:           mysql.Message("Timestamp is not valid, since it is in Daylight Saving Time transition '%s' for time zone '%s'", nil),
+
+	// Serverless Tier errors.
+	ErrNotSupportedOnServerless: mysql.Message("'%s' is not supported on TiDB Serverless.", nil),
+	ErrUserPrefixMismatch:       mysql.Message("An internal error occurred, please retry.", nil),
+	ErrRecipientAccessDenied:    mysql.Message("Access denied; the recipient needs (at least one of) the %-.128s privilege(s) for this operation.", nil),
 }

@@ -2,13 +2,27 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "sem",
-    srcs = ["sem.go"],
+    srcs = [
+        "config_sem.go",
+        "restricted_hint.go",
+        "restricted_statement.go",
+        "sem.go",
+        "strict_sem.go",
+    ],
     importpath = "github.com/pingcap/tidb/pkg/util/sem",
     visibility = ["//visibility:public"],
     deps = [
+        "//pkg/config",
+        "//pkg/keyspace",
+        "//pkg/parser/ast",
         "//pkg/parser/mysql",
         "//pkg/sessionctx/variable",
+        "//pkg/util/dbterror",
+        "//pkg/util/intest",
         "//pkg/util/logutil",
+        "@com_github_pingcap_errors//:errors",
+        "@com_github_pingcap_failpoint//:failpoint",
+        "@org_uber_go_zap//:zap",
     ],
 )
 
@@ -22,6 +36,7 @@ go_test(
     embed = [":sem"],
     flaky = True,
     deps = [
+        "//pkg/config",
         "//pkg/parser/mysql",
         "//pkg/sessionctx/variable",
         "//pkg/testkit/testsetup",

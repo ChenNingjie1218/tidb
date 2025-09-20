@@ -199,7 +199,7 @@ func TestSystemVars(t *testing.T) {
 	}
 
 	if !sem.IsEnabled() {
-		sem.Enable()
+		sem.Enable(config.SEMLevelBasic)
 		defer sem.Disable()
 	}
 	for _, tt := range tests {
@@ -241,6 +241,20 @@ func TestSystemVars(t *testing.T) {
 }
 
 func TestInvisibleVars(t *testing.T) {
+	tidbCfg := config.NewConfig()
+	tidbCfg.Security.SEM.RestrictedVariables = []config.RestrictedVariable{
+		{
+			Name:            variable.TiDBOptWriteRowID,
+			RestrictionType: "hidden",
+			Readonly:        true,
+		},
+		{
+			Name:            variable.TiDBRowFormatVersion,
+			RestrictionType: "hidden",
+			Readonly:        true,
+		},
+	}
+	config.StoreGlobalConfig(tidbCfg)
 	tests := []struct {
 		hasPriv       bool
 		stmt          string
@@ -298,7 +312,7 @@ func TestInvisibleVars(t *testing.T) {
 	sessionstates.SetupSigningCertForTest(t)
 	store := testkit.CreateMockStore(t)
 	if !sem.IsEnabled() {
-		sem.Enable()
+		sem.Enable(config.SEMLevelConfig)
 		defer sem.Disable()
 	}
 	tk := testkit.NewTestKit(t, store)
@@ -344,9 +358,10 @@ func TestIssue47665(t *testing.T) {
 	originSEM := config.GetGlobalConfig().Security.EnableSEM
 	config.GetGlobalConfig().Security.EnableSEM = true
 	tk.MustGetErrMsg("set @@global.require_secure_transport = on", "require_secure_transport can not be set to ON with SEM(security enhanced mode) enabled")
-	config.GetGlobalConfig().Security.EnableSEM = originSEM
+	config.GetGlobalConfig().Security.EnableSEM = false
 	tk.MustExec("set @@global.require_secure_transport = on")
 	tk.MustExec("set @@global.require_secure_transport = off") // recover to default value
+	config.GetGlobalConfig().Security.EnableSEM = originSEM
 }
 
 func TestSessionCtx(t *testing.T) {

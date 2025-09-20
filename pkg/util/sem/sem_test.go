@@ -17,12 +17,18 @@ package sem
 import (
 	"testing"
 
+	"github.com/pingcap/tidb/pkg/config"
 	"github.com/pingcap/tidb/pkg/parser/mysql"
 	"github.com/pingcap/tidb/pkg/sessionctx/variable"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestInvisibleSchema(t *testing.T) {
+	tidbCfg := config.NewConfig()
+	tidbCfg.Security.SEM.RestrictedDatabases = []string{metricsSchema}
+	config.StoreGlobalConfig(tidbCfg)
+	Enable(config.SEMLevelConfig)
+
 	assert := assert.New(t)
 
 	assert.True(IsInvisibleSchema(metricsSchema))
@@ -33,6 +39,137 @@ func TestInvisibleSchema(t *testing.T) {
 }
 
 func TestIsInvisibleTable(t *testing.T) {
+	tidbCfg := config.NewConfig()
+	tidbCfg.Security.SEM.RestrictedTables = []config.RestrictedTable{
+		{
+			Schema: mysql.SystemDB,
+			Name:   exprPushdownBlacklist,
+		},
+		{
+			Schema: mysql.SystemDB,
+			Name:   gcDeleteRange,
+		},
+		{
+			Schema: mysql.SystemDB,
+			Name:   gcDeleteRangeDone,
+		},
+		{
+			Schema: mysql.SystemDB,
+			Name:   optRuleBlacklist,
+		},
+		{
+			Schema: mysql.SystemDB,
+			Name:   tidb,
+		},
+		{
+			Schema: mysql.SystemDB,
+			Name:   globalVariables,
+		},
+		{
+			Schema: informationSchema,
+			Name:   clusterConfig,
+		},
+		{
+			Schema: informationSchema,
+			Name:   clusterHardware,
+		},
+		{
+			Schema: informationSchema,
+			Name:   clusterLoad,
+		},
+		{
+			Schema: informationSchema,
+			Name:   clusterLog,
+		},
+		{
+			Schema: informationSchema,
+			Name:   clusterSystemInfo,
+		},
+		{
+			Schema: informationSchema,
+			Name:   inspectionResult,
+		},
+		{
+			Schema: informationSchema,
+			Name:   inspectionRules,
+		},
+		{
+			Schema: informationSchema,
+			Name:   inspectionSummary,
+		},
+		{
+			Schema: informationSchema,
+			Name:   metricsSummary,
+		},
+		{
+			Schema: informationSchema,
+			Name:   metricsSummaryByLabel,
+		},
+		{
+			Schema: informationSchema,
+			Name:   metricsTables,
+		},
+		{
+			Schema: informationSchema,
+			Name:   tidbHotRegions,
+		},
+		{
+			Schema: performanceSchema,
+			Name:   pdProfileAllocs,
+		},
+		{
+			Schema: performanceSchema,
+			Name:   pdProfileBlock,
+		},
+		{
+			Schema: performanceSchema,
+			Name:   pdProfileCPU,
+		},
+		{
+			Schema: performanceSchema,
+			Name:   pdProfileGoroutines,
+		},
+		{
+			Schema: performanceSchema,
+			Name:   pdProfileMemory,
+		},
+		{
+			Schema: performanceSchema,
+			Name:   pdProfileMutex,
+		},
+		{
+			Schema: performanceSchema,
+			Name:   tidbProfileAllocs,
+		},
+		{
+			Schema: performanceSchema,
+			Name:   tidbProfileBlock,
+		},
+		{
+			Schema: performanceSchema,
+			Name:   tidbProfileCPU,
+		},
+		{
+			Schema: performanceSchema,
+			Name:   tidbProfileGoroutines,
+		},
+		{
+			Schema: performanceSchema,
+			Name:   tidbProfileMemory,
+		},
+		{
+			Schema: performanceSchema,
+			Name:   tidbProfileMutex,
+		},
+		{
+			Schema: performanceSchema,
+			Name:   tikvProfileCPU,
+		},
+	}
+	tidbCfg.Security.SEM.RestrictedDatabases = []string{metricsSchema}
+	config.StoreGlobalConfig(tidbCfg)
+	Enable(config.SEMLevelConfig)
+
 	assert := assert.New(t)
 
 	mysqlTbls := []string{exprPushdownBlacklist, gcDeleteRange, gcDeleteRangeDone, optRuleBlacklist, tidb, globalVariables}
@@ -59,24 +196,181 @@ func TestIsInvisibleTable(t *testing.T) {
 
 func TestIsRestrictedPrivilege(t *testing.T) {
 	assert := assert.New(t)
+	Enable(config.SEMLevelConfig)
 
 	assert.True(IsRestrictedPrivilege("RESTRICTED_TABLES_ADMIN"))
 	assert.True(IsRestrictedPrivilege("RESTRICTED_STATUS_VARIABLES_ADMIN"))
 	assert.False(IsRestrictedPrivilege("CONNECTION_ADMIN"))
-	assert.False(IsRestrictedPrivilege("BACKUP_ADMIN"))
+	assert.True(IsRestrictedPrivilege("BACKUP_ADMIN")) // backup admin is a restricted privilege in serverless.
 	assert.False(IsRestrictedPrivilege("aa"))
 }
 
-func TestIsInvisibleStatusVar(t *testing.T) {
+func TestIsRestrictedStatus(t *testing.T) {
 	assert := assert.New(t)
 
-	assert.True(IsInvisibleStatusVar(tidbGCLeaderDesc))
-	assert.False(IsInvisibleStatusVar("server_id"))
-	assert.False(IsInvisibleStatusVar("ddl_schema_version"))
-	assert.False(IsInvisibleStatusVar("Ssl_version"))
+	tidbCfg := config.NewConfig()
+
+	tidbCfg.Security.SEM.RestrictedStatus = []config.RestrictedStatus{
+		{
+			Name:            "tidb_gc_leader_desc",
+			RestrictionType: "hidden",
+			Value:           "",
+		},
+		{
+			Name:            "server_id",
+			RestrictionType: "replace",
+			Value:           "xxxx",
+		},
+	}
+
+	config.StoreGlobalConfig(tidbCfg)
+	Enable(config.SEMLevelConfig)
+
+	var restricted bool
+	var info *config.RestrictedStatus
+
+	restricted, info = IsRestrictedStatus(tidbGCLeaderDesc)
+	assert.True(restricted)
+	assert.Equal("tidb_gc_leader_desc", info.Name)
+	assert.Equal("hidden", info.RestrictionType)
+
+	restricted, info = IsRestrictedStatus("server_id")
+	assert.True(restricted)
+	assert.Equal("server_id", info.Name)
+	assert.Equal("replace", info.RestrictionType)
+	assert.Equal("xxxx", info.Value)
+
+	restricted, info = IsRestrictedStatus("ddl_schema_version")
+	assert.False(restricted)
+
+	restricted, info = IsRestrictedStatus("Ssl_version")
+	assert.False(restricted)
 }
 
 func TestIsInvisibleSysVar(t *testing.T) {
+	tidbCfg := config.NewConfig()
+	tidbCfg.Security.SEM.RestrictedVariables = []config.RestrictedVariable{
+		{
+			Name:            variable.Hostname,
+			RestrictionType: "replace",
+			Value:           "localhost",
+		},
+		{
+			Name:            variable.TiDBEnableEnhancedSecurity,
+			RestrictionType: "replace",
+			Value:           "ON",
+		},
+		{
+			Name:            variable.TiDBAllowRemoveAutoInc,
+			RestrictionType: "replace",
+			Value:           "True",
+		},
+		{
+			Name:            variable.TiDBCheckMb4ValueInUTF8,
+			RestrictionType: "hidden",
+			Value:           "",
+		},
+		{
+			Name:            variable.TiDBConfig,
+			RestrictionType: "hidden",
+			Value:           "",
+		},
+		{
+			Name:            variable.TiDBEnableSlowLog,
+			RestrictionType: "hidden",
+			Value:           "",
+		},
+		{
+			Name:            variable.TiDBExpensiveQueryTimeThreshold,
+			RestrictionType: "hidden",
+			Value:           "",
+		},
+		{
+			Name:            variable.TiDBForcePriority,
+			RestrictionType: "hidden",
+			Value:           "",
+		},
+		{
+			Name:            variable.TiDBGeneralLog,
+			RestrictionType: "hidden",
+			Value:           "",
+		},
+		{
+			Name:            variable.TiDBMetricSchemaRangeDuration,
+			RestrictionType: "hidden",
+			Value:           "",
+		},
+		{
+			Name:            variable.TiDBMetricSchemaStep,
+			RestrictionType: "hidden",
+			Value:           "",
+		},
+		{
+			Name:            variable.TiDBOptWriteRowID,
+			RestrictionType: "hidden",
+			Value:           "",
+		},
+		{
+			Name:            variable.TiDBPProfSQLCPU,
+			RestrictionType: "hidden",
+			Value:           "",
+		},
+		{
+			Name:            variable.TiDBRecordPlanInSlowLog,
+			RestrictionType: "hidden",
+			Value:           "",
+		},
+		{
+			Name:            variable.TiDBSlowQueryFile,
+			RestrictionType: "hidden",
+			Value:           "",
+		},
+		{
+			Name:            variable.TiDBSlowLogThreshold,
+			RestrictionType: "hidden",
+			Value:           "",
+		},
+		{
+			Name:            variable.TiDBEnableCollectExecutionInfo,
+			RestrictionType: "hidden",
+			Value:           "",
+		},
+		{
+			Name:            variable.TiDBMemoryUsageAlarmRatio,
+			RestrictionType: "hidden",
+			Value:           "",
+		},
+		// This line is commented out, assuming variable.TiDBEnableTelemetry should be excluded
+		{
+			Name:            variable.TiDBEnableTelemetry,
+			RestrictionType: "hidden",
+			Value:           "",
+		},
+		{
+			Name:            variable.TiDBRowFormatVersion,
+			RestrictionType: "hidden",
+			Value:           "",
+		},
+		{
+			Name:            variable.TiDBRedactLog,
+			RestrictionType: "hidden",
+			Value:           "",
+		},
+		{
+			Name:            variable.TiDBTopSQLMaxTimeSeriesCount,
+			RestrictionType: "hidden",
+			Value:           "",
+		},
+		// Assuming tidbAuditRetractLog is a variable, if it's not, you might need to adjust
+		{
+			Name:            tidbAuditRetractLog,
+			RestrictionType: "hidden",
+			Value:           "",
+		},
+	}
+
+	config.StoreGlobalConfig(tidbCfg)
+	Enable(config.SEMLevelConfig)
 	assert := assert.New(t)
 
 	assert.False(IsInvisibleSysVar(variable.Hostname))                   // changes the value to default, but is not invisible
@@ -104,4 +398,20 @@ func TestIsInvisibleSysVar(t *testing.T) {
 	assert.True(IsInvisibleSysVar(variable.TiDBTopSQLMaxTimeSeriesCount))
 	assert.True(IsInvisibleSysVar(variable.TiDBTopSQLMaxTimeSeriesCount))
 	assert.True(IsInvisibleSysVar(tidbAuditRetractLog))
+}
+
+func TestIsStaticPermissionRestricted(t *testing.T) {
+	tidbCfg := config.NewConfig()
+	p := make(map[mysql.PrivilegeType]struct{})
+	p[mysql.ConfigPriv] = struct{}{}
+	p[mysql.ShutdownPriv] = struct{}{}
+	tidbCfg.Security.SEM.RestrictedStaticPrivileges = p
+	Enable(config.SEMLevelConfig)
+	config.StoreGlobalConfig(tidbCfg)
+	assert := assert.New(t)
+	assert.True(IsStaticPermissionRestricted(mysql.ConfigPriv))
+	assert.False(IsStaticPermissionRestricted(mysql.AlterPriv))
+	assert.True(IsStaticPermissionRestricted(mysql.ShutdownPriv))
+	assert.False(IsStaticPermissionRestricted(mysql.CreatePriv))
+	assert.False(IsStaticPermissionRestricted(mysql.AllPriv))
 }

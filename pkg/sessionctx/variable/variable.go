@@ -581,6 +581,14 @@ func (sv *SysVar) SkipSysvarCache() bool {
 var sysVars map[string]*SysVar
 var sysVarsLock sync.RWMutex
 
+// IsVarExists check if sysVar exists
+func IsVarExists(name string) bool {
+	name = strings.ToLower(name)
+	sysVarsLock.RLock()
+	defer sysVarsLock.RUnlock()
+	return sysVars[name] != nil
+}
+
 // RegisterSysVar adds a sysvar to the SysVars list
 func RegisterSysVar(sv *SysVar) {
 	name := strings.ToLower(sv.Name)
@@ -618,6 +626,14 @@ func SetSysVar(name string, value string) {
 	RegisterSysVar(&tmp)
 }
 
+// SetSysVarMin sets the minimum value for a sysvar.
+func SetSysVarMin(name string, minValue int64) {
+	old := GetSysVar(name)
+	tmp := *old
+	tmp.MinValue = minValue
+	RegisterSysVar(&tmp)
+}
+
 // GetSysVars deep copies the sysVars list under a RWLock
 func GetSysVars() map[string]*SysVar {
 	sysVarsLock.RLock()
@@ -628,6 +644,14 @@ func GetSysVars() map[string]*SysVar {
 		m[name] = &tmp
 	}
 	return m
+}
+
+// SetSysVarPossibleValues sets the possible values for a sysvar.
+func SetSysVarPossibleValues(name string, possibleValues []string) {
+	old := GetSysVar(name)
+	tmp := *old
+	tmp.PossibleValues = possibleValues
+	RegisterSysVar(&tmp)
 }
 
 // OrderByDependency orders the vars by dependency. The depended sys vars are in the front.

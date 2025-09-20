@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pingcap/tidb/pkg/config"
 	"github.com/pingcap/tidb/pkg/domain"
 	"github.com/pingcap/tidb/pkg/errno"
 	"github.com/pingcap/tidb/pkg/meta/model"
@@ -165,7 +166,7 @@ func TestCacheTableSizeLimit(t *testing.T) {
 
 func TestIssue34069(t *testing.T) {
 	store := testkit.CreateMockStore(t)
-	sem.Enable()
+	sem.Enable(config.SEMLevelBasic)
 	defer sem.Disable()
 
 	tk := testkit.NewTestKit(t, store)

@@ -44,4 +44,9 @@ var (
 	ErrNetPacketTooLarge = dbterror.ClassServer.NewStd(errno.ErrNetPacketTooLarge)
 	// ErrMustChangePassword is returned when the user must change the password.
 	ErrMustChangePassword = dbterror.ClassServer.NewStd(errno.ErrMustChangePassword)
+
+	// Serverless Error
+
+	// ErrUserPrefixMismatch is returned when the user prefix does not match current keyspace.
+	ErrUserPrefixMismatch = dbterror.ClassServer.NewStd(errno.ErrUserPrefixMismatch)
 )

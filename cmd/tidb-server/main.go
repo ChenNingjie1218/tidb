@@ -342,6 +342,10 @@ func main() {
 	keyspaceMeta, pdCli, err := getServerlessInfo()
 	mainErrHandler(err)
 
+	if keyspaceMeta != nil {
+		keyspace.SetUsernamePolicy(keyspace.NewPrefixPolicy(keyspaceMeta.GetName()))
+	}
+
 	driverOpenOpts := &kv.DriverOpenOption{KeyspaceMeta: keyspaceMeta, PdCli: pdCli}
 
 	// Serverless ===================
@@ -966,7 +970,7 @@ func setGlobalVars() {
 	variable.GlobalLogMaxDays.Store(int32(config.GetGlobalConfig().Log.File.MaxDays))
 
 	if cfg.Security.EnableSEM {
-		sem.Enable()
+		terror.MustNil(sem.Enable(cfg.Security.SEMLevel))
 	}
 
 	// For CI environment we default enable prepare-plan-cache.

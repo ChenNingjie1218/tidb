@@ -798,3 +798,43 @@ func TestSelectWhereInvalidDSTTime(t *testing.T) {
 		"Warning 8179 Timestamp is not valid, since it is in Daylight Saving Time transition '{2025 3 30 2 30 0 0}' for time zone 'Europe/Amsterdam'",
 		"Warning 8179 Timestamp is not valid, since it is in Daylight Saving Time transition '{2025 3 30 2 30 0 0}' for time zone 'Europe/Amsterdam'"))
 }
+
+func TestRestrictedRoleSecurity(t *testing.T) {
+	keyspacePrefix := "some_prefix"
+	originCfg := config.GetGlobalConfig()
+	newCfg := *originCfg
+	newCfg.KeyspaceName = keyspacePrefix
+	newCfg.Security.EnableSEM = true
+	config.StoreGlobalConfig(&newCfg)
+	defer func() {
+		config.StoreGlobalConfig(originCfg)
+	}()
+
+	store := testkit.CreateMockStore(t)
+	tk := testkit.NewTestKit(t, store)
+	cloudAdminName := fmt.Sprintf("%s.cloud_admin", keyspacePrefix)
+	rootName := fmt.Sprintf("%s.root", keyspacePrefix)
+	//Create a cloud_admin user and a regular user
+	tk.MustExec("CREATE USER '" + cloudAdminName + "'@'%' IDENTIFIED BY 'password'")
+	tk.MustExec("CREATE USER '" + rootName + "'@'%' IDENTIFIED BY 'password'")
+	defer func() {
+		tk.MustExec("DROP USER IF EXISTS '" + cloudAdminName + "'@'%'")
+		tk.MustExec("DROP USER IF EXISTS '" + rootName + "'@'%'")
+	}()
+
+	// Test that granting cloud_admin account as role is blocked
+	err := tk.ExecToErr("GRANT '" + cloudAdminName + "'@'%' TO '" + rootName + "'@'%'")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "GRANT cloud_admin accounts as roles")
+
+	// Test that revoking cloud_admin account as role is also blocked
+	err = tk.ExecToErr("REVOKE '" + cloudAdminName + "'@'%' FROM '" + rootName + "'@'%'")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "REVOKE cloud_admin accounts as roles")
+
+	// Test that normal users can still be granted as roles
+	tk.MustExec("CREATE USER 'normal_role'@'%'")
+	tk.MustExec("GRANT 'normal_role'@'%' TO '" + rootName + "'@'%'")
+	tk.MustExec("REVOKE 'normal_role'@'%' FROM '" + rootName + "'@'%'")
+	tk.MustExec("DROP USER 'normal_role'@'%'")
+}

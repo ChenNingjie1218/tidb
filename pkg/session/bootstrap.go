@@ -24,6 +24,8 @@ import (
 	"fmt"
 	"os"
 	osuser "os/user"
+	"reflect"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -1502,6 +1504,14 @@ func upgrade(s sessiontypes.Session) {
 	// Abort upgrade if TiDB is running as gcv2 worker.
 	abortGCV2()
 
+	logutil.BgLogger().Info("[upgrade] upgrade begin", zap.Int64("old-version", ver),
+		zap.Int64("target-version", currentBootstrapVersion))
+
+	if ver >= SupportUpgradeHTTPOpVer && !intest.InTest {
+		logutil.BgLogger().Info("[upgrade] set ddl upgrade state to running", zap.Int64("version", ver), zap.Int64("SupportUpgradeHTTPOpVer", SupportUpgradeHTTPOpVer))
+		SyncUpgradeState(s, 10*time.Second)
+	}
+
 	printClusterState(s, ver)
 
 	// when upgrade from v6.4.0 or earlier, enables metadata lock automatically,
@@ -1513,10 +1523,22 @@ func upgrade(s sessiontypes.Session) {
 	// It is only used in test.
 	addMockBootstrapVersionForTest(s)
 	for _, upgrade := range bootstrapVersion {
+		funcName := getFunctionName(upgrade)
+		logutil.BgLogger().Info("[upgrade] update in progress, just start executing a version",
+			zap.String("version-name", funcName),
+			zap.Int64("target-bootstrap-version", currentBootstrapVersion))
 		upgrade(s, ver)
+		logutil.BgLogger().Info("[upgrade] update in progress, just finished executing a version",
+			zap.String("version-name", funcName),
+			zap.Int64("target-bootstrap-version", currentBootstrapVersion))
 	}
 	if isNull {
 		upgradeToVer99After(s)
+	}
+
+	if ver >= SupportUpgradeHTTPOpVer && !intest.InTest {
+		logutil.BgLogger().Info("[upgrade] set ddl upgrade state to finish", zap.Int64("version", ver), zap.Int64("SupportUpgradeHTTPOpVer", SupportUpgradeHTTPOpVer))
+		SyncNormalRunning(s)
 	}
 
 	variable.DDLForce2Queue.Store(false)
@@ -1543,6 +1565,17 @@ func upgrade(s sessiontypes.Session) {
 			zap.Int64("to", currentBootstrapVersion),
 			zap.Error(err))
 	}
+
+	logutil.BgLogger().Info("[upgrade] upgrade succeed", zap.Int64("currentBootstrapVersion", currentBootstrapVersion))
+}
+
+func getFunctionName(f func(sessiontypes.Session, int64)) string {
+	if f == nil {
+		return "nil"
+	}
+	fullName := runtime.FuncForPC(reflect.ValueOf(f).Pointer()).Name()
+	parts := strings.Split(fullName, ".")
+	return parts[len(parts)-1]
 }
 
 // checkOwnerVersion is used to wait the DDL owner to be elected in the cluster and check it is the same version as this TiDB.

@@ -1307,11 +1307,11 @@ func getEtcdCliByPDCli(pdCli pd.Client, tls *common.TLS, keyspaceName string) (*
 	//etcdCli := metaServiceClient.GetKeyspaceEtcdCli()
 	//return etcdCli, kvStore, nil
 
-	ebd, ok := kvStore.(tidbkv.EtcdBackend)
+	ebd, ok := kvStore.(tidbkv.MetaServiceBackend)
 	if !ok {
 		return nil, nil, nil
 	}
-	etcdAddrs, err := ebd.EtcdAddrs()
+	etcdAddrs, err := ebd.GetPDAddrs()
 	if err != nil {
 		return nil, nil, errors.Trace(err)
 	}

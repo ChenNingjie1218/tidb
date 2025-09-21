@@ -22,6 +22,7 @@ import (
 	"github.com/pingcap/kvproto/pkg/keyspacepb"
 	"github.com/pingcap/tidb/pkg/config"
 	"github.com/pingcap/tidb/pkg/kv"
+	"github.com/pingcap/tidb/pkg/metaservice"
 	"github.com/stretchr/testify/require"
 	"github.com/tikv/client-go/v2/tikv"
 )
@@ -52,11 +53,15 @@ func TestOwnerManager(t *testing.T) {
 
 type mockEtcdBackend struct {
 	kv.Storage
-	kv.EtcdBackend
+	kv.MetaServiceBackend
 }
 
-func (mebd *mockEtcdBackend) EtcdAddrs() ([]string, error) {
+func (mebd *mockEtcdBackend) GetPDAddrs() ([]string, error) {
 	return []string{"localhost:2379"}, nil
+}
+
+func (mebd *mockEtcdBackend) MetaServiceInfo() (*metaservice.Info, error) {
+	return nil, nil
 }
 
 func (mebd *mockEtcdBackend) TLSConfig() *tls.Config {

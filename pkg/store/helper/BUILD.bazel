@@ -39,6 +39,7 @@ go_test(
     deps = [
         "//pkg/infoschema/context",
         "//pkg/meta/model",
+        "//pkg/metaservice",
         "//pkg/parser/model",
         "//pkg/store/mockstore",
         "//pkg/tablecodec",

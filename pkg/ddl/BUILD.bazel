@@ -311,6 +311,7 @@ go_test(
         "//pkg/meta/autoid",
         "//pkg/meta/metabuild",
         "//pkg/meta/model",
+        "//pkg/metaservice",
         "//pkg/parser",
         "//pkg/parser/ast",
         "//pkg/parser/auth",

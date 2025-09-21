@@ -42,6 +42,7 @@ import (
 	"github.com/pingcap/tidb/pkg/keyspace"
 	"github.com/pingcap/tidb/pkg/kv"
 	"github.com/pingcap/tidb/pkg/meta/model"
+	"github.com/pingcap/tidb/pkg/metaservice"
 	"github.com/pingcap/tidb/pkg/metrics"
 	"github.com/pingcap/tidb/pkg/parser/mysql"
 	"github.com/pingcap/tidb/pkg/parser/terror"
@@ -134,6 +135,8 @@ type InfoSyncer struct {
 	resourceManagerClient pd.ResourceManagerClient
 	infoCache             infoschemaMinTS
 	tikvCodec             tikv.Codec
+
+	metaServiceClient metaservice.ServiceClient
 }
 
 // ServerInfo represents the server's basic information.
@@ -276,6 +279,8 @@ func GlobalInfoSyncerInit(
 	if err != nil {
 		return nil, err
 	}
+
+	is.metaServiceClient = metaservice.NewEtcdMetaServiceClient(etcdCli, pdCli)
 	is.initLabelRuleManager()
 	is.initPlacementManager()
 	is.initScheduleManager()
@@ -794,6 +799,12 @@ func (is *InfoSyncer) GetMinStartTS() uint64 {
 }
 
 func (is *InfoSyncer) getMinStartTsEtcdCli() *clientv3.Client {
+	if intest.InTest {
+		if is.tikvCodec == nil {
+			return is.etcdCli
+		}
+	}
+
 	if keyspace.IsKeyspaceUseKeyspaceLevelGC(is.tikvCodec.GetKeyspaceMeta()) {
 		// If the current keyspace uses keyspace level GC,
 		// we should use the etcd namespace with the keyspace prefix
@@ -822,10 +833,11 @@ func (is *InfoSyncer) storeMinStartTS(ctx context.Context) error {
 
 // RemoveMinStartTS removes self server min start timestamp from etcd.
 func (is *InfoSyncer) RemoveMinStartTS() {
-	if is.unprefixedEtcdCli == nil {
+	minStartTsEtcdCli := is.getMinStartTsEtcdCli()
+	if minStartTsEtcdCli == nil {
 		return
 	}
-	err := util.DeleteKeyFromEtcd(is.minStartTSPath, is.unprefixedEtcdCli, keyOpDefaultRetryCnt, keyOpDefaultTimeout)
+	err := util.DeleteKeyFromEtcd(is.minStartTSPath, minStartTsEtcdCli, keyOpDefaultRetryCnt, keyOpDefaultTimeout)
 	if err != nil {
 		logutil.BgLogger().Error("remove minStartTS failed", zap.Error(err))
 	}

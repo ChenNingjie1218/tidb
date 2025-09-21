@@ -1167,11 +1167,11 @@ func (h DDLResignOwnerHandler) ServeHTTP(w http.ResponseWriter, req *http.Reques
 }
 
 func (h *TableHandler) getPDAddr() ([]string, error) {
-	etcd, ok := h.Store.(kv.EtcdBackend)
+	metaServiceBackend, ok := h.Store.(kv.MetaServiceBackend)
 	if !ok {
 		return nil, errors.New("not implemented")
 	}
-	pdAddrs, err := etcd.EtcdAddrs()
+	pdAddrs, err := metaServiceBackend.GetPDAddrs()
 	if err != nil {
 		return nil, err
 	}

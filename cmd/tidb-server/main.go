@@ -592,7 +592,6 @@ func createStoreDDLOwnerMgrAndDomain(driverOpenOption *kv.DriverOpenOption) (kv.
 		startUpKeyspaceName := keyspaceMeta.Name
 		fullPath = fmt.Sprintf("%s://%s?keyspaceName=%s", cfg.Store, cfg.Path, startUpKeyspaceName)
 	}
-	log.Info("test-yjy fullPath", zap.String("fullPath", fullPath))
 	var err error
 	storage, err := kvstore.New(fullPath, driverOpenOption)
 	terror.MustNil(err)

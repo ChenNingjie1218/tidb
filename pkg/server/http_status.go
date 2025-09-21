@@ -490,6 +490,29 @@ func (s *Server) startHTTPServer(store kv.Storage) {
 	s.startStatusServerAndRPCServer(serverMux, store)
 }
 
+// GetKeyspaceMetaServiceAddrs exports for testing.
+func GetKeyspaceMetaServiceAddrs(store kv.Storage) ([]string, *tls.Config, bool) {
+	ebd, ok := store.(kv.MetaServiceBackend)
+	if !ok {
+		if !intest.InTest {
+			logutil.BgLogger().Panic("get meta service backend not ok")
+		}
+		return nil, nil, false
+	}
+	metaServiceInfo, err := ebd.MetaServiceInfo()
+	if err != nil {
+		if !intest.InTest {
+			logutil.BgLogger().Panic("tikv store not meta service backend", zap.Error(err))
+		}
+		logutil.BgLogger().Error("tikv store not meta service backend", zap.Error(err))
+		return nil, nil, false
+	}
+
+	keyspaceMetaServiceAddrs := metaServiceInfo.KeyspaceMetaGroup.KeyspaceMetaServiceAddrs
+	logutil.BgLogger().Info("register auto service on meta service", zap.Any("meta-service-addrs", keyspaceMetaServiceAddrs))
+	return keyspaceMetaServiceAddrs, ebd.TLSConfig(), true
+}
+
 func (s *Server) startStatusServerAndRPCServer(serverMux *http.ServeMux, store kv.Storage) {
 	m := cmux.New(s.statusListener)
 	// Match connections in order:
@@ -502,26 +525,17 @@ func (s *Server) startStatusServerAndRPCServer(serverMux *http.ServeMux, store k
 	service.RegisterChannelzServiceToServer(grpcServer)
 	if s.cfg.Store == "tikv" {
 		for {
-			ebd, ok := store.(kv.EtcdBackend)
-			if !ok {
-				if !intest.InTest {
-					logutil.BgLogger().Panic("get etcd backend not ok")
+			{
+				keyspaceMetaServiceAddrs, tlsConfig, ok := GetKeyspaceMetaServiceAddrs(store)
+				selfAddr := net.JoinHostPort(s.cfg.AdvertiseAddress, strconv.Itoa(int(s.cfg.Status.StatusPort)))
+				if !ok {
+					break
 				}
-				break
+				service := autoid.New(selfAddr, keyspaceMetaServiceAddrs, store, tlsConfig)
+				logutil.BgLogger().Info("register auto service at", zap.String("addr", selfAddr))
+				pb.RegisterAutoIDAllocServer(grpcServer, service)
+				s.autoIDService = service
 			}
-			etcdAddr, err := ebd.EtcdAddrs()
-			if err != nil {
-				if !intest.InTest {
-					logutil.BgLogger().Panic("tikv store not etcd background", zap.Error(err))
-				}
-				logutil.BgLogger().Error("tikv store not etcd background", zap.Error(err))
-				break
-			}
-			selfAddr := net.JoinHostPort(s.cfg.AdvertiseAddress, strconv.Itoa(int(s.cfg.Status.StatusPort)))
-			service := autoid.New(selfAddr, etcdAddr, store, ebd.TLSConfig())
-			logutil.BgLogger().Info("register auto service at", zap.String("addr", selfAddr))
-			pb.RegisterAutoIDAllocServer(grpcServer, service)
-			s.autoIDService = service
 			break
 		}
 	}

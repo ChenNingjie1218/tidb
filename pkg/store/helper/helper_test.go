@@ -30,6 +30,7 @@ import (
 	"github.com/pingcap/log"
 	infoschema "github.com/pingcap/tidb/pkg/infoschema/context"
 	"github.com/pingcap/tidb/pkg/meta/model"
+	"github.com/pingcap/tidb/pkg/metaservice"
 	pmodel "github.com/pingcap/tidb/pkg/parser/model"
 	"github.com/pingcap/tidb/pkg/store/helper"
 	"github.com/pingcap/tidb/pkg/store/mockstore"
@@ -126,10 +127,9 @@ type mockStore struct {
 	pdAddrs []string
 }
 
-func (s *mockStore) EtcdAddrs() ([]string, error) {
-	return s.pdAddrs, nil
+func (s *mockStore) MetaServiceInfo() (*metaservice.Info, error) {
+	panic("not implemented")
 }
-
 func (s *mockStore) StartGCWorker() error {
 	panic("not implemented")
 }

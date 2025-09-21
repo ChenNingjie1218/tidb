@@ -9,6 +9,7 @@ go_library(
         "//pkg/config",
         "//pkg/keyspace",
         "//pkg/kv",
+        "//pkg/metaservice",
         "//pkg/metrics",
         "//pkg/sessionctx/variable",
         "//pkg/store/copr",

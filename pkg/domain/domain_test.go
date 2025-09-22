@@ -80,7 +80,7 @@ func TestInfo(t *testing.T) {
 	}()
 
 	client := cluster.RandClient()
-	dom.etcdClient = client
+	dom.keyspaceEtcdClient = client
 	// Mock new DDL and init the schema syncer with etcd client.
 	goCtx := context.Background()
 	dom.ddl, dom.ddlExecutor = ddl.NewDDL(

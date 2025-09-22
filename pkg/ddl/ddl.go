@@ -59,6 +59,7 @@ import (
 	"github.com/pingcap/tidb/pkg/statistics/handle"
 	tidbutil "github.com/pingcap/tidb/pkg/util"
 	"github.com/pingcap/tidb/pkg/util/dbterror"
+	"github.com/pingcap/tidb/pkg/util/etcd"
 	"github.com/pingcap/tidb/pkg/util/gcutil"
 	"github.com/pingcap/tidb/pkg/util/generic"
 	"github.com/pingcap/tidb/pkg/util/intest"
@@ -652,7 +653,26 @@ func newDDL(ctx context.Context, options ...Option) (*ddl, *executor) {
 	var schemaVerSyncer schemaver.Syncer
 	var serverStateSyncer serverstate.Syncer
 	var deadLockCkr util.DeadTableLockChecker
-	if etcdCli := opt.EtcdCli; etcdCli == nil {
+
+	var etcdCli *clientv3.Client
+	var newEtcdCli bool
+	failpoint.Inject("newEtcdCli", func(val failpoint.Value) {
+		if val.(bool) {
+			newEtcdCli = true
+		}
+	})
+
+	if !newEtcdCli && (intest.InTest || config.GetGlobalConfig().Store == "unistore") {
+		etcdCli = opt.EtcdCli
+	} else {
+		metaServiceClient, err := etcd.NewEtcdMetaServiceClientWithKVStore(opt.Store)
+		if err != nil {
+			panic("get etcd meta service client err")
+		}
+		etcdCli = metaServiceClient.GetKeyspaceEtcdCli()
+	}
+
+	if etcdCli == nil {
 		id = uuid.New().String()
 		// The etcdCli is nil if the store is localstore which is only used for testing.
 		// So we use mockOwnerManager and memSyncer.
@@ -685,7 +705,7 @@ func newDDL(ctx context.Context, options ...Option) (*ddl, *executor) {
 		serverStateSyncer: serverStateSyncer,
 		infoCache:         opt.InfoCache,
 		tableLockCkr:      deadLockCkr,
-		etcdCli:           opt.EtcdCli,
+		etcdCli:           etcdCli,
 		autoidCli:         opt.AutoIDClient,
 		schemaLoader:      opt.SchemaLoader,
 	}

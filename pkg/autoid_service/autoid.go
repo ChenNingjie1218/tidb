@@ -24,8 +24,6 @@ import (
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
 	"github.com/pingcap/kvproto/pkg/autoid"
-	"github.com/pingcap/tidb/pkg/config"
-	"github.com/pingcap/tidb/pkg/keyspace"
 	"github.com/pingcap/tidb/pkg/kv"
 	"github.com/pingcap/tidb/pkg/meta"
 	autoid1 "github.com/pingcap/tidb/pkg/meta/autoid"
@@ -37,7 +35,6 @@ import (
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/keepalive"
 )
 
 var (
@@ -296,34 +293,20 @@ type Service struct {
 
 	leaderShip owner.Manager
 	store      kv.Storage
+
+	onClose func()
 }
 
 // New return a Service instance.
-func New(selfAddr string, etcdAddr []string, store kv.Storage, tlsConfig *tls.Config) *Service {
-	cfg := config.GetGlobalConfig()
-	etcdLogCfg := zap.NewProductionConfig()
-
-	cli, err := clientv3.New(clientv3.Config{
-		LogConfig:        &etcdLogCfg,
-		Endpoints:        etcdAddr,
-		AutoSyncInterval: 30 * time.Second,
-		DialTimeout:      5 * time.Second,
-		DialOptions: []grpc.DialOption{
-			grpc.WithBackoffMaxDelay(time.Second * 3),
-			grpc.WithKeepaliveParams(keepalive.ClientParameters{
-				Time:    time.Duration(cfg.TiKVClient.GrpcKeepAliveTime) * time.Second,
-				Timeout: time.Duration(cfg.TiKVClient.GrpcKeepAliveTimeout) * time.Second,
-			}),
-		},
-		TLS: tlsConfig,
-	})
-	if store.GetCodec().GetKeyspace() != nil {
-		etcd.SetEtcdCliByNamespace(cli, keyspace.MakeKeyspaceEtcdNamespaceSlash(store.GetCodec()))
-	}
+func New(selfAddr string, _ []string, store kv.Storage, _ *tls.Config) *Service {
+	serviceCli, err := etcd.NewEtcdMetaServiceClientWithKVStore(store)
 	if err != nil {
 		panic(err)
 	}
-	return newWithCli(selfAddr, cli, store)
+	service := newWithCli(selfAddr, serviceCli.GetKeyspaceEtcdCli(), store)
+	// need to close the etcd client when service close.
+	service.onClose = func() { serviceCli.GetKeyspaceEtcdCli().Close() }
+	return service
 }
 
 func newWithCli(selfAddr string, cli *clientv3.Client, store kv.Storage) *Service {
@@ -381,6 +364,9 @@ func MockForTest(store kv.Storage) autoid.AutoIDAllocClient {
 func (s *Service) Close() {
 	if s.leaderShip != nil {
 		s.leaderShip.Close()
+	}
+	if s.onClose != nil {
+		s.onClose()
 	}
 }
 

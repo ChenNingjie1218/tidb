@@ -23,8 +23,17 @@ import (
 	"time"
 
 	"github.com/pingcap/errors"
+	"github.com/pingcap/tidb/pkg/config"
+	"github.com/pingcap/tidb/pkg/keyspace"
+	"github.com/pingcap/tidb/pkg/kv"
+	"github.com/pingcap/tidb/pkg/metaservice"
+	"github.com/tikv/client-go/v2/tikv"
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.etcd.io/etcd/client/v3/namespace"
+	"go.uber.org/zap"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/backoff"
+	"google.golang.org/grpc/keepalive"
 )
 
 // Node organizes the ectd query result as a Trie tree
@@ -341,4 +350,134 @@ func SetEtcdCliByNamespace(cli *clientv3.Client, namespacePrefix string) {
 	cli.KV = namespace.NewKV(cli.KV, namespacePrefix)
 	cli.Watcher = namespace.NewWatcher(cli.Watcher, namespacePrefix)
 	cli.Lease = namespace.NewLease(cli.Lease, namespacePrefix)
+}
+
+//---------------------- Meta Service ----------------------
+
+// NewEtcdMetaServiceClientWithKVStore returns an EtcdMetaServiceClient constructed from the configuration.
+func NewEtcdMetaServiceClientWithKVStore(store kv.Storage) (*metaservice.EtcdMetaServiceClient, error) {
+	// todo: introduce shared etcd client
+	cfg := config.GetGlobalConfig()
+
+	codec := store.GetCodec()
+	ebd, ok := store.(kv.MetaServiceBackend)
+	if !ok {
+		return nil, errors.New("tikv store not meta service backend")
+	}
+	metaServiceInfo, err := ebd.MetaServiceInfo()
+	if err != nil {
+		return nil, err
+	}
+	return getMetaServiceClientFromInfo(cfg, metaServiceInfo, codec)
+
+}
+
+func getMetaServiceClientFromInfo(cfg *config.Config, metaServiceInfo *metaservice.Info, codec tikv.Codec) (*metaservice.EtcdMetaServiceClient, error) {
+	tlsConfig, err := cfg.GetTiKVConfig().Security.ToTLSConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	return getMetaServiceClientWithTLSConfig(cfg, tlsConfig, metaServiceInfo, codec)
+}
+
+func getMetaServiceClientWithTLSConfig(cfg *config.Config, tlsConfig *tls.Config, metaServiceInfo *metaservice.Info, codec tikv.Codec) (*metaservice.EtcdMetaServiceClient, error) {
+	etcdLogCfg := zap.NewProductionConfig()
+
+	backoffCfg := backoff.DefaultConfig
+	backoffCfg.MaxDelay = 3 * time.Second
+
+	cli, err := NewCodecClient(clientv3.Config{
+		LogConfig:        &etcdLogCfg,
+		Endpoints:        metaServiceInfo.KeyspaceMetaGroup.KeyspaceMetaServiceAddrs,
+		AutoSyncInterval: 30 * time.Second,
+		DialTimeout:      5 * time.Second,
+		DialOptions: []grpc.DialOption{
+			grpc.WithConnectParams(grpc.ConnectParams{
+				Backoff: backoffCfg,
+			}),
+			grpc.WithKeepaliveParams(keepalive.ClientParameters{
+				Time:    time.Duration(cfg.TiKVClient.GrpcKeepAliveTime) * time.Second,
+				Timeout: time.Duration(cfg.TiKVClient.GrpcKeepAliveTimeout) * time.Second,
+			}),
+		},
+		TLS: tlsConfig,
+	}, codec)
+	return &metaservice.EtcdMetaServiceClient{KeyspaceEtcdCli: cli}, err
+}
+
+// NewMetaServiceClientFromCfg returns a creates a new client with the given etcd client config and keyspace codec.
+func NewMetaServiceClientFromCfg(pdAddrs []string, root string, codec tikv.Codec) (*Client, error) {
+	metaServiceInfo, err := metaservice.GetMetaServiceInfo(codec.GetKeyspaceMeta(), pdAddrs, pdAddrs)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	metServiceClient, err := getMetaServiceClientFromInfo(config.GetGlobalConfig(), metaServiceInfo, codec)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	return &Client{
+		client:   metServiceClient.GetKeyspaceEtcdCli(),
+		rootPath: root,
+	}, nil
+}
+
+// NewMetaServiceClientWithTLSConfig creates a new client with the given etcd client config, keyspace codec, and TLS configuration.
+func NewMetaServiceClientWithTLSConfig(pdAddrs []string, codec tikv.Codec, tlsConfig *tls.Config) (*metaservice.EtcdMetaServiceClient, error) {
+	metaServiceInfo, err := metaservice.GetMetaServiceInfo(codec.GetKeyspaceMeta(), pdAddrs, pdAddrs)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	return getMetaServiceClientWithTLSConfig(config.GetGlobalConfig(), tlsConfig, metaServiceInfo, codec)
+}
+
+// NewCodecClient creates a new client with the given etcd client config and keyspace codec.
+func NewCodecClient(cfg clientv3.Config, codec tikv.Codec) (*clientv3.Client, error) {
+	cli, err := clientv3.New(cfg)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	return namespacedClient(cli, keyspace.EtcdNamespace(codec)), nil
+}
+
+func namespacedClient(cli *clientv3.Client, ns string) *clientv3.Client {
+	if ns == "" {
+		return cli
+	}
+
+	cli.KV = namespace.NewKV(cli.KV, ns)
+	cli.Watcher = namespace.NewWatcher(cli.Watcher, ns)
+	cli.Lease = namespace.NewLease(cli.Lease, ns)
+
+	return cli
+}
+
+// NewEtcdCliNonNamespace exports for init unprefixedEtcdCli and testing.
+func NewEtcdCliNonNamespace(addrs []string, ebd kv.MetaServiceBackend, codec tikv.Codec) (*clientv3.Client, error) {
+	cfg := config.GetGlobalConfig()
+	etcdLogCfg := zap.NewProductionConfig()
+	etcdLogCfg.Level = zap.NewAtomicLevelAt(zap.ErrorLevel)
+	backoffCfg := backoff.DefaultConfig
+	backoffCfg.MaxDelay = 3 * time.Second
+	cli, err := NewCodecClient(clientv3.Config{
+		LogConfig:        &etcdLogCfg,
+		Endpoints:        addrs,
+		AutoSyncInterval: 30 * time.Second,
+		DialTimeout:      5 * time.Second,
+		DialOptions: []grpc.DialOption{
+			grpc.WithConnectParams(grpc.ConnectParams{
+				Backoff: backoffCfg,
+			}),
+			grpc.WithKeepaliveParams(keepalive.ClientParameters{
+				Time:    time.Duration(cfg.TiKVClient.GrpcKeepAliveTime) * time.Second,
+				Timeout: time.Duration(cfg.TiKVClient.GrpcKeepAliveTimeout) * time.Second,
+			}),
+		},
+		TLS: ebd.TLSConfig(),
+	}, codec)
+	return cli, err
 }

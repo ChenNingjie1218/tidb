@@ -23,9 +23,11 @@ import (
 
 	cp "github.com/otiai10/copy"
 	"github.com/pingcap/errors"
+	"github.com/pingcap/kvproto/pkg/keyspacepb"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/tidb/pkg/config"
 	"github.com/pingcap/tidb/pkg/kv"
+	"github.com/pingcap/tidb/pkg/metaservice"
 	"github.com/pingcap/tidb/pkg/store/mockstore/unistore"
 	"github.com/pingcap/tidb/pkg/testkit/testenv"
 	"github.com/tikv/client-go/v2/testutils"
@@ -99,6 +101,9 @@ type mockOptions struct {
 	ddlCheckerHijack bool
 	tikvOptions      []tikv.Option
 	pdAddrs          []string
+
+	keyspaceMeta    *keyspacepb.KeyspaceMeta
+	metaServiceInfo *metaservice.Info
 }
 
 // MockTiKVStoreOption is used to control some behavior of mock tikv.
@@ -117,6 +122,20 @@ func WithMultipleOptions(opts ...MockTiKVStoreOption) MockTiKVStoreOption {
 func WithPDAddr(addr []string) MockTiKVStoreOption {
 	return func(args *mockOptions) {
 		args.pdAddrs = addr
+	}
+}
+
+// WithKeyspaceMeta lets user set the keyspace meta.
+func WithKeyspaceMeta(keyspaceMeta *keyspacepb.KeyspaceMeta) MockTiKVStoreOption {
+	return func(c *mockOptions) {
+		c.keyspaceMeta = keyspaceMeta
+	}
+}
+
+// WithMetaServiceClient lets user set the meta service client.
+func WithMetaServiceClient(metaServiceInfo *metaservice.Info) MockTiKVStoreOption {
+	return func(c *mockOptions) {
+		c.metaServiceInfo = metaServiceInfo
 	}
 }
 

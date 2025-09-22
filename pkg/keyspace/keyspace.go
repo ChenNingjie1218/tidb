@@ -202,3 +202,11 @@ func GetPDClient(keyspaceName string, etcdAddrs []string) (pd.Client, error) {
 		}, opts...)
 	return pdCli, err
 }
+
+// EtcdNamespace return the keyspace prefix path for etcd namespace
+func EtcdNamespace(c tikv.Codec) string {
+	if c == nil || c.GetAPIVersion() == kvrpcpb.APIVersion_V1 {
+		return ""
+	}
+	return fmt.Sprintf(tidbKeyspaceEtcdPathPrefix+"%d", c.GetKeyspaceID())
+}

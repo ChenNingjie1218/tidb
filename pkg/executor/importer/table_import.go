@@ -810,7 +810,7 @@ func RebaseAllocatorBases(ctx context.Context, kvStore tidbkv.Storage, maxIDs ma
 		return errors.Trace(err)
 	}
 	etcd.SetEtcdCliByNamespace(etcdCli, keyspace.MakeKeyspaceEtcdNamespace(kvStore.GetCodec()))
-	autoidCli := autoid.NewClientDiscover(etcdCli)
+	autoidCli := autoid.NewClientDiscover(etcdCli, autoid.IsNamespaced(kvStore))
 	r := autoIDRequirement{store: kvStore, autoidCli: autoidCli}
 	err = common.RebaseTableAllocators(ctx, maxIDs, &r, plan.DBID, plan.DesiredTableInfo)
 	if err1 := etcdCli.Close(); err1 != nil {

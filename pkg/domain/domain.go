@@ -29,6 +29,7 @@ import (
 	"github.com/ngaut/pools"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
+	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/kvproto/pkg/pdpb"
 	"github.com/pingcap/log"
@@ -52,12 +53,12 @@ import (
 	"github.com/pingcap/tidb/pkg/infoschema"
 	infoschema_metrics "github.com/pingcap/tidb/pkg/infoschema/metrics"
 	"github.com/pingcap/tidb/pkg/infoschema/perfschema"
-	"github.com/pingcap/tidb/pkg/keyspace"
 	"github.com/pingcap/tidb/pkg/kv"
 	"github.com/pingcap/tidb/pkg/lightning/backend/local"
 	"github.com/pingcap/tidb/pkg/meta"
 	"github.com/pingcap/tidb/pkg/meta/autoid"
 	"github.com/pingcap/tidb/pkg/meta/model"
+	"github.com/pingcap/tidb/pkg/metaservice"
 	"github.com/pingcap/tidb/pkg/metrics"
 	"github.com/pingcap/tidb/pkg/owner"
 	"github.com/pingcap/tidb/pkg/parser"
@@ -76,7 +77,6 @@ import (
 	"github.com/pingcap/tidb/pkg/statistics/handle/initstats"
 	statslogutil "github.com/pingcap/tidb/pkg/statistics/handle/logutil"
 	handleutil "github.com/pingcap/tidb/pkg/statistics/handle/util"
-	"github.com/pingcap/tidb/pkg/store"
 	"github.com/pingcap/tidb/pkg/store/helper"
 	"github.com/pingcap/tidb/pkg/telemetry"
 	"github.com/pingcap/tidb/pkg/ttl/ttlworker"
@@ -161,8 +161,8 @@ type Domain struct {
 	// Otherwise, the session will be leaked. Because there is a strong reference from the domain to the session.
 	sysSessionPool util.DestroyableSessionPool
 	exit           chan struct{}
-	// `etcdClient` must be used when keyspace is not set, or when the logic to each etcd path needs to be separated by keyspace.
-	etcdClient *clientv3.Client
+	// `keyspaceEtcdClient` must be used when keyspace is not set, or when the logic to each etcd path needs to be separated by keyspace.
+	keyspaceEtcdClient *clientv3.Client
 	// autoidClient is used when there are tables with AUTO_ID_CACHE=1, it is the client to the autoid service.
 	autoidClient *autoid.ClientDiscover
 	// `unprefixedEtcdCli` will never set the etcd namespace prefix by keyspace.
@@ -278,7 +278,7 @@ func (do *Domain) InfoCache() *infoschema.InfoCache {
 
 // EtcdClient export for test.
 func (do *Domain) EtcdClient() *clientv3.Client {
-	return do.etcdClient
+	return do.keyspaceEtcdClient
 }
 
 // loadInfoSchema loads infoschema at startTS.
@@ -1260,8 +1260,8 @@ func (do *Domain) Close() {
 	}
 	do.cancelFns.mu.Unlock()
 	do.wg.Wait()
-	if do.etcdClient != nil {
-		terror.Log(errors.Trace(do.etcdClient.Close()))
+	if do.keyspaceEtcdClient != nil {
+		terror.Log(errors.Trace(do.keyspaceEtcdClient.Close()))
 	}
 	do.sysSessionPool.Close()
 	variable.UnregisterStatistics(do.BindHandle())
@@ -1288,6 +1288,7 @@ const resourceIdleTimeout = 3 * time.Minute // resources in the ResourcePool wil
 func NewDomain(store kv.Storage, schemaLease time.Duration, statsLease time.Duration, dumpFileGcLease time.Duration, factory pools.Factory) *Domain {
 	intest.Assert(schemaLease > 0, "schema lease should be a positive duration")
 	capacity := 200 // capacity of the sysSessionPool size
+
 	do := &Domain{
 		store: store,
 		exit:  make(chan struct{}),
@@ -1347,26 +1348,29 @@ func (do *Domain) Init(
 ) error {
 	do.sysExecutorFactory = sysExecutorFactory
 	perfschema.Init()
-	etcdStore, addrs, err := store.GetEtcdAddrs(do.store)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	if len(addrs) > 0 {
-		cli, err2 := store.NewEtcdCliWithAddrs(addrs, etcdStore)
-		if err2 != nil {
-			return errors.Trace(err2)
+
+	// init keyspaceEtcdClient, unprefixedEtcdCli, autoidClient
+	if ebd, ok := do.store.(kv.MetaServiceBackend); ok {
+		var info *metaservice.Info
+		var err error
+		if info, err = ebd.MetaServiceInfo(); err != nil {
+			return err
 		}
-		etcd.SetEtcdCliByNamespace(cli, keyspace.MakeKeyspaceEtcdNamespace(do.store.GetCodec()))
-
-		do.etcdClient = cli
-
-		do.autoidClient = autoid.NewClientDiscover(cli)
-
-		unprefixedEtcdCli, err2 := store.NewEtcdCliWithAddrs(addrs, etcdStore)
-		if err2 != nil {
-			return errors.Trace(err2)
+		if info != nil && info.KeyspaceMetaGroup != nil && info.KeyspaceMetaGroup.KeyspaceMetaServiceAddrs != nil {
+			metaServiceClient, err := etcd.NewEtcdMetaServiceClientWithKVStore(do.store)
+			if err != nil {
+				return err
+			}
+			etcdCli := metaServiceClient.GetKeyspaceEtcdCli()
+			codec := do.store.GetCodec()
+			do.keyspaceEtcdClient = etcdCli
+			do.autoidClient = autoid.NewClientDiscover(etcdCli, codec.GetAPIVersion() > kvrpcpb.APIVersion_V1)
+			unprefixedEtcdCli, err := etcd.NewEtcdCliNonNamespace(etcdCli.Endpoints(), ebd, nil)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			do.unprefixedEtcdCli = unprefixedEtcdCli
 		}
-		do.unprefixedEtcdCli = unprefixedEtcdCli
 	}
 
 	ctx, cancelFunc := context.WithCancel(context.Background())
@@ -1388,7 +1392,7 @@ func (do *Domain) Init(
 	eBak := do.ddlExecutor
 	do.ddl, do.ddlExecutor = ddl.NewDDL(
 		ctx,
-		ddl.WithEtcdClient(do.etcdClient),
+		ddl.WithEtcdClient(do.keyspaceEtcdClient),
 		ddl.WithStore(do.store),
 		ddl.WithAutoIDClient(do.autoidClient),
 		ddl.WithInfoCache(do.infoCache),
@@ -1413,8 +1417,9 @@ func (do *Domain) Init(
 	// step 1: prepare the info/schema syncer which domain reload needed.
 	pdCli, pdHTTPCli := do.GetPDClient(), do.GetPDHTTPClient()
 	skipRegisterToDashboard := config.GetGlobalConfig().SkipRegisterToDashboard
+	var err error
 	do.info, err = infosync.GlobalInfoSyncerInit(ctx, do.ddl.GetID(), do.ServerID,
-		do.etcdClient, do.unprefixedEtcdCli, pdCli, pdHTTPCli,
+		do.keyspaceEtcdClient, do.unprefixedEtcdCli, pdCli, pdHTTPCli,
 		do.Store().GetCodec(), skipRegisterToDashboard, do.infoCache)
 	if err != nil {
 		return err
@@ -1429,7 +1434,7 @@ func (do *Domain) Init(
 	if config.GetGlobalConfig().EnableGlobalKill {
 		do.connIDAllocator = globalconn.NewGlobalAllocator(do.ServerID, config.GetGlobalConfig().Enable32BitsConnectionID)
 
-		if do.etcdClient != nil {
+		if do.keyspaceEtcdClient != nil {
 			err := do.acquireServerID(ctx)
 			if err != nil {
 				logutil.BgLogger().Error("acquire serverID failed", zap.Error(err))
@@ -1478,7 +1483,7 @@ func (do *Domain) Init(
 // Init also.
 func (do *Domain) Start(startMode ddl.StartMode) error {
 	gCfg := config.GetGlobalConfig()
-	if gCfg.EnableGlobalKill && do.etcdClient != nil {
+	if gCfg.EnableGlobalKill && do.keyspaceEtcdClient != nil {
 		do.wg.Add(1)
 		go do.serverIDKeeper()
 	}
@@ -1555,7 +1560,7 @@ func (do *Domain) SetOnClose(onClose func()) {
 
 func (do *Domain) initLogBackup(ctx context.Context, pdClient pd.Client) error {
 	cfg := config.GetGlobalConfig()
-	if pdClient == nil || do.etcdClient == nil {
+	if pdClient == nil || do.keyspaceEtcdClient == nil {
 		log.Warn("pd / etcd client not provided, won't begin Advancer.")
 		return nil
 	}
@@ -1564,12 +1569,12 @@ func (do *Domain) initLogBackup(ctx context.Context, pdClient pd.Client) error {
 		log.Warn("non tikv store, stop begin Advancer.")
 		return nil
 	}
-	env, err := streamhelper.TiDBEnv(tikvStore, pdClient, do.etcdClient, cfg)
+	env, err := streamhelper.TiDBEnv(tikvStore, pdClient, do.keyspaceEtcdClient, cfg)
 	if err != nil {
 		return err
 	}
 	adv := streamhelper.NewCheckpointAdvancer(env)
-	do.brOwnerMgr = streamhelper.OwnerManagerForLogBackup(ctx, do.etcdClient)
+	do.brOwnerMgr = streamhelper.OwnerManagerForLogBackup(ctx, do.keyspaceEtcdClient)
 	do.logBackupAdvancer = daemon.New(adv, do.brOwnerMgr, adv.Config().TickDuration)
 	loop, err := do.logBackupAdvancer.Begin(ctx)
 	if err != nil {
@@ -1826,7 +1831,7 @@ func (do *Domain) DDLNotifier() *notifier.DDLNotifier {
 
 // GetEtcdClient returns the etcd client.
 func (do *Domain) GetEtcdClient() *clientv3.Client {
-	return do.etcdClient
+	return do.keyspaceEtcdClient
 }
 
 // AutoIDClient returns the autoid client.
@@ -1866,8 +1871,8 @@ func (do *Domain) LoadPrivilegeLoop(sctx sessionctx.Context) error {
 
 	var watchCh clientv3.WatchChan
 	duration := 5 * time.Minute
-	if do.etcdClient != nil {
-		watchCh = do.etcdClient.Watch(context.Background(), privilegeKey)
+	if do.keyspaceEtcdClient != nil {
+		watchCh = do.keyspaceEtcdClient.Watch(context.Background(), privilegeKey)
 		duration = 10 * time.Minute
 	}
 
@@ -1888,7 +1893,7 @@ func (do *Domain) LoadPrivilegeLoop(sctx sessionctx.Context) error {
 			}
 			if !ok {
 				logutil.BgLogger().Warn("load privilege loop watch channel closed")
-				watchCh = do.etcdClient.Watch(context.Background(), privilegeKey)
+				watchCh = do.keyspaceEtcdClient.Watch(context.Background(), privilegeKey)
 				count++
 				if count > 10 {
 					time.Sleep(time.Duration(count) * time.Second)
@@ -1917,8 +1922,8 @@ func (do *Domain) LoadSysVarCacheLoop(ctx sessionctx.Context) error {
 	}
 	var watchCh clientv3.WatchChan
 	duration := 30 * time.Second
-	if do.etcdClient != nil {
-		watchCh = do.etcdClient.Watch(context.Background(), sysVarCacheKey)
+	if do.keyspaceEtcdClient != nil {
+		watchCh = do.keyspaceEtcdClient.Watch(context.Background(), sysVarCacheKey)
 	}
 
 	do.wg.Run(func() {
@@ -1951,7 +1956,7 @@ func (do *Domain) LoadSysVarCacheLoop(ctx sessionctx.Context) error {
 
 			if !ok {
 				logutil.BgLogger().Warn("LoadSysVarCacheLoop loop watch channel closed")
-				watchCh = do.etcdClient.Watch(context.Background(), sysVarCacheKey)
+				watchCh = do.keyspaceEtcdClient.Watch(context.Background(), sysVarCacheKey)
 				count++
 				if count > 10 {
 					time.Sleep(time.Duration(count) * time.Second)
@@ -1976,8 +1981,8 @@ func (do *Domain) LoadSysVarCacheLoop(ctx sessionctx.Context) error {
 //	store cache will only be invalidated every n seconds.
 func (do *Domain) WatchTiFlashComputeNodeChange() error {
 	var watchCh clientv3.WatchChan
-	if do.etcdClient != nil {
-		watchCh = do.etcdClient.Watch(context.Background(), tiflashComputeNodeKey)
+	if do.keyspaceEtcdClient != nil {
+		watchCh = do.keyspaceEtcdClient.Watch(context.Background(), tiflashComputeNodeKey)
 	}
 	duration := 10 * time.Second
 	do.wg.Run(func() {
@@ -2000,7 +2005,7 @@ func (do *Domain) WatchTiFlashComputeNodeChange() error {
 			}
 			if !ok {
 				logutil.BgLogger().Error("WatchTiFlashComputeNodeChange watch channel closed")
-				watchCh = do.etcdClient.Watch(context.Background(), tiflashComputeNodeKey)
+				watchCh = do.keyspaceEtcdClient.Watch(context.Background(), tiflashComputeNodeKey)
 				count++
 				if count > 10 {
 					time.Sleep(time.Duration(count) * time.Second)
@@ -2516,10 +2521,10 @@ func (do *Domain) StartLoadStatsSubWorkers(ctxList []sessionctx.Context) {
 func (do *Domain) newOwnerManager(prompt, ownerKey string) owner.Manager {
 	id := do.ddl.OwnerManager().ID()
 	var statsOwner owner.Manager
-	if do.etcdClient == nil {
+	if do.keyspaceEtcdClient == nil {
 		statsOwner = owner.NewMockManager(context.Background(), id, do.store, ownerKey)
 	} else {
-		statsOwner = owner.NewOwnerManager(context.Background(), do.etcdClient, prompt, id, ownerKey)
+		statsOwner = owner.NewOwnerManager(context.Background(), do.keyspaceEtcdClient, prompt, id, ownerKey)
 	}
 	return statsOwner
 }
@@ -2886,8 +2891,8 @@ func (do *Domain) NotifyUpdatePrivilege() error {
 	// No matter skip-grant-table is configured or not, sending an etcd message is required.
 	// Because we need to tell other TiDB instances to update privilege data, say, we're changing the
 	// password using a special TiDB instance and want the new password to take effect.
-	if do.etcdClient != nil {
-		row := do.etcdClient.KV
+	if do.keyspaceEtcdClient != nil {
+		row := do.keyspaceEtcdClient.KV
 		_, err := row.Put(context.Background(), privilegeKey, "")
 		if err != nil {
 			logutil.BgLogger().Warn("notify update privilege failed", zap.Error(err))
@@ -2908,8 +2913,8 @@ func (do *Domain) NotifyUpdatePrivilege() error {
 // clients are subscribed to for updates. For the caller, the cache is also built
 // synchronously so that the effect is immediate.
 func (do *Domain) NotifyUpdateSysVarCache(updateLocal bool) {
-	if do.etcdClient != nil {
-		row := do.etcdClient.KV
+	if do.keyspaceEtcdClient != nil {
+		row := do.keyspaceEtcdClient.KV
 		_, err := row.Put(context.Background(), sysVarCacheKey, "")
 		if err != nil {
 			logutil.BgLogger().Warn("notify update sysvar cache failed", zap.Error(err))
@@ -3035,11 +3040,11 @@ func (do *Domain) retrieveServerIDSession(ctx context.Context) (*concurrency.Ses
 		return do.serverIDSession, nil
 	}
 
-	// `etcdClient.Grant` needs a shortterm timeout, to avoid blocking if connection to PD lost,
-	//   while `etcdClient.KeepAlive` should be longterm.
-	//   So we separately invoke `etcdClient.Grant` and `concurrency.NewSession` with leaseID.
+	// `keyspaceEtcdClient.Grant` needs a shortterm timeout, to avoid blocking if connection to PD lost,
+	//   while `keyspaceEtcdClient.KeepAlive` should be longterm.
+	//   So we separately invoke `keyspaceEtcdClient.Grant` and `concurrency.NewSession` with leaseID.
 	childCtx, cancel := context.WithTimeout(ctx, retrieveServerIDSessionTimeout)
-	resp, err := do.etcdClient.Grant(childCtx, int64(serverIDTTL.Seconds()))
+	resp, err := do.keyspaceEtcdClient.Grant(childCtx, int64(serverIDTTL.Seconds()))
 	cancel()
 	if err != nil {
 		logutil.BgLogger().Error("retrieveServerIDSession.Grant fail", zap.Error(err))
@@ -3047,7 +3052,7 @@ func (do *Domain) retrieveServerIDSession(ctx context.Context) (*concurrency.Ses
 	}
 	leaseID := resp.ID
 
-	session, err := concurrency.NewSession(do.etcdClient,
+	session, err := concurrency.NewSession(do.keyspaceEtcdClient,
 		concurrency.WithLease(leaseID), concurrency.WithContext(context.Background()))
 	if err != nil {
 		logutil.BgLogger().Error("retrieveServerIDSession.NewSession fail", zap.Error(err))
@@ -3083,7 +3088,7 @@ func (do *Domain) acquireServerID(ctx context.Context) error {
 		value := "0"
 
 		childCtx, cancel := context.WithTimeout(ctx, acquireServerIDTimeout)
-		txn := do.etcdClient.Txn(childCtx)
+		txn := do.keyspaceEtcdClient.Txn(childCtx)
 		t := txn.If(cmp)
 		resp, err := t.Then(clientv3.OpPut(key, value, clientv3.WithLease(session.Lease()))).Commit()
 		cancel()
@@ -3111,11 +3116,11 @@ func (do *Domain) releaseServerID(context.Context) {
 	}
 	atomic.StoreUint64(&do.serverID, 0)
 
-	if do.etcdClient == nil {
+	if do.keyspaceEtcdClient == nil {
 		return
 	}
 	key := fmt.Sprintf("%s/%v", serverIDEtcdPath, serverID)
-	err := ddlutil.DeleteKeyFromEtcd(key, do.etcdClient, refreshServerIDRetryCnt, acquireServerIDTimeout)
+	err := ddlutil.DeleteKeyFromEtcd(key, do.keyspaceEtcdClient, refreshServerIDRetryCnt, acquireServerIDTimeout)
 	if err != nil {
 		logutil.BgLogger().Error("releaseServerID fail", zap.Uint64("serverID", serverID), zap.Error(err))
 	} else {
@@ -3170,7 +3175,7 @@ func (do *Domain) refreshServerIDTTL(ctx context.Context) error {
 
 	key := fmt.Sprintf("%s/%v", serverIDEtcdPath, do.ServerID())
 	value := "0"
-	err = ddlutil.PutKVToEtcd(ctx, do.etcdClient, refreshServerIDRetryCnt, key, value, clientv3.WithLease(session.Lease()))
+	err = ddlutil.PutKVToEtcd(ctx, do.keyspaceEtcdClient, refreshServerIDRetryCnt, key, value, clientv3.WithLease(session.Lease()))
 	if err != nil {
 		logutil.BgLogger().Error("refreshServerIDTTL fail", zap.Uint64("serverID", do.ServerID()), zap.Error(err))
 	} else {
@@ -3261,7 +3266,7 @@ func (do *Domain) serverIDKeeper() {
 
 // StartTTLJobManager creates and starts the ttl job manager
 func (do *Domain) StartTTLJobManager() {
-	ttlJobManager := ttlworker.NewJobManager(do.ddl.GetID(), do.sysSessionPool, do.store, do.etcdClient, do.ddl.OwnerManager().IsOwner)
+	ttlJobManager := ttlworker.NewJobManager(do.ddl.GetID(), do.sysSessionPool, do.store, do.keyspaceEtcdClient, do.ddl.OwnerManager().IsOwner)
 	do.ttlJobManager.Store(ttlJobManager)
 	ttlJobManager.Start()
 }

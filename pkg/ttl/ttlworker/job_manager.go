@@ -157,6 +157,7 @@ func NewJobManager(id string, sessPool util.SessionPool, store kv.Storage, etcdC
 
 	manager.taskManager = newTaskManager(manager.ctx, sessPool, manager.infoSchemaCache, id, store)
 	manager.leaderFunc = leaderFunc
+
 	return
 }
 

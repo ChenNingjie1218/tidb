@@ -97,7 +97,8 @@ func NewTableImporter(
 	if err != nil {
 		return nil, errors.Annotatef(err, "failed to tables.TableFromMeta %s", tableName)
 	}
-	autoidCli := autoid.NewClientDiscover(etcdCli)
+
+	autoidCli := autoid.NewClientDiscover(etcdCli, autoid.IsNamespaced(kvStore))
 
 	return &TableImporter{
 		tableName:     tableName,

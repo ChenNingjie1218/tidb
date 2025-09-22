@@ -127,6 +127,10 @@ type mockStore struct {
 	pdAddrs []string
 }
 
+func (s *mockStore) GetPDAddrs() ([]string, error) {
+	return s.pdAddrs, nil
+}
+
 func (s *mockStore) MetaServiceInfo() (*metaservice.Info, error) {
 	panic("not implemented")
 }

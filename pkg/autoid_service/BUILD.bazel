@@ -6,8 +6,6 @@ go_library(
     importpath = "github.com/pingcap/tidb/pkg/autoid_service",
     visibility = ["//visibility:public"],
     deps = [
-        "//pkg/config",
-        "//pkg/keyspace",
         "//pkg/kv",
         "//pkg/meta",
         "//pkg/meta/autoid",
@@ -21,7 +19,6 @@ go_library(
         "@com_github_pingcap_kvproto//pkg/autoid",
         "@io_etcd_go_etcd_client_v3//:client",
         "@org_golang_google_grpc//:grpc",
-        "@org_golang_google_grpc//keepalive",
         "@org_uber_go_zap//:zap",
     ],
 )

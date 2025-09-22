@@ -23,7 +23,9 @@ import (
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/autoid"
+	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/pingcap/tidb/pkg/config"
+	"github.com/pingcap/tidb/pkg/kv"
 	"github.com/pingcap/tidb/pkg/metrics"
 	"github.com/pingcap/tidb/pkg/util/logutil"
 	"github.com/pingcap/tidb/pkg/util/tracing"
@@ -59,17 +61,39 @@ type ClientDiscover struct {
 	}
 	// version is increased in every ResetConn() to make the operation safe.
 	version uint64
+
+	// Serverless
+	namespaced bool
 }
 
 const (
 	autoIDLeaderPath = "tidb/autoid/leader"
 )
 
-// NewClientDiscover creates a ClientDiscover object.
-func NewClientDiscover(etcdCli *clientv3.Client) *ClientDiscover {
-	return &ClientDiscover{
-		etcdCli: etcdCli,
+// IsNamespaced returns if the kv.Storage is using keyspace.
+func IsNamespaced(kvStore kv.Storage) bool {
+	if kvStore == nil {
+		return false
 	}
+	return kvStore.GetCodec().GetAPIVersion() > kvrpcpb.APIVersion_V1
+}
+
+// NewClientDiscover creates a ClientDiscover object.
+func NewClientDiscover(etcdCli *clientv3.Client, namespaced bool) *ClientDiscover {
+	return &ClientDiscover{
+		etcdCli:    etcdCli,
+		namespaced: namespaced,
+	}
+}
+
+// LeaderPath returns the leader path of autoid service.
+// If the client/server is using keyspace, the path will be prefixed with '/'.
+func LeaderPath(namespaced bool) string {
+	base := autoIDLeaderPath
+	if namespaced {
+		return "/" + base
+	}
+	return base
 }
 
 // GetClient gets the AutoIDAllocClient.
@@ -88,7 +112,7 @@ func (d *ClientDiscover) GetClient(ctx context.Context) (autoid.AutoIDAllocClien
 		return d.mu.AutoIDAllocClient, atomic.LoadUint64(&d.version), nil
 	}
 
-	resp, err := d.etcdCli.Get(ctx, autoIDLeaderPath, clientv3.WithFirstCreate()...)
+	resp, err := d.etcdCli.Get(ctx, LeaderPath(d.namespaced), clientv3.WithFirstCreate()...)
 	if err != nil {
 		return nil, 0, errors.Trace(err)
 	}

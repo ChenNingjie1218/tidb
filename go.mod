@@ -108,6 +108,7 @@ require (
 	github.com/stretchr/testify v1.9.0
 	github.com/tdakkota/asciicheck v0.2.0
 	github.com/tiancaiamao/appdash v0.0.0-20181126055449-889f96f722a2
+	github.com/tidbcloud/aws-shared-provider/pkg/tidbworker/clientv2 v0.0.0-20240929071820-0c047349cbf9
 	github.com/tikv/client-go/v2 v2.0.8-0.20250711063936-827bf098b155
 	github.com/tikv/pd/client v0.0.0-20250213080903-727c2086a763
 	github.com/timakin/bodyclose v0.0.0-20240125160201-f835fa56326a
@@ -168,6 +169,7 @@ require (
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/pierrec/lz4/v4 v4.1.15 // indirect
 	github.com/qri-io/jsonpointer v0.1.1 // indirect
+	github.com/tidbcloud/aws-shared-provider/pkg/tidbworker/proto v0.0.0-20240929071820-0c047349cbf9 // indirect
 	github.com/zeebo/xxh3 v1.0.2 // indirect
 )
 

@@ -52,6 +52,7 @@ import (
 	"github.com/pingcap/tidb/pkg/server"
 	"github.com/pingcap/tidb/pkg/session"
 	"github.com/pingcap/tidb/pkg/session/txninfo"
+	"github.com/pingcap/tidb/pkg/sessionctx"
 	"github.com/pingcap/tidb/pkg/sessionctx/variable"
 	"github.com/pingcap/tidb/pkg/standby"
 	"github.com/pingcap/tidb/pkg/statistics"
@@ -59,6 +60,7 @@ import (
 	"github.com/pingcap/tidb/pkg/store/copr"
 	"github.com/pingcap/tidb/pkg/store/driver"
 	"github.com/pingcap/tidb/pkg/store/mockstore"
+	"github.com/pingcap/tidb/pkg/tidbworker"
 	"github.com/pingcap/tidb/pkg/util"
 	"github.com/pingcap/tidb/pkg/util/backoff"
 	"github.com/pingcap/tidb/pkg/util/cgmon"
@@ -145,6 +147,7 @@ const (
 	nmActivationTimeout   = "activation-timeout"
 	nmMaxIdleSeconds      = "max-idle-seconds"
 	nmKeyspaceActivate    = "keyspace-activate"
+	nmTiDBWorkerAPIAddr   = "tidb-worker-api-addr"
 )
 
 var (
@@ -210,6 +213,8 @@ var (
 	maxIdleSeconds    *uint
 	// Keyspace Activate
 	keyspaceActivateMode *bool
+	// TiDB Worker
+	tidbWorkerAPIAddr *string
 )
 
 func initFlagSet() *flag.FlagSet {
@@ -275,6 +280,8 @@ func initFlagSet() *flag.FlagSet {
 	maxIdleSeconds = fset.Uint(nmMaxIdleSeconds, 0, "max idle seconds for a connection, 0 means no limit")
 	// Keyspace Activate
 	keyspaceActivateMode = flagBoolean(fset, nmKeyspaceActivate, false, "start tidb-server as keyspaceActivate")
+	// TiDB Worker
+	tidbWorkerAPIAddr = fset.String(nmTiDBWorkerAPIAddr, "", "tidb worker API server address")
 
 	session.RegisterMockUpgradeFlag(fset)
 	// Ignore errors; CommandLine is set for ExitOnError.
@@ -327,6 +334,8 @@ func main() {
 				terror.MustNil(err)
 			}
 		}
+		// need to validate config again in case of config change via standby
+		mainErrHandler(config.GetGlobalConfig().Valid())
 	} else {
 		// If not set keyspace in config, try to get keyspace name from env and update config.
 		keyspace.GetKeyspaceNameBySettings()
@@ -387,6 +396,17 @@ func main() {
 	printInfo()
 	setupMetrics()
 
+	if err = initTiDBWorkerManager(keyspaceMeta); err != nil {
+		if config.GetGlobalConfig().TiDBWorker.Role != config.RoleMaster {
+			logutil.BgLogger().Error("failed to initialize tidb worker manager as worker, exit tidb server", zap.Error(err))
+			mainErrHandler(err)
+		}
+		logutil.BgLogger().Error("failed to initialize tidb worker manager, fallback to local mode", zap.Error(err))
+		config.UpdateGlobal(func(conf *config.Config) {
+			conf.TiDBWorker.Enable = false
+		})
+	}
+
 	executor.Start()
 	resourcemanager.InstanceResourceManager.Start()
 	storage, dom := createStoreDDLOwnerMgrAndDomain(driverOpenOpts)
@@ -405,6 +425,18 @@ func main() {
 	if config.GetGlobalConfig().KeyspaceActivateMode {
 		// TODO: graceful shutdown
 		os.Exit(0)
+	}
+
+	// Setup global tidb worker service client
+	se, err := dom.SysSessionPool().Get()
+	mainErrHandler(err)
+	defer dom.SysSessionPool().Put(se)
+	if err = initTiDBWorkerService(se.(sessionctx.Context)); err != nil {
+		logutil.BgLogger().Error("failed to initialize tidb worker service, fallback to local mode", zap.Error(err))
+		tidbworker.GlobalTiDBWorkerManager = nil
+		config.UpdateGlobal(func(conf *config.Config) {
+			conf.TiDBWorker.Enable = false
+		})
 	}
 
 	// // remote query worker // TODO: 8.5-keyspace @disksing after cherry-pick worker.
@@ -500,18 +532,13 @@ func getServerlessInfo() (*keyspacepb.KeyspaceMeta, pd.Client, error) {
 		retry += 1
 	}
 
-	// TODO: metric labels
-	//metrics.SetServerlessLabels(keyspaceMeta.Config[serverless.LabelTenantID],
-	//	keyspaceMeta.Config[serverless.LabelProjectID],
-	//	keyspaceMeta.Config[serverless.LabelClusterID])
-	//log.Info("serverless cluster info loaded",
-	//	zap.String("tenant-id", metrics.ServerlessTenantID),
-	//	zap.String("project-id", metrics.ServerlessProjectID),
-	//	zap.String("cluster-id", metrics.ServerlessClusterID),
-	//	zap.Stringer("keyspace-meta", keyspaceMeta),
-	// )
-
+	metrics.SetServerlessLabels(keyspaceMeta.Config[serverless.LabelTenantID],
+		keyspaceMeta.Config[serverless.LabelProjectID],
+		keyspaceMeta.Config[serverless.LabelClusterID])
 	log.Info("serverless cluster info loaded",
+		zap.String("tenant-id", metrics.ServerlessTenantID),
+		zap.String("project-id", metrics.ServerlessProjectID),
+		zap.String("cluster-id", metrics.ServerlessClusterID),
 		zap.Stringer("keyspace-meta", keyspaceMeta),
 	)
 
@@ -608,6 +635,45 @@ func createStoreDDLOwnerMgrAndDomain(driverOpenOption *kv.DriverOpenOption) (kv.
 	dom, err := session.BootstrapSession(storage)
 	terror.MustNil(err)
 	return storage, dom
+}
+
+func initTiDBWorkerManager(keyspaceMeta *keyspacepb.KeyspaceMeta) error {
+	if keyspaceMeta == nil {
+		return nil
+	}
+	cfg := config.GetGlobalConfig()
+	workerConfig := cfg.TiDBWorker
+	if !workerConfig.Enable || tidbworker.GlobalTiDBWorkerManager != nil {
+		return nil
+	}
+
+	// When running as master without enabling SafePointV2, need to disable GC drop table.
+	if workerConfig.Role == config.RoleMaster && !keyspace.IsKeyspaceUseKeyspaceLevelGC(keyspaceMeta) {
+		config.UpdateGlobal(func(conf *config.Config) {
+			conf.SkipGCWorker = true
+		})
+	}
+	// GCV2 worker must have SafePointV2 enabled.
+	if workerConfig.Role == config.RoleGCV2Worker && !keyspace.IsKeyspaceUseKeyspaceLevelGC(keyspaceMeta) {
+		return fmt.Errorf("must enable safe point V2 to run as GCV2 worker")
+	}
+
+	log.Info("[tidb-worker] init global TiDB worker manager")
+	ctx := context.Background()
+	if err := tidbworker.InitManager(ctx, keyspaceMeta, workerConfig); err != nil {
+		return errors.Trace(err)
+	}
+	return nil
+}
+
+func initTiDBWorkerService(sctx sessionctx.Context) error {
+	if !tidbworker.IsMaster() {
+		return nil
+	}
+	if tidbworker.UseKeyspaceLevelGC() {
+		return tidbworker.GlobalTiDBWorkerManager.InitializeGCV2(context.TODO())
+	}
+	return tidbworker.GlobalTiDBWorkerManager.InitializeGC(context.TODO(), sctx)
 }
 
 // Prometheus push.

@@ -73,6 +73,7 @@ type DelRangeTask struct {
 	EndKey    kv.Key
 	JobID     int64
 	ElementID int64
+	Ts        uint64
 }
 
 // Range returns the range [start, end) to delete.

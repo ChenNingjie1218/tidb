@@ -47,23 +47,33 @@ const (
 
 // ActivateRequest is the request body for activating the tidb server.
 type ActivateRequest struct {
-	KeyspaceName   string          `json:"keyspace_name"`
-	AuditLog       *AuditLogConfig `json:"audit_log,omitempty"`
-	ExportID       string          `json:"export_id"`
-	MaxIdleSeconds uint            `json:"max_idle_seconds"`
-}
+	KeyspaceName   string `json:"keyspace_name"`
+	KeyspaceID     string `json:"keyspace_id"`
+	ExportID       string `json:"export_id"`
+	MaxIdleSeconds uint   `json:"max_idle_seconds"`
 
-func (r *ActivateRequest) auditLogEnabled() bool {
-	if r.AuditLog == nil {
-		return false
-	}
-	return r.AuditLog.Enable
-}
+	// Worker Metadata
+	Role   string `json:"role"`
+	ExecID string `json:"exec_id"`
 
-// AuditLogConfig is the configuration about audit log when activating the tidb server.
-type AuditLogConfig struct {
-	Enable     bool   `json:"enable"`
-	EncryptKey string `json:"encrypt_key"`
+	// analyze table
+	RunAutoAnalyze            bool `json:"run_auto_analyze"`
+	EnableAutoAnalyzeSysTable bool `json:"enable_auto_analyze-sys-table"`
+
+	// GCV2
+	SkipGCWorker      bool `json:"skip_gc_worker"`
+	EnableGCFastStart bool `json:"enable_gc_fast_start"`
+
+	// TTL
+	EnableRunTTLTask bool `json:"enable_run_ttl_task"`
+
+	// DDL
+	TiDBEnableDDL bool `json:"tidb_enable_ddl"`
+
+	// serverless info
+	TenantID  string `json:"tenant_id"`
+	ProjectID string `json:"project_id"`
+	ClusterID string `json:"cluster_id"`
 }
 
 // LoadKeyspaceController controls the tidb server to be in standby mode or activated.
@@ -185,14 +195,6 @@ func (c *LoadKeyspaceController) Handler(svr *server.Server) (string, *http.Serv
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		if req.AuditLog != nil && req.AuditLog.Enable {
-			if len(req.AuditLog.EncryptKey) != 32 {
-				logutil.BgLogger().Error("bad audit log encrypt key", zap.String("encrypt_key", req.AuditLog.EncryptKey))
-				w.WriteHeader(http.StatusBadRequest)
-				return
-			}
-			logutil.BgLogger().Info("activate with audit log enabled", zap.String("keyspaceName", req.KeyspaceName))
-		}
 
 		mu.Lock()
 		if state == standbyState {
@@ -203,11 +205,6 @@ func (c *LoadKeyspaceController) Handler(svr *server.Server) (string, *http.Serv
 			mu.Unlock()
 			w.WriteHeader(http.StatusPreconditionFailed)
 			w.Write([]byte("server is not in standby mode"))
-			return
-		} else if activateRequest.auditLogEnabled() != req.auditLogEnabled() {
-			mu.Unlock()
-			w.WriteHeader(http.StatusServiceUnavailable)
-			w.Write([]byte("server audit log status has changed"))
 			return
 		} else if svr.InShutdownMode() {
 			mu.Unlock()
@@ -340,14 +337,49 @@ func (c *LoadKeyspaceController) WaitForActivate() {
 
 	config.UpdateGlobal(func(c *config.Config) {
 		c.KeyspaceName = activateRequest.KeyspaceName
-		if activateRequest.AuditLog != nil {
-			c.AuditLog.Enable = activateRequest.AuditLog.Enable
-			c.AuditLog.EncryptKey = activateRequest.AuditLog.EncryptKey
-		}
+		// export mode
 		c.ExportID = activateRequest.ExportID
 		if activateRequest.MaxIdleSeconds > 0 {
 			c.MaxIdleSeconds = activateRequest.MaxIdleSeconds
 		}
+
+		// Worker Meta
+		if activateRequest.Role != "" {
+			c.TiDBWorker.Role = activateRequest.Role
+		}
+
+		if activateRequest.ExecID != "" {
+			c.TiDBWorker.ExecID = activateRequest.ExecID
+		}
+
+		// TODO: @ystaticy add when ttl worker is ready.
+		//	// TTL config
+		//	if activateRequest.EnableRunTTLTask {
+		//		c.EnableRunTTLTask = activateRequest.EnableRunTTLTask
+		//	}
+
+		// DDL config
+		if activateRequest.TiDBEnableDDL {
+			c.Instance.TiDBEnableDDL = *config.NewAtomicBool(activateRequest.TiDBEnableDDL)
+		}
+
+		// ananlyze table
+		if activateRequest.RunAutoAnalyze {
+			c.Performance.RunAutoAnalyze = activateRequest.RunAutoAnalyze
+		}
+
+		if activateRequest.EnableAutoAnalyzeSysTable {
+			c.EnableAutoAnalyzeSysTable = activateRequest.EnableAutoAnalyzeSysTable
+		}
+
+		// TODO: @amoebaprotozoa add when gc worker is ready
+		//	// GC V2 config
+		//	if activateRequest.SkipGCWorker {
+		//		c.SkipGCWorker = activateRequest.SkipGCWorker
+		//	}
+		//	if activateRequest.EnableGCFastStart {
+		//		c.EnableGCFastStart = activateRequest.EnableGCFastStart
+		//	}
 	})
 }
 

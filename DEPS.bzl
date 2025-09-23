@@ -5995,6 +5995,28 @@ def go_deps():
         ],
     )
     go_repository(
+        name = "com_github_tidbcloud_aws_shared_provider_pkg_tidbworker_clientv2",
+        build_file_proto_mode = "disable_global",
+        importpath = "github.com/tidbcloud/aws-shared-provider/pkg/tidbworker/clientv2",
+        sha256 = "0c5376cdb257f03d380273a979b6f666e5b8031b29700fa93565bcc7910da6a4",
+        strip_prefix = "github.com/tidbcloud/aws-shared-provider/pkg/tidbworker/clientv2@v0.0.0-20240929071820-0c047349cbf9",
+        urls = [
+            "https://cache.hawkingrei.com/gomod/github.com/tidbcloud/aws-shared-provider/pkg/tidbworker/clientv2/com_github_tidbcloud_aws_shared_provider_pkg_tidbworker_clientv2-v0.0.0-20240929071820-0c047349cbf9.zip",
+            "https://storage.googleapis.com/pingcapmirror/gomod/github.com/tidbcloud/aws-shared-provider/pkg/tidbworker/clientv2/com_github_tidbcloud_aws_shared_provider_pkg_tidbworker_clientv2-v0.0.0-20240929071820-0c047349cbf9.zip",
+        ],
+    )
+    go_repository(
+        name = "com_github_tidbcloud_aws_shared_provider_pkg_tidbworker_proto",
+        build_file_proto_mode = "disable_global",
+        importpath = "github.com/tidbcloud/aws-shared-provider/pkg/tidbworker/proto",
+        sha256 = "ea2fbb49a2b50baf4a34e04ef203e682935adda8ff6f759f52893737474ede90",
+        strip_prefix = "github.com/tidbcloud/aws-shared-provider/pkg/tidbworker/proto@v0.0.0-20240929071820-0c047349cbf9",
+        urls = [
+            "https://cache.hawkingrei.com/gomod/github.com/tidbcloud/aws-shared-provider/pkg/tidbworker/proto/com_github_tidbcloud_aws_shared_provider_pkg_tidbworker_proto-v0.0.0-20240929071820-0c047349cbf9.zip",
+            "https://storage.googleapis.com/pingcapmirror/gomod/github.com/tidbcloud/aws-shared-provider/pkg/tidbworker/proto/com_github_tidbcloud_aws_shared_provider_pkg_tidbworker_proto-v0.0.0-20240929071820-0c047349cbf9.zip",
+        ],
+    )
+    go_repository(
         name = "com_github_tikv_client_go_v2",
         build_file_proto_mode = "disable_global",
         importpath = "github.com/tikv/client-go/v2",

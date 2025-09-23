@@ -26,6 +26,7 @@ go_library(
         "sli.go",
         "stats.go",
         "telemetry.go",
+        "tidb_worker.go",
         "topsql.go",
         "ttl.go",
         "vpa.go",

@@ -7,6 +7,7 @@ go_library(
         "config_util.go",
         "const.go",
         "serverless.go",
+        "tidb_worker.go",
     ],
     importpath = "github.com/pingcap/tidb/pkg/config",
     visibility = ["//visibility:public"],

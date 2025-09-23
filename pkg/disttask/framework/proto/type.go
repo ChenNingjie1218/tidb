@@ -21,6 +21,8 @@ const (
 	ImportInto TaskType = "ImportInto"
 	// Backfill is TaskType of add index Backfilling process.
 	Backfill TaskType = "backfill"
+	// Batch is TaskType of async batch tasks.
+	Batch TaskType = "batch"
 )
 
 // Type2Int converts task type to int.

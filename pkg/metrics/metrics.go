@@ -98,7 +98,7 @@ func InitMetrics() {
 	InitGlobalSortMetrics()
 	InitInfoSchemaV2Metrics()
 	timermetrics.InitTimerMetrics()
-	// InitTiDBWorkerMetrics() // FIXME: 8.5-keyspace @disksing
+	InitTiDBWorkerMetrics()
 	InitVPAMetrics()
 	// InitVectorSearchMetrics() // FIXME: 8.5-keyspace @disksing
 	InitRemoteQueryMetrics()
@@ -314,6 +314,8 @@ func RegisterMetrics() {
 	prometheus.MustRegister(RemoteQueryRecordSetDuration)
 	prometheus.MustRegister(RemoteQueryWorkerCounter)
 	prometheus.MustRegister(RemoteQueryWorkerDuration)
+
+	prometheus.MustRegister(WorkerTaskCounter)
 
 	tikvmetrics.InitMetricsWithConstLabels(TiDB, TiKVClient, GetConstLabels())
 	tikvmetrics.RegisterMetrics()

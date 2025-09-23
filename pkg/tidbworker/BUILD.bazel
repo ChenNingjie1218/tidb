@@ -3,13 +3,28 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library")
 go_library(
     name = "tidbworker",
     srcs = [
+        "local_client.go",
+        "manager.go",
         "tidb_worker.go",
         "util.go",
     ],
     importpath = "github.com/pingcap/tidb/pkg/tidbworker",
     visibility = ["//visibility:public"],
     deps = [
+        "//pkg/config",
+        "//pkg/ddl/util",
+        "//pkg/disttask/framework/proto",
+        "//pkg/domain/infosync",
+        "//pkg/keyspace",
+        "//pkg/metrics",
         "//pkg/sessionctx",
+        "//pkg/util/logutil",
+        "@com_github_pingcap_errors//:errors",
         "@com_github_pingcap_kvproto//pkg/keyspacepb",
+        "@com_github_pingcap_log//:log",
+        "@com_github_tidbcloud_aws_shared_provider_pkg_tidbworker_clientv2//:clientv2",
+        "@org_golang_google_grpc//:grpc",
+        "@org_golang_google_grpc//credentials/insecure",
+        "@org_uber_go_zap//:zap",
     ],
 )

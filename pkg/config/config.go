@@ -354,6 +354,12 @@ type Config struct {
 
 	// EnableSetTableTTL is used to control whether to create or alter table ttl .
 	EnableSetTableTTL bool `toml:"enable-set-table-ttl" json:"enable-set-table-ttl"`
+
+	// TiDBWorker is the config for tidb worker.
+	TiDBWorker TiDBWorker `toml:"tidb-worker" json:"tidb-worker"`
+
+	// EnableAutoAnalyzeSysTable is used to control whether to enable auto analyze system tables.
+	EnableAutoAnalyzeSysTable bool `toml:"enable-auto-analyze-sys-table" json:"enable-auto-analyze-sys-table"`
 }
 
 // UpdateTempStoragePath is to update the `TempStoragePath` if port/statusPort was changed
@@ -1177,6 +1183,8 @@ var defaultConf = Config{
 	ExtendedErrorMsgs: make(map[string]string),
 
 	SkipGCWorker: false,
+
+	TiDBWorker: defaultTiDBWorker(),
 }
 
 var (
@@ -1544,6 +1552,11 @@ func (c *Config) Valid() error {
 	// check mode
 	if c.StandByMode && c.KeyspaceActivateMode {
 		return fmt.Errorf("can't set standby and keyspace-activate mode at the same time")
+	}
+
+	// check tidb worker
+	if err := c.TiDBWorker.Valid(c); err != nil {
+		return err
 	}
 
 	// test log level

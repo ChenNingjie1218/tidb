@@ -301,6 +301,7 @@ func RegisterMetrics() {
 	prometheus.MustRegister(BindingCacheMemLimit)
 	prometheus.MustRegister(BindingCacheNumBindings)
 	prometheus.MustRegister(InternalSessions)
+	prometheus.MustRegister(NoAvailableTiFlashComputeNode)
 	prometheus.MustRegister(VPAReportCounter)
 	prometheus.MustRegister(VPAScaleMemoryCounter)
 	prometheus.MustRegister(VPAMemoryGauge)

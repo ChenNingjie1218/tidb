@@ -36,6 +36,7 @@ import (
 	"github.com/pingcap/tidb/pkg/config"
 	"github.com/pingcap/tidb/pkg/ddl/placement"
 	"github.com/pingcap/tidb/pkg/kv"
+	tidbmetrics "github.com/pingcap/tidb/pkg/metrics"
 	"github.com/pingcap/tidb/pkg/sessionctx/variable"
 	"github.com/pingcap/tidb/pkg/store/driver/backoff"
 	derr "github.com/pingcap/tidb/pkg/store/driver/error"
@@ -650,6 +651,7 @@ func buildBatchCopTasksConsistentHash(
 		storesStr = filterAliveStoresStr(ctx, storesStr, ttl, kvStore)
 		logutil.BgLogger().Info("topo filter alive", zap.Any("topo", storesStr))
 		if len(storesStr) == 0 {
+			tidbmetrics.NoAvailableTiFlashComputeNode.Inc()
 			errMsg := "Cannot find proper topo to dispatch MPPTask: "
 			if storesBefFilter == 0 {
 				errMsg += "topo from AutoScaler is empty"

@@ -73,6 +73,8 @@ var (
 	RCCheckTSWriteConfilictCounter  *prometheus.CounterVec
 	MemoryLimit                     prometheus.Gauge
 	InternalSessions                prometheus.Gauge
+
+	NoAvailableTiFlashComputeNode prometheus.Counter
 )
 
 // InitServerMetrics initializes server metrics.
@@ -401,6 +403,14 @@ func InitServerMetrics() {
 			Subsystem: "server",
 			Name:      "internal_sessions",
 			Help:      "The total count of internal sessions.",
+		})
+
+	NoAvailableTiFlashComputeNode = NewCounter(
+		prometheus.CounterOpts{
+			Namespace: "tidb",
+			Subsystem: "server",
+			Name:      "no_available_tiflash_compute_node",
+			Help:      "Counter of there is no available tiflash compute node",
 		})
 }
 

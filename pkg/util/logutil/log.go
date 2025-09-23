@@ -57,6 +57,8 @@ const (
 	LogFieldCategory = "category"
 	// LogFieldConn is the field name for connection id in log
 	LogFieldConn = "conn"
+	// LogFieldGwConn is the field name for gateway connection id in log
+	LogFieldGwConn = "gw_conn"
 	// LogFieldSessionAlias is the field name for session_alias in log
 	LogFieldSessionAlias = "session_alias"
 	// jsonLogFormat is the json format of the log.
@@ -276,6 +278,17 @@ func WithConnID(ctx context.Context, connID uint64) context.Context {
 	return WithFields(ctx, zap.Uint64(LogFieldConn, connID))
 }
 
+// WithGatewayConnID attaches gwConnID to context.
+func WithGatewayConnID(ctx context.Context, gwConnID string) context.Context {
+	var logger *zap.Logger
+	if ctxLogger, ok := ctx.Value(CtxLogKey).(*zap.Logger); ok {
+		logger = ctxLogger
+	} else {
+		logger = log.L()
+	}
+	return context.WithValue(ctx, CtxLogKey, logger.With(zap.String(LogFieldGwConn, gwConnID)))
+}
+
 // WithSessionAlias attaches session_alias to context
 func WithSessionAlias(ctx context.Context, alias string) context.Context {
 	return WithFields(ctx, zap.String(LogFieldSessionAlias, alias))
@@ -293,6 +306,7 @@ func WithTraceFields(ctx context.Context, info *model.TraceInfo) context.Context
 	}
 	return WithFields(ctx,
 		zap.Uint64(LogFieldConn, info.ConnectionID),
+		zap.String(LogFieldGwConn, info.GatewayConnID),
 		zap.String(LogFieldSessionAlias, info.SessionAlias),
 	)
 }
@@ -306,7 +320,9 @@ func fieldsFromTraceInfo(info *model.TraceInfo) []zap.Field {
 	if info.ConnectionID != 0 {
 		fields = append(fields, zap.Uint64(LogFieldConn, info.ConnectionID))
 	}
-
+	if info.GatewayConnID != "" {
+		fields = append(fields, zap.String(LogFieldGwConn, info.GatewayConnID))
+	}
 	if info.SessionAlias != "" {
 		fields = append(fields, zap.String(LogFieldSessionAlias, info.SessionAlias))
 	}

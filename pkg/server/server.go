@@ -55,6 +55,7 @@ import (
 	"github.com/pingcap/tidb/pkg/domain"
 	"github.com/pingcap/tidb/pkg/executor/mppcoordmanager"
 	"github.com/pingcap/tidb/pkg/extension"
+	"github.com/pingcap/tidb/pkg/keyspace"
 	"github.com/pingcap/tidb/pkg/kv"
 	"github.com/pingcap/tidb/pkg/metrics"
 	"github.com/pingcap/tidb/pkg/parser/ast"
@@ -772,6 +773,7 @@ func (s *Server) onConn(conn *clientConn) {
 		return
 	}
 
+	ctx = logutil.WithGatewayConnID(ctx, conn.gwConnID)
 	logutil.Logger(ctx).Debug("new connection", zap.String("remoteAddr", conn.bufReadConn.RemoteAddr().String()))
 
 	defer func() {
@@ -982,10 +984,11 @@ func (s *Server) GetConAttrs(user *auth.UserIdentity) map[uint64]map[string]stri
 	return rs
 }
 
-// Kill implements the SessionManager interface.
-func (s *Server) Kill(connectionID uint64, query bool, maxExecutionTime bool, runaway bool) {
+// Kill implements the SessionManager interface, if the connection will be normally closed, normalCloseMsg should be set.
+func (s *Server) Kill(connectionID uint64, query bool, maxExecutionTime bool, runaway bool, normalCloseMsg string) {
 	logutil.BgLogger().Info("kill", zap.Uint64("conn", connectionID),
-		zap.Bool("query", query), zap.Bool("maxExecutionTime", maxExecutionTime), zap.Bool("runawayExceed", runaway))
+		zap.Bool("query", query), zap.Bool("maxExecutionTime", maxExecutionTime), zap.Bool("runawayExceed", runaway),
+		zap.String("normalCloseMsg", normalCloseMsg))
 	metrics.ServerEventCounter.WithLabelValues(metrics.EventKill).Inc()
 
 	s.rwlock.RLock()
@@ -1006,6 +1009,10 @@ func (s *Server) Kill(connectionID uint64, query bool, maxExecutionTime bool, ru
 			if err := conn.bufReadConn.SetWriteDeadline(time.Now()); err != nil {
 				logutil.BgLogger().Warn("error setting write deadline for kill.", zap.Error(err))
 			}
+		}
+		if normalCloseMsg != "" {
+			tidbGatewayConnID := conn.attrs[tidbGatewayAttrsConnKey]
+			s.SetNormalClosedConn(keyspace.GetKeyspaceNameBySettings(), tidbGatewayConnID, normalCloseMsg)
 		}
 	}
 	killQuery(conn, maxExecutionTime, runaway)
@@ -1249,7 +1256,7 @@ func (s *Server) KillNonFlashbackClusterConn() {
 	}
 	s.rwlock.RUnlock()
 	for _, id := range connIDs {
-		s.Kill(id, false, false, false)
+		s.Kill(id, false, false, false, "")
 	}
 }
 

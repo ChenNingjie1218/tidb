@@ -121,6 +121,8 @@ const (
 	connStatusReading
 	connStatusShutdown     = variable.ConnStatusShutdown // Closed by server.
 	connStatusWaitShutdown = 3                           // Notified by server to close.
+
+	tidbGatewayAttrsConnKey = "TiDB-Gateway-ConnID"
 )
 
 var (
@@ -167,6 +169,7 @@ type clientConn struct {
 	server       *Server                 // a reference of server instance.
 	capability   uint32                  // client capability affects the way server handles client request.
 	connectionID uint64                  // atomically allocated by a global variable, unique in process scope.
+	gwConnID     string                  // tidb gateway connection ID, unique in gateway scope.
 	user         string                  // user of the client.
 	dbname       string                  // default database name.
 	salt         []byte                  // random bytes used for authentication.
@@ -603,6 +606,7 @@ func (cc *clientConn) readOptionalSSLRequestAndHandshakeResponse(ctx context.Con
 		return err
 	}
 
+	cc.gwConnID = resp.Attrs[tidbGatewayAttrsConnKey]
 	cc.capability = resp.Capability & cc.server.capability
 	cc.user = resp.User
 	cc.dbname = resp.DBName
@@ -1115,8 +1119,9 @@ func (cc *clientConn) Run(ctx context.Context) {
 		if alias := sessVars.SessionAlias; traceInfo == nil || traceInfo.SessionAlias != alias {
 			// We should reset the context trace info when traceInfo not inited or session alias changed.
 			traceInfo = &model.TraceInfo{
-				ConnectionID: cc.connectionID,
-				SessionAlias: alias,
+				ConnectionID:  cc.connectionID,
+				GatewayConnID: cc.gwConnID,
+				SessionAlias:  alias,
 			}
 			ctx = logutil.WithSessionAlias(parentCtx, sessVars.SessionAlias)
 			ctx = tracing.ContextWithTraceInfo(ctx, traceInfo)
@@ -1152,9 +1157,12 @@ func (cc *clientConn) Run(ctx context.Context) {
 						logutil.Logger(ctx).Info("read packet timeout because of killed connection")
 					} else {
 						idleTime := time.Since(start)
+						tidbGatewayConnID := cc.attrs[tidbGatewayAttrsConnKey]
+						cc.server.SetNormalClosedConn(keyspace.GetKeyspaceNameBySettings(), tidbGatewayConnID, "read packet timeout")
 						logutil.Logger(ctx).Info("read packet timeout, close this connection",
 							zap.Duration("idle", idleTime),
 							zap.Uint64("waitTimeout", waitTimeout),
+							zap.String(tidbGatewayAttrsConnKey, tidbGatewayConnID),
 							zap.Error(err),
 						)
 					}

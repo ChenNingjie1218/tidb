@@ -1298,6 +1298,8 @@ func (tz *TimeZoneLocation) GetLocation() (*time.Location, error) {
 type TraceInfo struct {
 	// ConnectionID is the id of the connection
 	ConnectionID uint64 `json:"connection_id"`
+	// GatewayConnID is the id of the gateway connection
+	GatewayConnID string `json:"gw_conn_id"`
 	// SessionAlias is the alias of session
 	SessionAlias string `json:"session_alias"`
 }

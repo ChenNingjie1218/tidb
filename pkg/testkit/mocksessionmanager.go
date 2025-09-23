@@ -111,7 +111,7 @@ func (msm *MockSessionManager) GetConAttrs(user *auth.UserIdentity) map[uint64]m
 }
 
 // Kill implements the SessionManager.Kill interface.
-func (*MockSessionManager) Kill(uint64, bool, bool, bool) {
+func (*MockSessionManager) Kill(uint64, bool, bool, bool, string) {
 }
 
 // KillAllConnections implements the SessionManager.KillAllConnections interface.
@@ -181,12 +181,12 @@ func (msm *MockSessionManager) KillNonFlashbackClusterConn() {
 		processInfo := se.ShowProcess()
 		ddl, ok := processInfo.StmtCtx.GetPlan().(*core.DDL)
 		if !ok {
-			msm.Kill(se.GetSessionVars().ConnectionID, false, false, false)
+			msm.Kill(se.GetSessionVars().ConnectionID, false, false, false, "")
 			continue
 		}
 		_, ok = ddl.Statement.(*ast.FlashBackToTimestampStmt)
 		if !ok {
-			msm.Kill(se.GetSessionVars().ConnectionID, false, false, false)
+			msm.Kill(se.GetSessionVars().ConnectionID, false, false, false, "")
 			continue
 		}
 	}

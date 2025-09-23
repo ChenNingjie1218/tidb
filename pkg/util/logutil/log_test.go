@@ -44,6 +44,9 @@ func TestFieldsFromTraceInfo(t *testing.T) {
 	fields = fieldsFromTraceInfo(&model.TraceInfo{ConnectionID: 1})
 	require.Equal(t, []zap.Field{zap.Uint64("conn", 1)}, fields)
 
+	fields = fieldsFromTraceInfo(&model.TraceInfo{GatewayConnID: "gw-1"})
+	require.Equal(t, []zap.Field{zap.String("gw_conn", "gw-1")}, fields)
+
 	fields = fieldsFromTraceInfo(&model.TraceInfo{SessionAlias: "alias123"})
 	require.Equal(t, []zap.Field{zap.String("session_alias", "alias123")}, fields)
 
@@ -64,7 +67,9 @@ func TestZapLoggerWithKeys(t *testing.T) {
 	err := InitLogger(conf)
 	require.NoError(t, err)
 	connID := uint64(123)
+	gwConnID := "gw-123"
 	ctx := WithConnID(context.Background(), connID)
+	ctx = WithGatewayConnID(ctx, gwConnID)
 	testZapLogger(ctx, t, fileCfg.Filename, zapLogWithConnIDPattern)
 	err = os.Remove(fileCfg.Filename)
 	require.NoError(t, err)
@@ -73,6 +78,7 @@ func TestZapLoggerWithKeys(t *testing.T) {
 	err = InitLogger(conf)
 	require.NoError(t, err)
 	ctx = WithConnID(context.Background(), connID)
+	ctx = WithGatewayConnID(ctx, gwConnID)
 	ctx = WithSessionAlias(ctx, "alias123")
 	testZapLogger(ctx, t, fileCfg.Filename, zapLogWithTraceInfoPattern)
 	err = os.Remove(fileCfg.Filename)
@@ -80,21 +86,21 @@ func TestZapLoggerWithKeys(t *testing.T) {
 
 	err = InitLogger(conf)
 	require.NoError(t, err)
-	ctx1 := WithFields(context.Background(), zap.Int64("conn", 123), zap.String("session_alias", "alias456"))
+	ctx1 := WithFields(context.Background(), zap.Int64("conn", 123), zap.String("gw_conn", "gw-123"), zap.String("session_alias", "alias456"))
 	testZapLogger(ctx1, t, fileCfg.Filename, zapLogWithTraceInfoPattern)
 	err = os.Remove(fileCfg.Filename)
 	require.NoError(t, err)
 
 	err = InitLogger(conf)
 	require.NoError(t, err)
-	ctx1 = WithTraceFields(context.Background(), &model.TraceInfo{ConnectionID: 456, SessionAlias: "alias789"})
+	ctx1 = WithTraceFields(context.Background(), &model.TraceInfo{ConnectionID: 456, GatewayConnID: "gw-456", SessionAlias: "alias789"})
 	testZapLogger(ctx1, t, fileCfg.Filename, zapLogWithTraceInfoPattern)
 	err = os.Remove(fileCfg.Filename)
 	require.NoError(t, err)
 
 	err = InitLogger(conf)
 	require.NoError(t, err)
-	newLogger := LoggerWithTraceInfo(log.L(), &model.TraceInfo{ConnectionID: 789, SessionAlias: "alias012"})
+	newLogger := LoggerWithTraceInfo(log.L(), &model.TraceInfo{ConnectionID: 789, GatewayConnID: "gw-789", SessionAlias: "alias012"})
 	ctx1 = context.WithValue(context.Background(), CtxLogKey, newLogger)
 	testZapLogger(ctx1, t, fileCfg.Filename, zapLogWithTraceInfoPattern)
 	err = os.Remove(fileCfg.Filename)

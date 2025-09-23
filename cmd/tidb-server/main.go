@@ -402,6 +402,11 @@ func main() {
 		standbyController.EndStandby(nil)
 	}
 
+	if config.GetGlobalConfig().KeyspaceActivateMode {
+		// TODO: graceful shutdown
+		os.Exit(0)
+	}
+
 	// // remote query worker // TODO: 8.5-keyspace @disksing after cherry-pick worker.
 	// if config.GetGlobalConfig().TiDBWorker.Role == config.RoleRemoteQueryWorker && config.GetGlobalConfig().TiDBWorker.ExecID != "" {
 	// 	logutil.BgLogger().Info("remote query worker mode")

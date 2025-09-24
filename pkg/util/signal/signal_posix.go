@@ -57,6 +57,6 @@ func SetupSignalHandler(shutdownFunc func()) {
 }
 
 // TiDBExit sends a SIGTERM signal to the current process
-func TiDBExit() {
-	syscall.Kill(syscall.Getpid(), syscall.SIGTERM)
+func TiDBExit(sig syscall.Signal) {
+	syscall.Kill(syscall.Getpid(), sig)
 }

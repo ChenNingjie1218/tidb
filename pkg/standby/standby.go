@@ -23,8 +23,10 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/pingcap/tidb/pkg/config"
@@ -224,7 +226,7 @@ func (c *LoadKeyspaceController) Handler(svr *server.Server) (string, *http.Serv
 		case <-r.Context().Done(): // client closed connection.
 			go func() {
 				c.EndStandby(errors.New("client closed connection"))
-				signal.TiDBExit()
+				signal.TiDBExit(syscall.SIGTERM)
 			}()
 		case <-timeout: // reach hardlimit timeout from config.
 			logutil.BgLogger().Warn("timeout waiting for activation")
@@ -232,7 +234,7 @@ func (c *LoadKeyspaceController) Handler(svr *server.Server) (string, *http.Serv
 			w.Write([]byte("timeout waiting for activation"))
 			go func() {
 				c.EndStandby(errors.New("timeout waiting for activation"))
-				signal.TiDBExit()
+				signal.TiDBExit(syscall.SIGTERM)
 			}()
 		case <-c.serverStartCh:
 			if c.startServerErr != nil {
@@ -244,13 +246,45 @@ func (c *LoadKeyspaceController) Handler(svr *server.Server) (string, *http.Serv
 		}
 	})
 	mux.HandleFunc(httpPathPrefix+"exit", keyspaceChecker(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		logutil.BgLogger().Info("receiving exit request")
+		gracefulStr, waitStr := r.URL.Query().Get("graceful"), r.URL.Query().Get("wait")
+		graceful, _ := strconv.ParseBool(gracefulStr)                                    // not set or invalid -> false
+		wait, _ := strconv.ParseInt(waitStr, 10, 64)                                     // not set or invalid -> 0
+		skipAutoIDOwner, _ := strconv.ParseBool(r.URL.Query().Get("skip_auto_id_owner")) // not set or invalid -> false
+		needMgrFree, _ := strconv.ParseBool(r.URL.Query().Get("need_mgr_free"))          // not set or invalid -> false
+		logutil.BgLogger().Info("receiving exit request",
+			zap.Bool("graceful", graceful),
+			zap.Int64("wait", wait),
+			zap.Bool("skip_auto_id_owner", skipAutoIDOwner),
+			zap.Bool("need_mgr_free", needMgrFree),
+		)
 		if svr != nil {
-			svr.ForceShutdown()
-			SaveTidbNormalRestartInfo("received exit request")
+			if skipAutoIDOwner && svr.IsAutoIDOwner() {
+				logutil.BgLogger().Info("auto id service is owner, skip exit")
+				w.WriteHeader(http.StatusNotModified)
+				w.Write([]byte("auto id service is owner"))
+				return
+			}
+			if !graceful {
+				svr.SetForceShutdown()
+				SaveTidbNormalRestartInfo("received force exit request")
+				w.WriteHeader(http.StatusOK)
+				// Consider the server is going to fore shutdown, send a high priority signal to kill tidb.
+				signal.TiDBExit(syscall.SIGINT)
+				return
+			}
+			if wait > 0 {
+				config.UpdateGlobal(func(cfg *config.Config) {
+					cfg.GracefulWaitBeforeShutdown = int(wait)
+				})
+			}
+			if !needMgrFree {
+				svr.SetSkipMgrFree()
+				w.WriteHeader(http.StatusOK)
+				signal.TiDBExit(syscall.SIGINT)
+			}
 		}
 		w.WriteHeader(http.StatusOK)
-		signal.TiDBExit()
+		signal.TiDBExit(syscall.SIGTERM)
 	})))
 	mux.HandleFunc(httpPathPrefix+"checkconn", func(w http.ResponseWriter, r *http.Request) {
 		keyspaceName, connID := r.URL.Query().Get("keyspace_name"), r.URL.Query().Get("conn_id")
@@ -395,4 +429,26 @@ func (c *LoadKeyspaceController) EndStandby(err error) {
 			httpServer.Shutdown(ctx)
 		}
 	})
+}
+
+// OnServerShutdown is called when the server is going to shut down.
+// It will notify the tidb manager to the pod could be put back to the free cache.
+func (c *LoadKeyspaceController) OnServerShutdown(svr *server.Server) {
+	// FIXME: @disksing uncomment after cherry-pick from 7.5
+	// if c.mgrCli == nil || svr.Health() || svr.GetForceShutdown() || svr.GetSkipManagerFree() {
+	// 	return
+	// }
+
+	// exitReason, err := LoadTiDBNormalRestartLog()
+	// if err != nil && !os.IsNotExist(err) {
+	// 	logutil.BgLogger().Error("failed to load restart log", zap.Error(err))
+	// 	return
+	// }
+
+	// ctx, cancel := context.WithTimeout(context.Background(), tidbmanager.DefaultTimeout)
+	// defer cancel()
+	// err = c.mgrCli.Free(ctx, string(exitReason))
+	// if err != nil {
+	// 	logutil.BgLogger().Info("failed to report free", zap.Error(err))
+	// }
 }

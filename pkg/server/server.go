@@ -151,6 +151,9 @@ type Server struct {
 	inShutdownMode *uatomic.Bool
 	health         *uatomic.Bool
 
+	forceShutdown *uatomic.Bool
+	skipMgrFree   *uatomic.Bool
+
 	sessionMapMutex     sync.Mutex
 	internalSessions    map[any]struct{}
 	autoIDService       *autoid.Service
@@ -304,6 +307,8 @@ func NewServer(cfg *config.Config, driver IDriver) (*Server, error) {
 		health:            uatomic.NewBool(false),
 		inShutdownMode:    uatomic.NewBool(false),
 		printMDLLogTime:   time.Now(),
+		forceShutdown:     uatomic.NewBool(false),
+		skipMgrFree:       uatomic.NewBool(false),
 	}
 	s.capability = defaultCapability
 	setTxnScope()
@@ -685,9 +690,24 @@ func (s *Server) closeListener() {
 	metrics.ServerEventCounter.WithLabelValues(metrics.ServerStop).Inc()
 }
 
-// ForceShutdown sets the server to skip gracefully shutdown wait.
-func (s *Server) ForceShutdown() {
-	// FIXME: cherry-pick from release-7.5
+// SetForceShutdown sets the force shutdown flag.
+func (s *Server) SetForceShutdown() {
+	s.forceShutdown.Store(true)
+}
+
+// GetForceShutdown gets the force shutdown flag.
+func (s *Server) GetForceShutdown() bool {
+	return s.forceShutdown.Load()
+}
+
+// SetSkipMgrFree sets the need manager free flag.
+func (s *Server) SetSkipMgrFree() {
+	s.skipMgrFree.Store(true)
+}
+
+// GetSkipManagerFree gets the need manager free flag.
+func (s *Server) GetSkipManagerFree() bool {
+	return s.skipMgrFree.Load()
 }
 
 // Close closes the server.

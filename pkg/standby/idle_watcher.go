@@ -16,6 +16,7 @@ package standby
 
 import (
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/pingcap/tidb/pkg/config"
@@ -82,11 +83,11 @@ func (c *LoadKeyspaceController) OnServerCreated(svr *server.Server) {
 				// And clientInteractiveCount don't need to be considered because session can be restored by gateway.
 				if config.GetGlobalConfig().EnableZeroBackend && (connCount == 0 || processCount == 0) && inTransCount == 0 {
 					SaveTidbNormalRestartInfo("connection idle for too long")
-					signal.TiDBExit()
+					signal.TiDBExit(syscall.SIGTERM)
 				} else if (connCount == 0 || processCount == 0) && inTransCount == 0 && clientInteractiveCount == 0 {
-					svr.ForceShutdown()
+					svr.SetForceShutdown()
 					SaveTidbNormalRestartInfo("connection idle for too long")
-					signal.TiDBExit()
+					signal.TiDBExit(syscall.SIGINT)
 				}
 			}
 		}

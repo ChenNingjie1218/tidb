@@ -896,6 +896,22 @@ func overrideConfig(cfg *config.Config, fset *flag.FlagSet) {
 		terror.MustNil(err)
 		cfg.Instance.TiDBServiceScope = *serviceScope
 	}
+
+	if actualFlags[nmStandby] {
+		cfg.StandByMode = *standbyMode
+	}
+
+	if actualFlags[nmKeyspaceActivate] {
+		cfg.KeyspaceActivateMode = *keyspaceActivateMode
+	}
+
+	if actualFlags[nmActivationTimeout] {
+		cfg.ActivationTimeout = *activationTimeout
+	}
+
+	if actualFlags[nmMaxIdleSeconds] {
+		cfg.MaxIdleSeconds = *maxIdleSeconds
+	}
 }
 
 func setVersions() {

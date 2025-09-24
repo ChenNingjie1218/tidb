@@ -259,6 +259,8 @@ func (s *Server) startHTTPServer(store kv.Storage) {
 	// HTTP path for upgrade operations.
 	router.Handle("/upgrade/{op}", handler.NewClusterUpgradeHandler(tikvHandlerTool.Store.(kv.Storage))).Name("upgrade operations")
 
+	router.HandleFunc("/owner_manager/auto_id_service", s.handleCheckAutoIDOwner).Name("isAutoServiceOwner")
+
 	if s.cfg.Store == "tikv" {
 		// HTTP path for tikv.
 		router.Handle("/tables/{db}/{table}/regions", tikvhandler.NewTableHandler(tikvHandlerTool, tikvhandler.OpTableRegions))
@@ -661,4 +663,35 @@ func (s *Server) newStatsPriorityQueueHandler() *optimizor.StatsPriorityQueueHan
 	}
 
 	return optimizor.NewStatsPriorityQueueHandler(do)
+}
+
+// IsAutoIDServiceOwner is the response structure for checking if the auto ID service is the owner.
+type IsAutoIDServiceOwner struct {
+	IsOwner bool `json:"is_owner"`
+}
+
+// IsAutoIDOwner checks if the auto ID service is the owner.
+func (s *Server) IsAutoIDOwner() bool {
+	return s.autoIDService != nil && s.autoIDService.IsOwner()
+}
+
+func (s *Server) handleCheckAutoIDOwner(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if !s.health.Load() {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	obj := IsAutoIDServiceOwner{
+		IsOwner: s.IsAutoIDOwner(),
+	}
+
+	js, err := json.Marshal(obj)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		logutil.BgLogger().Error("encode json failed", zap.Error(err))
+		return
+	}
+	_, err = w.Write(js)
+	terror.Log(errors.Trace(err))
 }

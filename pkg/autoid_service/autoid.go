@@ -424,6 +424,11 @@ func (s *Service) AllocAutoID(ctx context.Context, req *autoid.AutoIDRequest) (*
 	return res, nil
 }
 
+// IsOwner return true if the current service is the owner of autoid.
+func (s *Service) IsOwner() bool {
+	return s.leaderShip.IsOwner()
+}
+
 func (s *Service) getAlloc(dbID, tblID int64, isUnsigned bool) *autoIDValue {
 	key := autoIDKey{dbID: dbID, tblID: tblID}
 	s.autoIDLock.Lock()

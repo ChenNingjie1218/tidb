@@ -117,7 +117,7 @@ func (e *RevokeExec) Next(ctx context.Context, _ *chunk.Chunk) error {
 		}
 
 		// Check if user exists.
-		exists, err := userExists(ctx, e.Ctx(), user.User.Username, user.User.Hostname)
+		exists, err := userExistsWithRetryVariants(ctx, e.Ctx(), &user.User.Username, user.User.Hostname)
 		if err != nil {
 			return err
 		}

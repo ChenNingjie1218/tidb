@@ -1866,14 +1866,23 @@ func (i *HLastJobIterator) GetLastJobs(num int, jobs []*model.Job) ([]*model.Job
 // GetBootstrapVersion returns the version of the server which bootstrap the store.
 // If the store is not bootstraped, the version will be zero.
 func (m *Mutator) GetBootstrapVersion() (int64, error) {
-	value, err := m.txn.GetInt64(mBootstrapKey)
-	return value, errors.Trace(err)
+	return m.GetInt64Key(mBootstrapKey)
 }
 
 // FinishBootstrap finishes bootstrap.
 func (m *Mutator) FinishBootstrap(version int64) error {
-	err := m.txn.Set(mBootstrapKey, []byte(strconv.FormatInt(version, 10)))
-	return errors.Trace(err)
+	return m.SetInt64Key(mBootstrapKey, version)
+}
+
+// GetInt64Key retrieves the int64 value of a key.
+func (m *Mutator) GetInt64Key(key []byte) (int64, error) {
+	value, err := m.txn.GetInt64(key)
+	return value, errors.Trace(err)
+}
+
+// SetInt64Key sets given key to the target int64 value.
+func (m *Mutator) SetInt64Key(key []byte, value int64) error {
+	return errors.Trace(m.txn.Set(key, []byte(strconv.FormatInt(value, 10))))
 }
 
 // ElementKeyType is a key type of the element.

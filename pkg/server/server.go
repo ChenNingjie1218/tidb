@@ -53,6 +53,7 @@ import (
 	autoid "github.com/pingcap/tidb/pkg/autoid_service"
 	"github.com/pingcap/tidb/pkg/config"
 	"github.com/pingcap/tidb/pkg/domain"
+	"github.com/pingcap/tidb/pkg/errno"
 	"github.com/pingcap/tidb/pkg/executor/mppcoordmanager"
 	"github.com/pingcap/tidb/pkg/extension"
 	"github.com/pingcap/tidb/pkg/keyspace"
@@ -72,6 +73,7 @@ import (
 	"github.com/pingcap/tidb/pkg/sessionctx/variable"
 	statsutil "github.com/pingcap/tidb/pkg/statistics/handle/util"
 	"github.com/pingcap/tidb/pkg/util"
+	"github.com/pingcap/tidb/pkg/util/dbterror"
 	"github.com/pingcap/tidb/pkg/util/fastrand"
 	"github.com/pingcap/tidb/pkg/util/kvcache"
 	"github.com/pingcap/tidb/pkg/util/logutil"
@@ -106,6 +108,12 @@ func init() {
 		osVersion = ""
 	}
 }
+
+var (
+	errAccessDenied            = dbterror.ClassServer.NewStd(errno.ErrAccessDenied)
+	errSecureTransportRequired = dbterror.ClassServer.NewStd(errno.ErrSecureTransportRequired)
+	errUserPrefixMismatch      = dbterror.ClassServer.NewStd(errno.ErrUserPrefixMismatch)
+)
 
 // DefaultCapability is the capability of the server when it is created using the default configuration.
 // When server is configured with SSL, the server will have extra capabilities compared to DefaultCapability.
@@ -823,9 +831,9 @@ func (cc *clientConn) connectInfo() *variable.ConnectionInfo {
 	sslVersion := ""
 	if cc.isUnixSocket {
 		connType = variable.ConnTypeUnixSocket
-	} else if cc.tlsConn != nil {
+	} else if cc.getTLSState() != nil {
 		connType = variable.ConnTypeTLS
-		sslVersionNum := cc.tlsConn.ConnectionState().Version
+		sslVersionNum := cc.getTLSState().Version
 		switch sslVersionNum {
 		case tls.VersionTLS12:
 			sslVersion = "TLSv1.2"

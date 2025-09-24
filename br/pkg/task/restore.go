@@ -922,12 +922,12 @@ func runSnapshotRestore(c context.Context, mgr *conn.Mgr, g glue.Glue, cmdName s
 		}()
 	}
 
-	sp := utils.BRServiceSafePoint{
-		BackupTS: restoreTS,
-		TTL:      utils.DefaultBRGCSafePointTTL,
-		ID:       utils.MakeSafePointID(),
+	sp := utils.ServiceSafePoint{
+		ServiceSafePointTS: restoreTS,
+		TTL:                utils.DefaultBRGCSafePointTTL,
+		ID:                 utils.MakeSafePointID(),
 	}
-	g.Record("BackupTS", backupMeta.EndVersion)
+	g.Record("ServiceSafePointTS", backupMeta.EndVersion)
 	g.Record("RestoreTS", restoreTS)
 	cctx, gcSafePointKeeperCancel := context.WithCancel(ctx)
 	defer func() {
@@ -936,7 +936,7 @@ func runSnapshotRestore(c context.Context, mgr *conn.Mgr, g glue.Glue, cmdName s
 		gcSafePointKeeperCancel()
 		// set the ttl to 0 to remove the gc-safe-point
 		sp.TTL = 0
-		if err := utils.UpdateServiceSafePoint(ctx, mgr.GetPDClient(), sp); err != nil {
+		if err := utils.UpdateServiceSafePoint(ctx, mgr.GetPDClient(), sp, cfg.KeyspaceName); err != nil {
 			log.Warn("failed to update service safe point, backup may fail if gc triggered",
 				zap.Error(err),
 			)

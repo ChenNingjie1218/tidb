@@ -477,18 +477,18 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	if err != nil {
 		return errors.Trace(err)
 	}
-	g.Record("BackupTS", backupTS)
+	g.Record("ServiceSafePointTS", backupTS)
 	safePointID := client.GetSafePointID()
-	sp := utils.BRServiceSafePoint{
-		BackupTS: backupTS,
-		TTL:      client.GetGCTTL(),
-		ID:       safePointID,
+	sp := utils.ServiceSafePoint{
+		ServiceSafePointTS: backupTS,
+		TTL:                client.GetGCTTL(),
+		ID:                 safePointID,
 	}
 
 	// use lastBackupTS as safePoint if exists
 	isIncrementalBackup := cfg.LastBackupTS > 0
 	if isIncrementalBackup {
-		sp.BackupTS = cfg.LastBackupTS
+		sp.ServiceSafePointTS = cfg.LastBackupTS
 	}
 
 	log.Info("current backup safePoint job", zap.Object("safePoint", sp))
@@ -505,7 +505,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 		gcSafePointKeeperCancel()
 		// set the ttl to 0 to remove the gc-safe-point
 		sp.TTL = 0
-		if err := utils.UpdateServiceSafePoint(ctx, mgr.GetPDClient(), sp); err != nil {
+		if err := utils.UpdateServiceSafePoint(ctx, mgr.GetPDClient(), sp, config.GetGlobalKeyspaceName()); err != nil {
 			log.Warn("failed to update service safe point, backup may fail if gc triggered",
 				zap.Error(err),
 			)

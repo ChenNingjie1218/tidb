@@ -855,6 +855,9 @@ func (w *updateColumnWorker) BackfillData(_ context.Context, handleRange reorgBa
 			txn.SetOption(kv.ResourceGroupTagger, tagger)
 		}
 		txn.SetOption(kv.ResourceGroupName, w.jobContext.resourceGroupName)
+		if config.DefaultResourceGroup != "" {
+			txn.SetOption(kv.ResourceGroupName, config.DefaultResourceGroup)
+		}
 
 		rowRecords, nextKey, taskDone, err := w.fetchRowColVals(txn, handleRange)
 		if err != nil {

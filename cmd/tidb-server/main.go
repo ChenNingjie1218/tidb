@@ -342,20 +342,38 @@ func main() {
 	}
 
 	registerStores()
-	err := metricsutil.RegisterMetrics()
-	mainErrHandler(err)
-
-	// Serverless logic ===================
 
 	// load keyspace and set metric labels.
 	keyspaceMeta, pdCli, err := getServerlessInfo()
 	mainErrHandler(err)
 
+	var keyspaceID uint32
 	if keyspaceMeta != nil {
+		keyspaceID = keyspaceMeta.GetId()
+		exportID := config.GetGlobalConfig().ExportID
+		if config.GetGlobalConfig().EnableRULimit {
+			if exportID != "" {
+				log.Info("setting up serverless resource control", zap.String("exportID", exportID))
+				config.DefaultResourceGroup = exportID
+			} else {
+				log.Info("setting up serverless resource control", zap.Uint32("keyspaceID", keyspaceID))
+				config.DefaultResourceGroup = strconv.FormatUint(uint64(keyspaceID), 10)
+			}
+			tikv.EnableResourceControl()
+		}
+		if keyspaceMeta.Config != nil {
+			if clusterID, ok := keyspaceMeta.Config[serverless.LabelClusterID]; ok {
+				// Rewrite the AutoScalerCluster with keyspace meta.
+				config.UpdateGlobal(func(c *config.Config) {
+					c.AutoScalerClusterID = clusterID
+				})
+			}
+		}
 		keyspace.SetUsernamePolicy(keyspace.NewPrefixPolicy(keyspaceMeta.GetName()))
 	}
 
-	driverOpenOpts := &kv.DriverOpenOption{KeyspaceMeta: keyspaceMeta, PdCli: pdCli}
+	err = metricsutil.RegisterMetricsWithKeyspaceMeta(keyspaceMeta)
+	mainErrHandler(err)
 
 	// Serverless ===================
 
@@ -409,6 +427,8 @@ func main() {
 
 	executor.Start()
 	resourcemanager.InstanceResourceManager.Start()
+
+	driverOpenOpts := &kv.DriverOpenOption{KeyspaceMeta: keyspaceMeta, PdCli: pdCli}
 	storage, dom := createStoreDDLOwnerMgrAndDomain(driverOpenOpts)
 	svr := createServer(storage, dom)
 	if standbyController != nil {

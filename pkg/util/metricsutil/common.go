@@ -47,7 +47,7 @@ import (
 func RegisterMetrics() error {
 	cfg := config.GetGlobalConfig()
 	if keyspace.IsKeyspaceNameEmpty(cfg.KeyspaceName) || strings.ToLower(cfg.Store) != "tikv" {
-		return registerMetrics(nil) // register metrics without label 'keyspace_id'.
+		return RegisterMetricsWithKeyspaceMeta(nil) // register metrics without label 'keyspace_id'.
 	}
 
 	pdAddrs, _, _, err := tikvconfig.ParsePath("tikv://" + cfg.Path)
@@ -55,12 +55,12 @@ func RegisterMetrics() error {
 		return err
 	}
 
-	timeoutSec := time.Duration(cfg.PDClient.PDServerTimeout) * time.Second
-	pdCli, err := pd.NewClient(pdAddrs, pd.SecurityOption{
+	timeout := time.Duration(cfg.PDClient.PDServerTimeout) * time.Second
+	pdCli, err := pd.NewClientWithAPIContext(context.Background(), keyspace.BuildAPIContext(cfg.KeyspaceName), pdAddrs, pd.SecurityOption{
 		CAPath:   cfg.Security.ClusterSSLCA,
 		CertPath: cfg.Security.ClusterSSLCert,
 		KeyPath:  cfg.Security.ClusterSSLKey,
-	}, pd.WithCustomTimeoutOption(timeoutSec))
+	}, pd.WithCustomTimeoutOption(timeout))
 	if err != nil {
 		return err
 	}
@@ -71,18 +71,18 @@ func RegisterMetrics() error {
 		return err
 	}
 
-	return registerMetrics(keyspaceMeta)
+	return RegisterMetricsWithKeyspaceMeta(keyspaceMeta)
 }
 
 // RegisterMetricsForBR register metrics with const label keyspace_id for BR.
 func RegisterMetricsForBR(pdAddrs []string, keyspaceName string) error {
 	if keyspace.IsKeyspaceNameEmpty(keyspaceName) {
-		return registerMetrics(nil) // register metrics without label 'keyspace_id'.
+		return RegisterMetricsWithKeyspaceMeta(nil) // register metrics without label 'keyspace_id'.
 	}
 
-	timeoutSec := 10 * time.Second
-	pdCli, err := pd.NewClient(pdAddrs, pd.SecurityOption{},
-		pd.WithCustomTimeoutOption(timeoutSec))
+	timeout := 10 * time.Second
+	pdCli, err := pd.NewClientWithAPIContext(context.Background(), keyspace.BuildAPIContext(keyspaceName), pdAddrs, pd.SecurityOption{},
+		pd.WithCustomTimeoutOption(timeout))
 	if err != nil {
 		return err
 	}
@@ -93,12 +93,17 @@ func RegisterMetricsForBR(pdAddrs []string, keyspaceName string) error {
 		return err
 	}
 
-	return registerMetrics(keyspaceMeta)
+	return RegisterMetricsWithKeyspaceMeta(keyspaceMeta)
 }
 
-func registerMetrics(keyspaceMeta *keyspacepb.KeyspaceMeta) error {
+// RegisterMetricsWithKeyspaceMeta register metrics with const label if keyspaceMeta set.
+func RegisterMetricsWithKeyspaceMeta(keyspaceMeta *keyspacepb.KeyspaceMeta) error {
 	if keyspaceMeta != nil {
-		metrics.SetConstLabels("keyspace_id", fmt.Sprint(keyspaceMeta.GetId()))
+		metrics.SetConstLabels(
+			"keyspace_id", fmt.Sprint(keyspaceMeta.GetId()),
+			"tenant_id", metrics.ServerlessTenantID,
+			"cluster_id", metrics.ServerlessClusterID,
+			"project_id", metrics.ServerlessProjectID)
 	}
 
 	metrics.InitMetrics()

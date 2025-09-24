@@ -6344,6 +6344,9 @@ func checkCacheTableSize(store kv.Storage, tableID int64) (bool, error) {
 	ctx := kv.WithInternalSourceType(context.Background(), kv.InternalTxnCacheTable)
 	err := kv.RunInNewTxn(ctx, store, true, func(_ context.Context, txn kv.Transaction) error {
 		txn.SetOption(kv.RequestSourceType, kv.InternalTxnCacheTable)
+		if config.DefaultResourceGroup != "" {
+			txn.SetOption(kv.ResourceGroupName, config.DefaultResourceGroup)
+		}
 		prefix := tablecodec.GenTablePrefix(tableID)
 		it, err := txn.Iter(prefix, prefix.PrefixNext())
 		if err != nil {

@@ -43,6 +43,7 @@ import (
 	"github.com/pingcap/tidb/pkg/util/versioninfo"
 	tikvcfg "github.com/tikv/client-go/v2/config"
 	pd "github.com/tikv/pd/client"
+	rmclient "github.com/tikv/pd/client/resource_group/controller"
 	tracing "github.com/uber/jaeger-client-go/config"
 	atomicutil "go.uber.org/atomic"
 	"go.uber.org/zap"
@@ -293,10 +294,12 @@ type Config struct {
 	// ActivationTimeout specifies the maximum allowed time for tidb to activate from standby mode.
 	ActivationTimeout uint `toml:"activation-timeout" json:"activation-timeout"`
 
-	AuditLog AuditLog `toml:"audit-log" json:"audit-log"`
+	AuditLog                   AuditLog `toml:"audit-log" json:"audit-log"`
+	EnableRULimit              bool     `toml:"enable-ru-limit" json:"enable-ru-limit"`
+	EnableAlterUserPessimistic bool     `toml:"enable-alter-user-pessimistic" json:"enable-alter-user-pessimistic"`
+	ExportID                   string   `toml:"export-id" json:"export-id"`
 
-	EnableAlterUserPessimistic bool   `toml:"enable-alter-user-pessimistic" json:"enable-alter-user-pessimistic"`
-	ExportID                   string `toml:"export-id" json:"export-id"`
+	RUConfig rmclient.RequestUnitConfig `toml:"ru-config" json:"ru-config"`
 
 	// The following items are deprecated. We need to keep them here temporarily
 	// to support the upgrade process. They can be removed in future.
@@ -1161,6 +1164,8 @@ var defaultConf = Config{
 	StoresRefreshInterval:                defTiKVCfg.StoresRefreshInterval,
 	EnableForwarding:                     defTiKVCfg.EnableForwarding,
 	NewCollationsEnabledOnFirstBootstrap: true,
+	EnableRULimit:                        false,
+	EnableAlterUserPessimistic:           false,
 	EnableGlobalKill:                     true,
 	Enable32BitsConnectionID:             true,
 	TrxSummary:                           DefaultTrxSummary(),
@@ -1185,6 +1190,7 @@ var defaultConf = Config{
 	SkipGCWorker: false,
 
 	TiDBWorker: defaultTiDBWorker(),
+	RUConfig:   rmclient.DefaultRequestUnitConfig(),
 }
 
 var (

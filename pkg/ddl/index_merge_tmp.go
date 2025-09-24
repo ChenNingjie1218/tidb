@@ -21,6 +21,7 @@ import (
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
+	"github.com/pingcap/tidb/pkg/config"
 	"github.com/pingcap/tidb/pkg/ddl/logutil"
 	"github.com/pingcap/tidb/pkg/kv"
 	"github.com/pingcap/tidb/pkg/meta"
@@ -202,6 +203,9 @@ func (w *mergeIndexWorker) BackfillData(ctx context.Context, taskRange reorgBack
 				txn.SetOption(kv.ResourceGroupTagger, tagger)
 			}
 			txn.SetOption(kv.ResourceGroupName, w.jobContext.resourceGroupName)
+			if config.DefaultResourceGroup != "" {
+				txn.SetOption(kv.ResourceGroupName, config.DefaultResourceGroup)
+			}
 
 			tmpIdxRecords, nextKey, taskDone, err := w.fetchTempIndexVals(txn, &taskCtx.scanCount, taskRange)
 			if err != nil {

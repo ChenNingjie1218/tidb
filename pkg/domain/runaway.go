@@ -17,14 +17,20 @@ package domain
 import (
 	"context"
 	"net"
+	"os"
 	"strconv"
+	"strings"
+	"time"
 
+	"github.com/pingcap/log"
+	"github.com/pingcap/tidb/pkg/config"
 	"github.com/pingcap/tidb/pkg/domain/infosync"
 	"github.com/pingcap/tidb/pkg/resourcegroup/runaway"
 	"github.com/pingcap/tidb/pkg/util/logutil"
 	"github.com/tikv/client-go/v2/tikv"
 	pd "github.com/tikv/pd/client"
 	rmclient "github.com/tikv/pd/client/resource_group/controller"
+	"go.uber.org/zap"
 )
 
 func (do *Domain) initResourceGroupsController(ctx context.Context, pdClient pd.Client, uniqueID uint64) error {
@@ -34,7 +40,26 @@ func (do *Domain) initResourceGroupsController(ctx context.Context, pdClient pd.
 		return nil
 	}
 
-	control, err := rmclient.NewResourceGroupController(ctx, uniqueID, pdClient, nil, rmclient.WithMaxWaitDuration(runaway.MaxWaitDuration))
+	ruConfig := config.GetGlobalConfig().RUConfig
+	log.Info("request unit config", zap.Any("ruConfig", ruConfig))
+
+	var opts []rmclient.ResourceControlCreateOption
+	if config.GetGlobalConfig().EnableRULimit {
+		opts = []rmclient.ResourceControlCreateOption{
+			rmclient.EnableSingleGroupByKeyspace(),
+			rmclient.WithMaxWaitDuration(time.Hour),
+			rmclient.WithDegradedModeWaitDuration(time.Second * 3 / 2), // 1.5s
+		}
+
+		if strings.Contains(os.Getenv("NAMESPACE"), "vip") { // enlarge wait retry for vip clusters, 2s total wait time.
+			opts = append(opts,
+				rmclient.WithWaitRetryInterval(100*time.Millisecond),
+				rmclient.WithWaitRetryTimes(20),
+			)
+		}
+	}
+
+	control, err := rmclient.NewResourceGroupController(ctx, uniqueID, pdClient, &ruConfig, opts...)
 	if err != nil {
 		return err
 	}

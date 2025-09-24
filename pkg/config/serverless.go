@@ -76,3 +76,6 @@ func defaultBootstrapControl() BootstrapControl {
 		SkipPushdownBlacklist:   false,
 	}
 }
+
+// DefaultResourceGroup is the default resource group name for all txns and snapshots.
+var DefaultResourceGroup string

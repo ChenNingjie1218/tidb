@@ -60,8 +60,6 @@ const (
 	RawKVLeftBoundaryPrefix byte = 'r'
 	// RawKVRightBoundaryPrefix is RawKV right boundary.
 	RawKVRightBoundaryPrefix byte = 's'
-	// EnvVarKeyspaceName is the system env name for keyspace name.
-	EnvVarKeyspaceName = "KEYSPACE_NAME"
 
 	// KeyspaceMetaConfigIsInETCDMigration is the name of the key for keyspace meta config migration.
 	KeyspaceMetaConfigIsInETCDMigration = "serverless_is_upgrade_etcd_group"

@@ -51,14 +51,18 @@ func (s *Server) Stats(_ *variable.SessionVars) (map[string]any, error) {
 	}
 
 	tlsConfig := s.GetTLSConfig()
-	if tlsConfig != nil {
-		if len(tlsConfig.Certificates) == 1 {
-			pc, err := x509.ParseCertificate(tlsConfig.Certificates[0].Certificate[0])
+	if tlsConfig != nil && tlsConfig.GetCertificate != nil {
+		certs, err := tlsConfig.GetCertificate(nil)
+		if err != nil {
+			logutil.BgLogger().Error("Failed to get TLS certificates while acquiring server status", zap.Error(err))
+		}
+		if certs := certs.Certificate; len(certs) > 0 {
+			cert, err := x509.ParseCertificate(certs[0])
 			if err != nil {
-				logutil.BgLogger().Error("Failed to parse TLS certficates to get server status", zap.Error(err))
+				logutil.BgLogger().Error("Failed to parse TLS certificates to get server status", zap.Error(err))
 			} else {
-				m[serverNotAfter] = pc.NotAfter.Format("Jan _2 15:04:05 2006 MST")
-				m[serverNotBefore] = pc.NotBefore.Format("Jan _2 15:04:05 2006 MST")
+				m[serverNotAfter] = cert.NotAfter.Format("Jan _2 15:04:05 2006 MST")
+				m[serverNotBefore] = cert.NotBefore.Format("Jan _2 15:04:05 2006 MST")
 			}
 		}
 	}

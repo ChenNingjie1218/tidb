@@ -35,6 +35,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pingcap/errors"
@@ -480,14 +481,6 @@ func LoadTLSCertificates(ca, key, cert string, autoTLS bool, rsaKeySize int) (tl
 		}
 	}
 
-	var tlsCert tls.Certificate
-	tlsCert, err = tls.LoadX509KeyPair(cert, key)
-	if err != nil {
-		logutil.BgLogger().Warn("load x509 failed", zap.Error(err))
-		err = errors.Trace(err)
-		return
-	}
-
 	requireTLS := tlsutil.RequireSecureTransport.Load()
 
 	var minTLSVersion uint16 = tls.VersionTLS12
@@ -548,12 +541,29 @@ func LoadTLSCertificates(ca, key, cert string, autoTLS bool, rsaKeySize int) (tl
 
 	/* #nosec G402 */
 	tlsConfig = &tls.Config{
-		Certificates: []tls.Certificate{tlsCert},
 		ClientCAs:    certPool,
 		ClientAuth:   clientAuthPolicy,
 		MinVersion:   minTLSVersion,
 		CipherSuites: cipherSuites,
 	}
+
+	certs, err := tls.LoadX509KeyPair(cert, key)
+	if err != nil {
+		return nil, false, errors.Annotatef(err, "could not load server key pair from %s and %s", cert, key)
+	}
+	cs := &atomic.Pointer[tls.Certificate]{}
+	cs.Store(&certs)
+	tlsConfig.GetCertificate = func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+		certs, err := tls.LoadX509KeyPair(cert, key)
+		if err != nil {
+			logutil.BgLogger().Warn("could not load server certificate, using the old one", zap.Error(err))
+			return cs.Load(), nil
+		}
+		newCerts := &certs
+		cs.Store(newCerts)
+		return newCerts, nil
+	}
+
 	return
 }
 

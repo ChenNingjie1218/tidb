@@ -37,6 +37,7 @@ import (
 	logbackupconf "github.com/pingcap/tidb/br/pkg/streamhelper/config"
 	"github.com/pingcap/tidb/pkg/parser/mysql"
 	"github.com/pingcap/tidb/pkg/parser/terror"
+	"github.com/pingcap/tidb/pkg/util/k8s"
 	"github.com/pingcap/tidb/pkg/util/logutil"
 	"github.com/pingcap/tidb/pkg/util/tiflashcompute"
 	"github.com/pingcap/tidb/pkg/util/tikvutil"
@@ -99,11 +100,30 @@ const (
 	DefTempDir = "/tmp/tidb"
 	// DefAuthTokenRefreshInterval is the default time interval to refresh tidb auth token.
 	DefAuthTokenRefreshInterval = time.Hour
-	// EnvVarKeyspaceName is the system env name for keyspace name.
-	EnvVarKeyspaceName = "KEYSPACE_NAME"
 	// MaxTokenLimit is the max token limit value.
 	MaxTokenLimit  = 1024 * 1024
 	DefSchemaLease = 45 * time.Second
+)
+
+const (
+	// EnvVarKeyspaceName is the system env name for keyspace name.
+	EnvVarKeyspaceName = "KEYSPACE_NAME"
+	// EnvClusterCA is the system env name for cluster CA path.
+	EnvClusterCA = "CLUSTER_CA"
+	// EnvClusterCert is the system env name for cluster cert path.
+	EnvClusterCert = "CLUSTER_CERT"
+	// EnvClusterKey is the system env name for cluster key path.
+	EnvClusterKey = "CLUSTER_KEY"
+	// EnvSQLCA is the system env name for SQL CA path.
+	EnvSQLCA = "SQL_CA"
+	// EnvSQLCert is the system env name for SQL cert path.
+	EnvSQLCert = "SQL_CERT"
+	// EnvSQLKey is the system env name for SQL key path.
+	EnvSQLKey = "SQL_KEY"
+	// EnvPodIP is the system env name for pod IP.
+	EnvPodIP = "POD_IP"
+	// EnvNamespace is the system env name for namespace.
+	EnvNamespace = "NAMESPACE"
 )
 
 // Valid config maps
@@ -363,6 +383,9 @@ type Config struct {
 
 	// EnableAutoAnalyzeSysTable is used to control whether to enable auto analyze system tables.
 	EnableAutoAnalyzeSysTable bool `toml:"enable-auto-analyze-sys-table" json:"enable-auto-analyze-sys-table"`
+
+	// TiKVAPIServiceAddr is the address of the TiKV API service.
+	TiKVAPIServiceAddr string `toml:"tikv-api-service-addr" json:"tikv-api-service-addr"`
 }
 
 // UpdateTempStoragePath is to update the `TempStoragePath` if port/statusPort was changed
@@ -1367,11 +1390,75 @@ func InitializeConfig(confPath string, configCheck, configStrict bool, enforceCm
 		}
 	}
 
+	// Adjust the security configuration.
+	if err := cfg.adjustSecurityConfig(); err != nil {
+		fmt.Fprintln(os.Stderr, "invalid security env vars", err)
+		os.Exit(1)
+	}
+	cfg.adjustServiceAddr()
+
 	if configCheck {
 		fmt.Println("config check successful")
 		os.Exit(0)
 	}
 	StoreGlobalConfig(cfg)
+}
+
+func trimScheme(addr string) string {
+	addr = strings.TrimPrefix(addr, "http://")
+	addr = strings.TrimPrefix(addr, "https://")
+	return addr
+}
+
+func (c *Config) adjustServiceAddr() {
+	scheme := "http://"
+	if len(c.Security.ClusterSSLCA) > 0 {
+		scheme = "https://"
+	}
+	if len(c.TiKVAPIServiceAddr) > 0 {
+		c.TiKVAPIServiceAddr = scheme + trimScheme(c.TiKVAPIServiceAddr)
+	}
+	if len(c.TiDBWorker.APIServerAddr) > 0 {
+		c.TiDBWorker.APIServerAddr = scheme + trimScheme(c.TiDBWorker.APIServerAddr)
+	}
+}
+
+func (c *Config) adjustSecurityConfig() error {
+	clusterCAPath := os.Getenv(EnvClusterCA)
+	clusterCertPath := os.Getenv(EnvClusterCert)
+	clusterKeyPath := os.Getenv(EnvClusterKey)
+	if len(clusterCAPath) > 0 && (len(clusterCertPath) == 0 || len(clusterKeyPath) == 0) {
+		return errors.New("both CLUSTER_CERT and CLUSTER_KEY must be set when CLUSTER_CA is set")
+	}
+
+	// Override the cluster security settings if the CLUSTER_CA is set.
+	if len(clusterCAPath) > 0 {
+		c.Security.ClusterSSLCA = clusterCAPath
+		c.Security.ClusterSSLCert = clusterCertPath
+		c.Security.ClusterSSLKey = clusterKeyPath
+	}
+
+	sqlCAPath := os.Getenv(EnvSQLCA)
+	sqlCertPath := os.Getenv(EnvSQLCert)
+	sqlKeyPath := os.Getenv(EnvSQLKey)
+	if len(sqlCAPath) > 0 && (len(sqlCertPath) == 0 || len(sqlKeyPath) == 0) {
+		return errors.New("both SQL_CERT and SQL_KEY must be set when SQL_CA is set")
+	}
+
+	// Override the SQL security settings if the SQL_CA is set.
+	if len(sqlCAPath) > 0 {
+		c.Security.SSLCA = sqlCAPath
+		c.Security.SSLCert = sqlCertPath
+		c.Security.SSLKey = sqlKeyPath
+	}
+
+	podIP := os.Getenv(EnvPodIP)
+	namespace := os.Getenv(EnvNamespace)
+	if len(podIP) > 0 && len(namespace) > 0 {
+		c.AdvertiseAddress = k8s.PodDNSName(podIP, namespace)
+	}
+
+	return nil
 }
 
 // RemovedVariableCheck checks if the config file contains any items

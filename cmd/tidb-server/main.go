@@ -126,6 +126,12 @@ const (
 	nmRepairMode       = "repair-mode"
 	nmRepairList       = "repair-list"
 	nmTempDir          = "temp-dir"
+	nmClusterCa        = "cluster-ca"
+	nmClusterCert      = "cluster-cert"
+	nmClusterKey       = "cluster-key"
+	nmSQLCA            = "sql-ca"
+	nmSQLCert          = "sql-cert"
+	nmSQLKey           = "sql-key"
 
 	nmRedact = "redact"
 
@@ -204,6 +210,12 @@ var (
 	keyspaceName                *string
 	serviceScope                *string
 	help                        *bool
+	clusterCA                   *string
+	clusterCert                 *string
+	clusterKey                  *string
+	sqlCA                       *string
+	sqlCert                     *string
+	sqlKey                      *string
 
 	// Serverless flags
 	waitKeyspaceEnabled *bool
@@ -271,6 +283,14 @@ func initFlagSet() *flag.FlagSet {
 	keyspaceName = fset.String(nmKeyspaceName, "", "keyspace name.")
 	serviceScope = fset.String(nmTiDBServiceScope, "", "tidb service scope")
 	help = fset.Bool("help", false, "show the usage")
+
+	// mTLS
+	clusterCA = fset.String(nmClusterCa, "", "cluster CA file path")
+	clusterCert = fset.String(nmClusterCert, "", "cluster cert file path")
+	clusterKey = fset.String(nmClusterKey, "", "cluster key file path")
+	sqlCA = flag.String(nmSQLCA, "", "SQL ca file path")
+	sqlCert = flag.String(nmSQLCert, "", "SQL cert file path")
+	sqlKey = flag.String(nmSQLKey, "", "SQL key file path")
 
 	// Serverless flags
 	waitKeyspaceEnabled = flagBoolean(fset, nmWaitKeyspaceEnabled, true, "wait for keyspace to become enabled during bootstrap")
@@ -905,6 +925,28 @@ func overrideConfig(cfg *config.Config, fset *flag.FlagSet) {
 			terror.MustNil(err)
 		}
 		cfg.InitializeSQLFile = *initializeSQLFile
+	}
+
+	if actualFlags[nmClusterCa] {
+		if *clusterCA != "" && (*clusterCert == "" || *clusterKey == "") {
+			err = fmt.Errorf("cluster-ca requires both cluster-cert and cluster-key")
+			terror.MustNil(err)
+		}
+
+		cfg.Security.ClusterSSLCA = *clusterCA
+		cfg.Security.ClusterSSLCert = *clusterCert
+		cfg.Security.ClusterSSLKey = *clusterKey
+	}
+
+	if actualFlags[nmSQLCA] {
+		if *sqlCA != "" && (*sqlCert == "" || *clusterKey == "") {
+			err = fmt.Errorf("sql-ca requires both sql-cert and sql-key")
+			terror.MustNil(err)
+		}
+
+		cfg.Security.SSLCA = *sqlCA
+		cfg.Security.SSLCert = *sqlCert
+		cfg.Security.SSLKey = *sqlKey
 	}
 
 	if actualFlags[nmKeyspaceName] {

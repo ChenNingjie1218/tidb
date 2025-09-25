@@ -13,6 +13,7 @@ go_library(
         "//pkg/keyspace",
         "//pkg/parser/mysql",
         "//pkg/server",
+        "//pkg/tidbmanager",
         "//pkg/util/logutil",
         "//pkg/util/signal",
         "@org_uber_go_zap//:zap",

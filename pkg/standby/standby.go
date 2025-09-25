@@ -32,14 +32,16 @@ import (
 	"github.com/pingcap/tidb/pkg/config"
 	"github.com/pingcap/tidb/pkg/keyspace"
 	"github.com/pingcap/tidb/pkg/server"
+	"github.com/pingcap/tidb/pkg/tidbmanager"
 	"github.com/pingcap/tidb/pkg/util/logutil"
 	"github.com/pingcap/tidb/pkg/util/signal"
 	"go.uber.org/zap"
 )
 
 const (
-	standbyState   = "standby"
-	activatedState = "activated"
+	standbyState     = "standby"
+	activatedState   = "activated"
+	terminatingState = "terminating"
 
 	connNormalClosed         = "normal closed"
 	tidbNormalRestartLogPath = "/tmp/tidb-normal-restart.log"
@@ -83,14 +85,16 @@ type LoadKeyspaceController struct {
 	serverStartCh  chan struct{}
 	startServerErr error
 	endOnce        sync.Once
+	mgrCli         tidbmanager.Client
 
 	lastActive int64
 }
 
 // NewLoadKeyspaceController creates a new StandbyController.
-func NewLoadKeyspaceController() *LoadKeyspaceController {
+func NewLoadKeyspaceController(mgrCli tidbmanager.Client) *LoadKeyspaceController {
 	return &LoadKeyspaceController{
 		serverStartCh: make(chan struct{}),
+		mgrCli:        mgrCli,
 	}
 }
 
@@ -134,6 +138,12 @@ func keyspaceChecker(next http.Handler) http.HandlerFunc {
 		}
 		next.ServeHTTP(w, r)
 	}
+}
+
+// LoadTiDBNormalRestartLog loads the tidb normal restart log file.
+func LoadTiDBNormalRestartLog() ([]byte, error) {
+	data, err := os.ReadFile(tidbNormalRestartLogPath)
+	return data, err
 }
 
 func loadTiDBNormalRestartInfoAndRemove() {
@@ -199,19 +209,20 @@ func (c *LoadKeyspaceController) Handler(svr *server.Server) (string, *http.Serv
 		}
 
 		mu.Lock()
-		if state == standbyState {
+		switch {
+		case state == standbyState:
 			state = activatedState
 			activateRequest = req
 			activateCh <- struct{}{}
-		} else if activateRequest.KeyspaceName != req.KeyspaceName {
+		case state == terminatingState:
+			mu.Unlock()
+			w.WriteHeader(http.StatusServiceUnavailable)
+			w.Write([]byte("server is going to shutdown"))
+			return
+		case activateRequest.KeyspaceName != req.KeyspaceName:
 			mu.Unlock()
 			w.WriteHeader(http.StatusPreconditionFailed)
 			w.Write([]byte("server is not in standby mode"))
-			return
-		} else if svr.InShutdownMode() {
-			mu.Unlock()
-			w.WriteHeader(http.StatusServiceUnavailable)
-			w.Write([]byte("server is shutting down"))
 			return
 		}
 		// if client tries to activate with same keyspace name, wait for ready signal and return 200.
@@ -273,12 +284,11 @@ func (c *LoadKeyspaceController) Handler(svr *server.Server) (string, *http.Serv
 				return
 			}
 			if wait > 0 {
-				config.UpdateGlobal(func(cfg *config.Config) {
-					cfg.GracefulWaitBeforeShutdown = int(wait)
-				})
+				_ = os.Setenv("GracefulCloseConnectionsTimeout", fmt.Sprintf("%ds", wait))
 			}
-			if !needMgrFree {
-				svr.SetSkipMgrFree()
+			if needMgrFree {
+				svr.SetNeedRequestMgrFree()
+			} else {
 				w.WriteHeader(http.StatusOK)
 				signal.TiDBExit(syscall.SIGINT)
 			}
@@ -319,7 +329,7 @@ func statusHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Type", "application/json")
 	if activateRequest.ExportID != "" {
-		fmt.Fprintf(w, `{"state": "%s", "keyspace_name": "%s","export_id": "%s"}`,
+		fmt.Fprintf(w, `{"state": "%s", "keyspace_name": "%s", "export_id": "%s"}`,
 			state, activateRequest.KeyspaceName, activateRequest.ExportID)
 	} else {
 		fmt.Fprintf(w, `{"state": "%s", "keyspace_name": "%s"}`, state, activateRequest.KeyspaceName)
@@ -432,23 +442,48 @@ func (c *LoadKeyspaceController) EndStandby(err error) {
 }
 
 // OnServerShutdown is called when the server is going to shut down.
-// It will notify the tidb manager to the pod could be put back to the free cache.
 func (c *LoadKeyspaceController) OnServerShutdown(svr *server.Server) {
-	// FIXME: @disksing uncomment after cherry-pick from 7.5
-	// if c.mgrCli == nil || svr.Health() || svr.GetForceShutdown() || svr.GetSkipManagerFree() {
-	// 	return
-	// }
+	mu.Lock()
+	state = terminatingState
+	mu.Unlock()
 
-	// exitReason, err := LoadTiDBNormalRestartLog()
-	// if err != nil && !os.IsNotExist(err) {
-	// 	logutil.BgLogger().Error("failed to load restart log", zap.Error(err))
-	// 	return
-	// }
+	// it’s better to give up leader and the right to be elected leader as early as possible for serverless.
+	svr.AutoIDServiceClose()
 
-	// ctx, cancel := context.WithTimeout(context.Background(), tidbmanager.DefaultTimeout)
-	// defer cancel()
-	// err = c.mgrCli.Free(ctx, string(exitReason))
-	// if err != nil {
-	// 	logutil.BgLogger().Info("failed to report free", zap.Error(err))
-	// }
+	if c.mgrCli != nil && svr.GetNeedRequestMgrFree() {
+		exitReason, err := LoadTiDBNormalRestartLog()
+		if err != nil && !os.IsNotExist(err) {
+			exitReason = []byte(fmt.Sprintf("failed to load normal restart log: %v", err))
+			logutil.BgLogger().Error(string(exitReason))
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), tidbmanager.DefaultTimeout)
+		defer cancel()
+		err = c.mgrCli.Free(ctx, string(exitReason))
+		if err != nil {
+			logutil.BgLogger().Info("failed to report free", zap.Error(err))
+		}
+	}
+
+	if !svr.GetForceShutdown() {
+		maxWaitTime, err := time.ParseDuration(os.Getenv("GracefulCloseConnectionsTimeout"))
+		if err != nil {
+			logutil.BgLogger().Info("failed to parse GracefulCloseConnectionsTimeout env", zap.Error(err))
+			return
+		}
+		if maxWaitTime > 0 {
+			logutil.BgLogger().Info("waiting for tiproxy to migrate and close all connections", zap.Duration("maxWaitTime", maxWaitTime))
+
+			done := make(chan struct{}, 1)
+			go func() {
+				svr.WaitZeroConn()
+				done <- struct{}{}
+			}()
+			select {
+			case <-time.After(maxWaitTime):
+				logutil.BgLogger().Info("tiproxy connection close timed out")
+			case <-done:
+				logutil.BgLogger().Info("tiproxy has closed all connections")
+			}
+		}
+	}
 }

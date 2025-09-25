@@ -137,6 +137,8 @@ type Server struct {
 
 	rwlock  sync.RWMutex
 	clients map[uint64]*clientConn
+	// zeroConnCond is used to wait until all connections are closed only for serverless
+	zeroConnCond *sync.Cond
 
 	normalClosedConnsMutex sync.Mutex
 	normalClosedConns      *kvcache.SimpleLRUCache
@@ -151,8 +153,9 @@ type Server struct {
 	inShutdownMode *uatomic.Bool
 	health         *uatomic.Bool
 
-	forceShutdown *uatomic.Bool
-	skipMgrFree   *uatomic.Bool
+	// only for serverless
+	forceShutdown      *uatomic.Bool
+	needRequestMgrFree *uatomic.Bool
 
 	sessionMapMutex     sync.Mutex
 	internalSessions    map[any]struct{}
@@ -298,18 +301,19 @@ func (s *Server) newConn(conn net.Conn) *clientConn {
 // NewServer creates a new Server.
 func NewServer(cfg *config.Config, driver IDriver) (*Server, error) {
 	s := &Server{
-		cfg:               cfg,
-		driver:            driver,
-		concurrentLimiter: util.NewTokenLimiter(cfg.TokenLimit),
-		clients:           make(map[uint64]*clientConn),
-		normalClosedConns: kvcache.NewSimpleLRUCache(normalClosedConnsCapacity, 0, 0),
-		internalSessions:  make(map[any]struct{}, 100),
-		health:            uatomic.NewBool(false),
-		inShutdownMode:    uatomic.NewBool(false),
-		printMDLLogTime:   time.Now(),
-		forceShutdown:     uatomic.NewBool(false),
-		skipMgrFree:       uatomic.NewBool(false),
+		cfg:                cfg,
+		driver:             driver,
+		concurrentLimiter:  util.NewTokenLimiter(cfg.TokenLimit),
+		clients:            make(map[uint64]*clientConn),
+		normalClosedConns:  kvcache.NewSimpleLRUCache(normalClosedConnsCapacity, 0, 0),
+		internalSessions:   make(map[any]struct{}, 100),
+		health:             uatomic.NewBool(false),
+		inShutdownMode:     uatomic.NewBool(false),
+		printMDLLogTime:    time.Now(),
+		forceShutdown:      uatomic.NewBool(false),
+		needRequestMgrFree: uatomic.NewBool(false),
 	}
+	s.zeroConnCond = sync.NewCond(&s.rwlock)
 	s.capability = defaultCapability
 	setTxnScope()
 	setSystemTimeZoneVariable()
@@ -649,6 +653,12 @@ func (*Server) checkAuditPlugin(clientConn *clientConn) error {
 }
 
 func (s *Server) startShutdown() {
+	// it must run at the very start of the shutdown sequence to ensure the real shutdown
+	// only begins after TiProxy has finished migrating and closing all connections.
+	if s.StandbyController != nil {
+		s.OnServerShutdown(s)
+	}
+
 	logutil.BgLogger().Info("setting tidb-server to report unhealthy (shutting-down)")
 	s.health.Store(false)
 	// give the load balancer a chance to receive a few unhealthy health reports
@@ -680,9 +690,10 @@ func (s *Server) closeListener() {
 		s.grpcServer.Stop()
 		s.grpcServer = nil
 	}
-	if s.autoIDService != nil {
-		s.autoIDService.Close()
-	}
+	// autoIDService should close first for serverless
+	// if s.autoIDService != nil {
+	// 	s.autoIDService.Close()
+	// }
 	if s.authTokenCancelFunc != nil {
 		s.authTokenCancelFunc()
 	}
@@ -700,14 +711,14 @@ func (s *Server) GetForceShutdown() bool {
 	return s.forceShutdown.Load()
 }
 
-// SetSkipMgrFree sets the need manager free flag.
-func (s *Server) SetSkipMgrFree() {
-	s.skipMgrFree.Store(true)
+// SetNeedRequestMgrFree sets the need request manager free flag.
+func (s *Server) SetNeedRequestMgrFree() {
+	s.needRequestMgrFree.Store(true)
 }
 
-// GetSkipManagerFree gets the need manager free flag.
-func (s *Server) GetSkipManagerFree() bool {
-	return s.skipMgrFree.Load()
+// GetNeedRequestMgrFree gets the need request manager free flag.
+func (s *Server) GetNeedRequestMgrFree() bool {
+	return s.needRequestMgrFree.Load()
 }
 
 // Close closes the server.
@@ -722,11 +733,12 @@ func (s *Server) Close() {
 func (s *Server) registerConn(conn *clientConn) bool {
 	s.rwlock.Lock()
 	defer s.rwlock.Unlock()
+	connections := len(s.clients)
 
 	logger := logutil.BgLogger()
 	if s.inShutdownMode.Load() {
 		logger.Info("close connection directly when shutting down")
-		terror.Log(closeConn(conn))
+		terror.Log(closeConn(conn, connections))
 		return false
 	}
 	s.clients[conn.connectionID] = conn
@@ -1291,4 +1303,20 @@ func (s *Server) KillNonFlashbackClusterConn() {
 // InShutdownMode indicates whether the server is shutting down
 func (s *Server) InShutdownMode() bool {
 	return s.inShutdownMode.Load()
+}
+
+// AutoIDServiceClose closes the auto id service.
+func (s *Server) AutoIDServiceClose() {
+	if s.autoIDService != nil {
+		s.autoIDService.Close()
+	}
+}
+
+// WaitZeroConn waits until all connections are closed.
+func (s *Server) WaitZeroConn() {
+	s.rwlock.Lock()
+	for len(s.clients) > 0 {
+		s.zeroConnCond.Wait()
+	}
+	s.rwlock.Unlock()
 }

@@ -60,6 +60,7 @@ import (
 	"github.com/pingcap/tidb/pkg/store/copr"
 	"github.com/pingcap/tidb/pkg/store/driver"
 	"github.com/pingcap/tidb/pkg/store/mockstore"
+	"github.com/pingcap/tidb/pkg/tidbmanager"
 	"github.com/pingcap/tidb/pkg/tidbworker"
 	"github.com/pingcap/tidb/pkg/util"
 	"github.com/pingcap/tidb/pkg/util/backoff"
@@ -341,7 +342,9 @@ func main() {
 
 	var standbyController server.StandbyController
 	if config.GetGlobalConfig().StandByMode {
-		standbyController = standby.NewLoadKeyspaceController()
+		mgrCli, err := createMrgClient()
+		mainErrHandler(err)
+		standbyController = standby.NewLoadKeyspaceController(mgrCli)
 	}
 
 	// If running standby mode, overwrite the keyspace config and error handlers.
@@ -1249,7 +1252,9 @@ func cleanup(svr *server.Server, storage kv.Storage, dom *domain.Domain) {
 	dom.StopAutoAnalyze()
 
 	drainClientWait := gracefulCloseConnectionsTimeout
-
+	if svr.GetForceShutdown() {
+		drainClientWait = 0
+	}
 	cancelClientWait := time.Second * 1
 	svr.DrainClients(drainClientWait, cancelClientWait)
 
@@ -1296,4 +1301,30 @@ func closeStmtSummary() {
 	if instanceCfg.StmtSummaryEnablePersistent {
 		stmtsummaryv2.Close()
 	}
+}
+
+const defaultMgrRequestTimeout = 10 * time.Second
+
+func createMrgClient() (tidbmanager.Client, error) {
+	cfg := config.GetGlobalConfig()
+
+	// If the manager notifier option is not enabled, we will not create the manager client.
+	if !cfg.EnableManagerNotifier {
+		return nil, nil
+	}
+
+	security := cfg.Security
+	clusterSecurity := security.ClusterSecurity()
+	tlsConfig, err := clusterSecurity.ToTLSConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	return tidbmanager.NewClient(
+		cfg.ManagerAddr,
+		tlsConfig,
+		os.Getenv("POD_NAME"),
+		os.Getenv("POD_IP"),
+		os.Getenv("NAMESPACE"),
+	), nil
 }

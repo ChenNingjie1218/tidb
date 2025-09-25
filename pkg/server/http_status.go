@@ -677,11 +677,6 @@ func (s *Server) IsAutoIDOwner() bool {
 
 func (s *Server) handleCheckAutoIDOwner(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	if !s.health.Load() {
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-
 	obj := IsAutoIDServiceOwner{
 		IsOwner: s.IsAutoIDOwner(),
 	}

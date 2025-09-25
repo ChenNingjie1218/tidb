@@ -395,14 +395,21 @@ func (cc *clientConn) Close() error {
 	// times.
 	cc.server.rwlock.Lock()
 	delete(cc.server.clients, cc.connectionID)
+	connections := len(cc.server.clients)
 	cc.server.rwlock.Unlock()
 	metrics.DDLClearTempIndexWrite(cc.connectionID)
-	return closeConn(cc)
+	return closeConn(cc, connections)
 }
 
 // closeConn is idempotent and thread-safe.
 // It will be called on the same `clientConn` more than once to avoid connection leak.
-func closeConn(cc *clientConn) error {
+func closeConn(cc *clientConn, connections int) error {
+	defer func() {
+		if connections == 0 {
+			cc.server.zeroConnCond.Broadcast()
+		}
+	}()
+
 	var err error
 	cc.closeOnce.Do(func() {
 		if cc.connectionID > 0 {
@@ -435,7 +442,7 @@ func closeConn(cc *clientConn) error {
 
 func (cc *clientConn) closeWithoutLock() error {
 	delete(cc.server.clients, cc.connectionID)
-	return closeConn(cc)
+	return closeConn(cc, len(cc.server.clients))
 }
 
 // writeInitialHandshake sends server version, connection ID, server capability, collation, server status

@@ -83,6 +83,7 @@ func (c *LoadKeyspaceController) OnServerCreated(svr *server.Server) {
 				// And clientInteractiveCount don't need to be considered because session can be restored by gateway.
 				if config.GetGlobalConfig().EnableZeroBackend && (connCount == 0 || processCount == 0) && inTransCount == 0 {
 					SaveTidbNormalRestartInfo("connection idle for too long")
+					svr.SetNeedRequestMgrFree()
 					signal.TiDBExit(syscall.SIGTERM)
 				} else if (connCount == 0 || processCount == 0) && inTransCount == 0 && clientInteractiveCount == 0 {
 					svr.SetForceShutdown()

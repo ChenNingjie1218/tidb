@@ -124,6 +124,12 @@ const (
 	EnvPodIP = "POD_IP"
 	// EnvNamespace is the system env name for namespace.
 	EnvNamespace = "NAMESPACE"
+	// EnvManagerNs is the system env name for manager namespace.
+	EnvManagerNs = "MANAGER_NS"
+)
+
+var (
+	defaultManagerNs = "tidb-admin"
 )
 
 // Valid config maps
@@ -319,7 +325,9 @@ type Config struct {
 	EnableAlterUserPessimistic bool     `toml:"enable-alter-user-pessimistic" json:"enable-alter-user-pessimistic"`
 	ExportID                   string   `toml:"export-id" json:"export-id"`
 
-	RUConfig rmclient.RequestUnitConfig `toml:"ru-config" json:"ru-config"`
+	RUConfig              rmclient.RequestUnitConfig `toml:"ru-config" json:"ru-config"`
+	EnableManagerNotifier bool                       `toml:"enable-manager-notifier" json:"enable-manager-notifier"`
+	ManagerAddr           string                     `toml:"manager-addr" json:"manager-addr"`
 
 	// The following items are deprecated. We need to keep them here temporarily
 	// to support the upgrade process. They can be removed in future.
@@ -1420,6 +1428,14 @@ func (c *Config) adjustServiceAddr() {
 	}
 	if len(c.TiDBWorker.APIServerAddr) > 0 {
 		c.TiDBWorker.APIServerAddr = scheme + trimScheme(c.TiDBWorker.APIServerAddr)
+	}
+
+	if c.EnableManagerNotifier {
+		managerNs := os.Getenv(EnvManagerNs)
+		if managerNs == "" {
+			managerNs = defaultManagerNs
+		}
+		c.ManagerAddr = fmt.Sprintf("manager-server.%s.svc:8000", managerNs)
 	}
 }
 

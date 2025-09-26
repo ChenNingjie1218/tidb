@@ -394,6 +394,9 @@ type Config struct {
 
 	// TiKVAPIServiceAddr is the address of the TiKV API service.
 	TiKVAPIServiceAddr string `toml:"tikv-api-service-addr" json:"tikv-api-service-addr"`
+
+	// EnableOnlyRunUpgrade indicates whether only run upgrade process.
+	EnableOnlyRunUpgrade bool `toml:"enable-only-run-upgrade" json:"enable-only-run-upgrade"`
 }
 
 // UpdateTempStoragePath is to update the `TempStoragePath` if port/statusPort was changed

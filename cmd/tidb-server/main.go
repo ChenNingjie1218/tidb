@@ -156,6 +156,9 @@ const (
 	nmMaxIdleSeconds      = "max-idle-seconds"
 	nmKeyspaceActivate    = "keyspace-activate"
 	nmTiDBWorkerAPIAddr   = "tidb-worker-api-addr"
+
+	// nmEnableOnlyRunUpgrade used to activate existing keyspaces when upgrading TiDB.
+	nmEnableOnlyRunUpgrade = "enable-only-run-upgrade"
 )
 
 var (
@@ -229,6 +232,9 @@ var (
 	keyspaceActivateMode *bool
 	// TiDB Worker
 	tidbWorkerAPIAddr *string
+
+	// If enableOnlyRunUpgrade is true, Serverless TiDB can only do upgrade process.
+	enableOnlyRunUpgrade *bool
 )
 
 func initFlagSet() *flag.FlagSet {
@@ -304,6 +310,9 @@ func initFlagSet() *flag.FlagSet {
 	keyspaceActivateMode = flagBoolean(fset, nmKeyspaceActivate, false, "start tidb-server as keyspaceActivate")
 	// TiDB Worker
 	tidbWorkerAPIAddr = fset.String(nmTiDBWorkerAPIAddr, "", "tidb worker API server address")
+
+	// If enableOnlyRunUpgrade is true, Serverless TiDB can only do upgrade process.
+	enableOnlyRunUpgrade = flagBoolean(fset, nmEnableOnlyRunUpgrade, false, "only run upgrade and exit")
 
 	session.RegisterMockUpgradeFlag(fset)
 	// Ignore errors; CommandLine is set for ExitOnError.
@@ -454,6 +463,14 @@ func main() {
 
 	driverOpenOpts := &kv.DriverOpenOption{KeyspaceMeta: keyspaceMeta, PdCli: pdCli}
 	storage, dom := createStoreDDLOwnerMgrAndDomain(driverOpenOpts)
+
+	// ----------------- only run upgrade -----------------
+	logutil.BgLogger().Info("finished upgrade.")
+	if config.GetGlobalConfig().EnableOnlyRunUpgrade {
+		closeDDLOwnerMgrDomainAndStorage(storage, dom)
+		os.Exit(0)
+	}
+	// ----------------- only run upgrade end -----------------
 
 	importer.SetupGetEtcdClientWithCodec(storage.GetCodec())
 
@@ -980,6 +997,10 @@ func overrideConfig(cfg *config.Config, fset *flag.FlagSet) {
 
 	if actualFlags[nmMaxIdleSeconds] {
 		cfg.MaxIdleSeconds = *maxIdleSeconds
+	}
+
+	if actualFlags[nmEnableOnlyRunUpgrade] {
+		cfg.EnableOnlyRunUpgrade = *enableOnlyRunUpgrade
 	}
 }
 

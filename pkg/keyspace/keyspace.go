@@ -96,11 +96,11 @@ func IsKeyspaceNameEmpty(keyspaceName string) bool {
 }
 
 // WrapZapcoreWithKeyspace is used to wrap zapcore.Core.
-func WrapZapcoreWithKeyspace() zap.Option {
+func WrapZapcoreWithKeyspace(keyspaceID uint32) zap.Option {
 	return zap.WrapCore(func(core zapcore.Core) zapcore.Core {
 		keyspaceName := GetKeyspaceNameBySettings()
 		if !IsKeyspaceNameEmpty(keyspaceName) {
-			core = core.With([]zap.Field{zap.String("keyspaceName", keyspaceName)})
+			core = core.With([]zap.Field{zap.String("keyspaceName", keyspaceName), zap.Uint32("keyspaceID", keyspaceID)})
 		}
 		return core
 	})

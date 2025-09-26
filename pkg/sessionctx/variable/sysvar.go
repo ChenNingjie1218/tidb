@@ -437,7 +437,8 @@ var defaultSysVars = []*SysVar{
 		cfg := config.GetGlobalConfig().Log.ToLogConfig()
 		cfg.Config.File.MaxDays = int(maxAge)
 
-		err = logutil.ReplaceLogger(cfg, keyspace.WrapZapcoreWithKeyspace())
+		keyspaceID := uint32(s.GetStore().GetCodec().GetKeyspaceID())
+		err = logutil.ReplaceLogger(cfg, keyspace.WrapZapcoreWithKeyspace(keyspaceID))
 		if err != nil {
 			return err
 		}

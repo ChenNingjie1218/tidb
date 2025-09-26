@@ -416,7 +416,7 @@ func main() {
 		mainErrHandler(err)
 		checkTempStorageQuota()
 	}
-	setupLog()
+	setupLog(keyspaceMeta.GetId())
 	memory.InitMemoryHook()
 	setupExtensions()
 	setupStmtSummary()
@@ -1192,9 +1192,9 @@ func setGlobalVars() {
 	}
 }
 
-func setupLog() {
+func setupLog(keyspaceID uint32) {
 	cfg := config.GetGlobalConfig()
-	err := logutil.InitLogger(cfg.Log.ToLogConfig(), keyspace.WrapZapcoreWithKeyspace())
+	err := logutil.InitLogger(cfg.Log.ToLogConfig(), keyspace.WrapZapcoreWithKeyspace(keyspaceID))
 	terror.MustNil(err)
 
 	// trigger internal http(s) client init.

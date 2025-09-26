@@ -33,7 +33,6 @@ import (
 	"github.com/pingcap/tidb/br/pkg/storage"
 	tidb "github.com/pingcap/tidb/pkg/config"
 	"github.com/pingcap/tidb/pkg/disttask/framework/proto"
-	"github.com/pingcap/tidb/pkg/keyspace"
 	tidbkv "github.com/pingcap/tidb/pkg/kv"
 	"github.com/pingcap/tidb/pkg/lightning/backend"
 	"github.com/pingcap/tidb/pkg/lightning/backend/encode"
@@ -55,6 +54,7 @@ import (
 	"github.com/pingcap/tidb/pkg/table/tables"
 	tidbutil "github.com/pingcap/tidb/pkg/util"
 	"github.com/pingcap/tidb/pkg/util/etcd"
+	"github.com/pingcap/tidb/pkg/util/intest"
 	"github.com/pingcap/tidb/pkg/util/promutil"
 	"github.com/pingcap/tidb/pkg/util/sqlexec"
 	"github.com/pingcap/tidb/pkg/util/sqlkiller"
@@ -787,29 +787,22 @@ func RebaseAllocatorBases(ctx context.Context, kvStore tidbkv.Storage, maxIDs ma
 		return nil
 	}
 
-	tidbCfg := tidb.GetGlobalConfig()
-	hostPort := net.JoinHostPort("127.0.0.1", strconv.Itoa(int(tidbCfg.Status.StatusPort)))
-	tls, err2 := common.NewTLS(
-		tidbCfg.Security.ClusterSSLCA,
-		tidbCfg.Security.ClusterSSLCert,
-		tidbCfg.Security.ClusterSSLKey,
-		hostPort,
-		nil, nil, nil,
-	)
-	if err2 != nil {
-		return err2
+	var etcdCli *clientv3.Client
+	if intest.InTest {
+		etcdCli, err = etcd.GetEtcdClientForTest()
+		if err != nil {
+			return errors.Trace(err)
+		}
+	} else {
+		metaServiceClient, err := etcd.NewEtcdMetaServiceClientWithKVStore(kvStore)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		etcdCli = metaServiceClient.GetKeyspaceEtcdCli()
+		if err != nil {
+			return errors.Trace(err)
+		}
 	}
-
-	addrs := strings.Split(tidbCfg.Path, ",")
-	etcdCli, err := clientv3.New(clientv3.Config{
-		Endpoints:        addrs,
-		AutoSyncInterval: 30 * time.Second,
-		TLS:              tls.TLSConfig(),
-	})
-	if err != nil {
-		return errors.Trace(err)
-	}
-	etcd.SetEtcdCliByNamespace(etcdCli, keyspace.MakeKeyspaceEtcdNamespace(kvStore.GetCodec()))
 	autoidCli := autoid.NewClientDiscover(etcdCli, autoid.IsNamespaced(kvStore))
 	r := autoIDRequirement{store: kvStore, autoidCli: autoidCli}
 	err = common.RebaseTableAllocators(ctx, maxIDs, &r, plan.DBID, plan.DesiredTableInfo)

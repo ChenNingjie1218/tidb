@@ -61,7 +61,17 @@ func (mebd *mockEtcdBackend) GetPDAddrs() ([]string, error) {
 }
 
 func (mebd *mockEtcdBackend) MetaServiceInfo() (*metaservice.Info, error) {
-	return nil, nil
+
+	keyspaceMetaServiceGroup := &metaservice.KeyspaceMetaServiceGroup{
+		GroupID:                  "0",
+		KeyspaceMetaServiceAddrs: []string{"localhost:2379"},
+	}
+	metaInfo := &metaservice.Info{
+		PDAddrs:                []string{"localhost:2379"},
+		GlobalMetaServiceAddrs: []string{"localhost:2379"},
+		KeyspaceMetaGroup:      keyspaceMetaServiceGroup,
+	}
+	return metaInfo, nil
 }
 
 func (mebd *mockEtcdBackend) TLSConfig() *tls.Config {

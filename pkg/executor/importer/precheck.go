@@ -22,7 +22,6 @@ import (
 	"github.com/pingcap/errors"
 	"github.com/pingcap/tidb/br/pkg/storage"
 	"github.com/pingcap/tidb/br/pkg/streamhelper"
-	tidb "github.com/pingcap/tidb/pkg/config"
 	"github.com/pingcap/tidb/pkg/lightning/common"
 	"github.com/pingcap/tidb/pkg/parser/terror"
 	"github.com/pingcap/tidb/pkg/util"
@@ -31,6 +30,8 @@ import (
 	"github.com/pingcap/tidb/pkg/util/etcd"
 	"github.com/pingcap/tidb/pkg/util/intest"
 	"github.com/pingcap/tidb/pkg/util/sqlexec"
+	"github.com/tikv/client-go/v2/config"
+	"github.com/tikv/client-go/v2/tikv"
 )
 
 const (
@@ -39,7 +40,7 @@ const (
 
 // GetEtcdClient returns an etcd client.
 // exported for testing.
-var GetEtcdClient = getEtcdClient
+var GetEtcdClient = getEtcdClientWitchCodec(nil)
 
 // CheckRequirements checks the requirements for IMPORT INTO.
 // we check the following things here:
@@ -176,18 +177,18 @@ func (e *LoadDataController) checkGlobalSortStorePrivilege(ctx context.Context) 
 	return nil
 }
 
-func getEtcdClient() (*etcd.Client, error) {
-	tidbCfg := tidb.GetGlobalConfig()
-	tls, err := util.NewTLSConfig(
-		util.WithCAPath(tidbCfg.Security.ClusterSSLCA),
-		util.WithCertAndKeyPath(tidbCfg.Security.ClusterSSLCert, tidbCfg.Security.ClusterSSLKey),
-	)
-	if err != nil {
-		return nil, err
+// SetupGetEtcdClientWithCodec reset GetEtcdClient with codec.
+func SetupGetEtcdClientWithCodec(codec tikv.Codec) {
+	GetEtcdClient = getEtcdClientWitchCodec(codec)
+}
+
+func getEtcdClientWitchCodec(codec tikv.Codec) func() (*etcd.Client, error) {
+	return func() (*etcd.Client, error) {
+		tidbCfg := config.GetGlobalConfig()
+		pdAddrs, err := util.ParseHostPortAddr(tidbCfg.Path)
+		if err != nil {
+			return nil, err
+		}
+		return etcd.NewMetaServiceClientFromCfg(pdAddrs, "", codec)
 	}
-	ectdEndpoints, err := util.ParseHostPortAddr(tidbCfg.Path)
-	if err != nil {
-		return nil, err
-	}
-	return etcd.NewClientFromCfg(ectdEndpoints, etcdDialTimeout, "", tls)
 }

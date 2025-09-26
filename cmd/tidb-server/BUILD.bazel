@@ -11,6 +11,7 @@ go_library(
         "//pkg/ddl",
         "//pkg/domain",
         "//pkg/executor",
+        "//pkg/executor/importer",
         "//pkg/executor/mppcoordmanager",
         "//pkg/extension",
         "//pkg/extension/_import",

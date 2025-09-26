@@ -36,6 +36,7 @@ import (
 	"github.com/pingcap/tidb/pkg/ddl"
 	"github.com/pingcap/tidb/pkg/domain"
 	"github.com/pingcap/tidb/pkg/executor"
+	"github.com/pingcap/tidb/pkg/executor/importer"
 	"github.com/pingcap/tidb/pkg/executor/mppcoordmanager"
 	"github.com/pingcap/tidb/pkg/extension"
 	_ "github.com/pingcap/tidb/pkg/extension/_import"
@@ -453,6 +454,9 @@ func main() {
 
 	driverOpenOpts := &kv.DriverOpenOption{KeyspaceMeta: keyspaceMeta, PdCli: pdCli}
 	storage, dom := createStoreDDLOwnerMgrAndDomain(driverOpenOpts)
+
+	importer.SetupGetEtcdClientWithCodec(storage.GetCodec())
+
 	svr := createServer(storage, dom)
 	if standbyController != nil {
 		svr.StandbyController = standbyController

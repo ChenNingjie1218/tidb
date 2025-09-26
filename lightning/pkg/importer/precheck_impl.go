@@ -24,7 +24,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/docker/go-units"
 	"github.com/pingcap/errors"
@@ -32,6 +31,7 @@ import (
 	"github.com/pingcap/tidb/br/pkg/storage"
 	"github.com/pingcap/tidb/br/pkg/streamhelper"
 	"github.com/pingcap/tidb/lightning/pkg/precheck"
+	tidbconfig "github.com/pingcap/tidb/pkg/config"
 	"github.com/pingcap/tidb/pkg/lightning/backend/encode"
 	"github.com/pingcap/tidb/pkg/lightning/backend/kv"
 	"github.com/pingcap/tidb/pkg/lightning/checkpoints"
@@ -45,12 +45,12 @@ import (
 	"github.com/pingcap/tidb/pkg/types"
 	"github.com/pingcap/tidb/pkg/util/cdcutil"
 	"github.com/pingcap/tidb/pkg/util/engine"
+	"github.com/pingcap/tidb/pkg/util/etcd"
 	"github.com/pingcap/tidb/pkg/util/set"
 	pdhttp "github.com/tikv/pd/client/http"
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
-	"google.golang.org/grpc"
 )
 
 type clusterResourceCheckItem struct {
@@ -773,7 +773,7 @@ func (*CDCPITRCheckItem) GetCheckItemID() precheck.CheckItemID {
 }
 
 func dialEtcdWithCfg(
-	ctx context.Context,
+	_ context.Context,
 	cfg *config.Config,
 	addrs []string,
 ) (*clientv3.Client, error) {
@@ -782,19 +782,7 @@ func dialEtcdWithCfg(
 		return nil, err
 	}
 	tlsConfig := cfg2.TLSConfig()
-
-	return clientv3.New(clientv3.Config{
-		TLS:              tlsConfig,
-		Endpoints:        addrs,
-		AutoSyncInterval: 30 * time.Second,
-		DialTimeout:      5 * time.Second,
-		DialOptions: []grpc.DialOption{
-			config.DefaultGrpcKeepaliveParams,
-			grpc.WithBlock(),
-			grpc.WithReturnConnectionError(),
-		},
-		Context: ctx,
-	})
+	return etcd.GetEtcdEndpointsWithPDAddrs(tlsConfig, addrs, tidbconfig.GetGlobalKeyspaceName())
 }
 
 // Check implements Checker interface.

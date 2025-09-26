@@ -23,7 +23,6 @@ import (
 	"github.com/pingcap/tidb/pkg/keyspace"
 	"github.com/pingcap/tidb/pkg/kv"
 	"github.com/pingcap/tidb/pkg/owner"
-	storepkg "github.com/pingcap/tidb/pkg/store"
 	"github.com/pingcap/tidb/pkg/util/etcd"
 	"github.com/pingcap/tidb/pkg/util/logutil"
 	clientv3 "go.etcd.io/etcd/client/v3"
@@ -61,16 +60,17 @@ func (om *ownerManager) Start(ctx context.Context, store kv.Storage) error {
 	if config.GetGlobalConfig().Store != "tikv" {
 		return nil
 	}
-	cli, err := storepkg.NewEtcdCli(store)
+	metaServiceCli, err := etcd.NewEtcdMetaServiceClientWithKVStore(store)
+	etcdCli := metaServiceCli.GetKeyspaceEtcdCli()
 	if err != nil {
 		return errors.Trace(err)
 	}
-	if cli == nil {
+	if metaServiceCli == nil {
 		return errors.New("etcd client is nil, maybe the server is not started with PD")
 	}
-	etcd.SetEtcdCliByNamespace(cli, keyspace.MakeKeyspaceEtcdNamespace(store.GetCodec()))
+	etcd.SetEtcdCliByNamespace(etcdCli, keyspace.MakeKeyspaceEtcdNamespace(store.GetCodec()))
 	om.id = uuid.New().String()
-	om.etcdCli = cli
+	om.etcdCli = etcdCli
 	om.ownerMgr = owner.NewOwnerManager(ctx, om.etcdCli, Prompt, om.id, DDLOwnerKey)
 	om.started = true
 	return nil

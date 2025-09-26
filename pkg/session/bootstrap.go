@@ -49,19 +49,20 @@ import (
 	"github.com/pingcap/tidb/pkg/parser/terror"
 	sessiontypes "github.com/pingcap/tidb/pkg/session/types"
 	"github.com/pingcap/tidb/pkg/sessionctx/variable"
-	storepkg "github.com/pingcap/tidb/pkg/store"
 	"github.com/pingcap/tidb/pkg/table/tables"
 	timertable "github.com/pingcap/tidb/pkg/timer/tablestore"
 	"github.com/pingcap/tidb/pkg/types"
 	"github.com/pingcap/tidb/pkg/util/chunk"
 	"github.com/pingcap/tidb/pkg/util/dbterror"
 	"github.com/pingcap/tidb/pkg/util/dbterror/plannererrors"
+	"github.com/pingcap/tidb/pkg/util/etcd"
 	"github.com/pingcap/tidb/pkg/util/intest"
 	"github.com/pingcap/tidb/pkg/util/logutil"
 	utilparser "github.com/pingcap/tidb/pkg/util/parser"
 	"github.com/pingcap/tidb/pkg/util/sqlescape"
 	"github.com/pingcap/tidb/pkg/util/sqlexec"
 	"github.com/pingcap/tidb/pkg/util/timeutil"
+	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.etcd.io/etcd/client/v3/concurrency"
 	"go.uber.org/zap"
 )
@@ -1454,9 +1455,13 @@ var (
 )
 
 func acquireLock(store kv.Storage) (func(), error) {
-	etcdCli, err := storepkg.NewEtcdCli(store)
-	if err != nil {
-		return nil, errors.Trace(err)
+	var etcdCli *clientv3.Client
+	if !intest.InTest {
+		metaServiceCli, err := etcd.NewEtcdMetaServiceClientWithKVStore(store)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		etcdCli = metaServiceCli.GetKeyspaceEtcdCli()
 	}
 	if etcdCli == nil {
 		// Special handling for test.

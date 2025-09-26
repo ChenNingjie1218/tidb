@@ -143,6 +143,7 @@ func getKeyspaceMeta(ctx context.Context, pdClient pd.Client, keyspaceName strin
 	err := util.RunWithRetry(util.DefaultMaxRetries, util.RetryInterval, func() (bool, error) {
 		var errInner error
 		keyspaceMeta, errInner = pdClient.LoadKeyspace(ctx, keyspaceName)
+		log.Info("get keyspace meta", zap.String("keyspace-name", keyspaceName), zap.Any("keyspace-meta", keyspaceMeta), zap.Error(errInner))
 		// Retry when pd not bootstrapped or if keyspace not exists.
 		if IsNotBootstrappedError(errInner) || IsKeyspaceNotExistError(errInner) {
 			return true, errInner
@@ -155,7 +156,6 @@ func getKeyspaceMeta(ctx context.Context, pdClient pd.Client, keyspaceName strin
 	}
 
 	return keyspaceMeta.Id, keyspaceMeta.Config[keyspace.KeyspaceMetaConfigGCManagementType], nil
-
 }
 
 // IsNotBootstrappedError returns true if the error is pd not bootstrapped error.

@@ -33,13 +33,33 @@ func newUnistore(opts *mockOptions) (kv.Storage, error) {
 		Client: pdClient,
 	}
 
-	kvstore, err := tikv.NewTestTiKVStore(
-		newClientRedirector(client), pdClient,
-		opts.clientHijacker, opts.pdClientHijacker,
-		opts.txnLocalLatches, opts.tikvOptions...)
+	var kvstore *tikv.KVStore
+	if opts.keyspaceMeta == nil {
+		kvstore, err = tikv.NewTestTiKVStore(
+			newClientRedirector(client),
+			pdClient,
+			opts.clientHijacker,
+			opts.pdClientHijacker,
+			opts.txnLocalLatches,
+			opts.tikvOptions...)
+		if err != nil {
+			return nil, err
+		}
+
+		return mockstorage.NewMockStorage(kvstore, nil, opts.metaServiceInfo)
+	}
+
+	kvstore, err = tikv.NewTestKeyspaceTiKVStore(newClientRedirector(client),
+		pdClient,
+		opts.clientHijacker,
+		opts.pdClientHijacker,
+		opts.txnLocalLatches,
+		*opts.keyspaceMeta,
+		opts.tikvOptions...,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	return mockstorage.NewMockStorage(kvstore)
+	return mockstorage.NewMockStorage(kvstore, opts.keyspaceMeta, opts.metaServiceInfo)
 }

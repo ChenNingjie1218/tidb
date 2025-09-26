@@ -1299,27 +1299,11 @@ func getEtcdCliByPDCli(pdCli pd.Client, tls *common.TLS, keyspaceName string) (*
 		return nil, nil, errors.Trace(err)
 	}
 
-	// TODO use metaServiceClient
-	//metaServiceClient, err := etcd.NewEtcdMetaServiceClientWithKVStore(kvStore)
-	//if err != nil {
-	//	return nil, nil, errors.Trace(err)
-	//}
-	//etcdCli := metaServiceClient.GetKeyspaceEtcdCli()
-	//return etcdCli, kvStore, nil
-
-	ebd, ok := kvStore.(tidbkv.MetaServiceBackend)
-	if !ok {
-		return nil, nil, nil
-	}
-	etcdAddrs, err := ebd.GetPDAddrs()
+	metaServiceClient, err := etcd.NewEtcdMetaServiceClientWithKVStore(kvStore)
 	if err != nil {
 		return nil, nil, errors.Trace(err)
 	}
-	etcdCli, err := clientv3.New(clientv3.Config{
-		Endpoints:        etcdAddrs,
-		AutoSyncInterval: 30 * time.Second,
-		TLS:              tls.TLSConfig(),
-	})
+	etcdCli := metaServiceClient.GetKeyspaceEtcdCli()
 	return etcdCli, kvStore, nil
 }
 

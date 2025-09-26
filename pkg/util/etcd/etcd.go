@@ -18,7 +18,10 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"math"
+	"net"
 	"path"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,8 +29,10 @@ import (
 	"github.com/pingcap/tidb/pkg/config"
 	"github.com/pingcap/tidb/pkg/keyspace"
 	"github.com/pingcap/tidb/pkg/kv"
+	"github.com/pingcap/tidb/pkg/lightning/common"
 	"github.com/pingcap/tidb/pkg/metaservice"
 	"github.com/tikv/client-go/v2/tikv"
+	pd "github.com/tikv/pd/client"
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.etcd.io/etcd/client/v3/namespace"
 	"go.uber.org/zap"
@@ -83,24 +88,6 @@ func NewClient(cli *clientv3.Client, root string) *Client {
 		client:   cli,
 		rootPath: root,
 	}
-}
-
-// NewClientFromCfg returns a wrapped etcd client
-func NewClientFromCfg(endpoints []string, dialTimeout time.Duration, root string, security *tls.Config) (*Client, error) {
-	cli, err := clientv3.New(clientv3.Config{
-		Endpoints:        endpoints,
-		DialTimeout:      dialTimeout,
-		TLS:              security,
-		AutoSyncInterval: 30 * time.Second,
-	})
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-
-	return &Client{
-		client:   cli,
-		rootPath: root,
-	}, nil
 }
 
 // Close shutdowns the connection to etcd
@@ -480,4 +467,104 @@ func NewEtcdCliNonNamespace(addrs []string, ebd kv.MetaServiceBackend, codec tik
 		TLS: ebd.TLSConfig(),
 	}, codec)
 	return cli, err
+}
+
+// GetPDClient is used to get pd client by etcd addrs and keyspace name.
+func GetPDClient(keyspaceName string, pdEtcdAddrs []string) (pd.Client, error) {
+	cfg := config.GetGlobalConfig()
+	pdCli, err := pd.NewClientWithAPIContext(context.Background(), keyspace.BuildAPIContext(keyspaceName), pdEtcdAddrs,
+		pd.SecurityOption{
+			CAPath:   cfg.Security.ClusterSSLCA,
+			CertPath: cfg.Security.ClusterSSLCert,
+			KeyPath:  cfg.Security.ClusterSSLKey,
+		},
+		pd.WithGRPCDialOptions(
+			grpc.WithKeepaliveParams(keepalive.ClientParameters{
+				Time:    time.Duration(cfg.TiKVClient.GrpcKeepAliveTime) * time.Second,
+				Timeout: time.Duration(cfg.TiKVClient.GrpcKeepAliveTimeout) * time.Second,
+			}),
+			grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(math.MaxInt32)),
+			grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(256*1024*1024)),
+		),
+		pd.WithCustomTimeoutOption(time.Duration(cfg.PDClient.PDServerTimeout)*time.Second),
+		pd.WithForwardingOption(cfg.EnableForwarding),
+	)
+	// TODO(metrics)
+	// pd.WithMetricsLabels(metrics.GetConstLabels()))
+	return pdCli, err
+}
+
+func getCodecPDClient(keyspaceName string, pdCli pd.Client) (*tikv.CodecPDClient, error) {
+	var err error
+	var pdCodecClient *tikv.CodecPDClient
+	if keyspace.IsKeyspaceNameEmpty(keyspaceName) {
+		pdCodecClient = tikv.NewCodecPDClient(tikv.ModeTxn, pdCli)
+	} else {
+		pdCodecClient, err = tikv.NewCodecPDClientWithKeyspace(tikv.ModeTxn, pdCli, keyspaceName)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+	}
+
+	return pdCodecClient, err
+}
+
+// GetEtcdEndpointsWithPDAddrs gets etcd endpoints with pd etcd addrs and keyspace name.
+func GetEtcdEndpointsWithPDAddrs(
+	tlsConfig *tls.Config,
+	pdEtcdAddrs []string,
+	keyspaceName string,
+) (*clientv3.Client, error) {
+	pdClient, err := GetPDClient(keyspaceName, pdEtcdAddrs)
+	if err != nil {
+		return nil, err
+	}
+
+	pdCodecClient, err := getCodecPDClient(keyspaceName, pdClient)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	codec := pdCodecClient.GetCodec()
+
+	metaServiceInfo, err := metaservice.GetMetaServiceInfo(codec.GetKeyspaceMeta(), pdEtcdAddrs, pdEtcdAddrs)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	metServiceClient, err := getMetaServiceClientWithTLSConfig(config.GetGlobalConfig(), tlsConfig, metaServiceInfo, codec)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	return metServiceClient.GetKeyspaceEtcdCli(), nil
+
+}
+
+// GetEtcdClientForTest gets an etcd client for test.
+func GetEtcdClientForTest() (*clientv3.Client, error) {
+	tidbCfg := config.GetGlobalConfig()
+	hostPort := net.JoinHostPort("127.0.0.1", strconv.Itoa(int(tidbCfg.Status.StatusPort)))
+	tls, err2 := common.NewTLS(
+		tidbCfg.Security.ClusterSSLCA,
+		tidbCfg.Security.ClusterSSLCert,
+		tidbCfg.Security.ClusterSSLKey,
+		hostPort,
+		nil, nil, nil,
+	)
+	if err2 != nil {
+		return nil, err2
+	}
+
+	addrs := strings.Split(tidbCfg.Path, ",")
+	etcdCli, err := clientv3.New(clientv3.Config{
+		Endpoints:        addrs,
+		AutoSyncInterval: 30 * time.Second,
+		TLS:              tls.TLSConfig(),
+	})
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	return etcdCli, nil
 }

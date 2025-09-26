@@ -1573,6 +1573,8 @@ func tidbSetPDClientForGC(d *Dumper) error {
 			tctx.L().Info("create pd client to control GC failed. This won't affect dump process", log.ShortError(err), zap.Strings("pdAddrs", pdAddrs))
 		}
 		d.tidbPDClientForGC = pdClient
+	} else {
+		tctx.L().Error("get pd address is empty", zap.Any("pdAddrs", pdAddrs))
 	}
 	return nil
 }

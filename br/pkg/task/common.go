@@ -28,7 +28,9 @@ import (
 	"github.com/pingcap/tidb/br/pkg/metautil"
 	"github.com/pingcap/tidb/br/pkg/storage"
 	"github.com/pingcap/tidb/br/pkg/utils"
+	"github.com/pingcap/tidb/pkg/keyspace"
 	"github.com/pingcap/tidb/pkg/sessionctx/variable"
+	"github.com/pingcap/tidb/pkg/util/etcd"
 	filter "github.com/pingcap/tidb/pkg/util/table-filter"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -37,7 +39,6 @@ import (
 	"go.etcd.io/etcd/client/pkg/v3/transport"
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.uber.org/zap"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 )
 
@@ -183,8 +184,23 @@ func (tls *TLSConfig) ParseFromFlags(flags *pflag.FlagSet) (err error) {
 func dialEtcdWithCfg(ctx context.Context, cfg Config) (*clientv3.Client, error) {
 	var (
 		tlsConfig *tls.Config
+		pdClient  pd.Client
 		err       error
 	)
+	apiContext := keyspace.BuildAPIContext(cfg.KeyspaceName)
+	pdClient, err = pd.NewClientWithAPIContext(ctx, apiContext, cfg.PD, pd.SecurityOption{
+		CAPath:   cfg.TLS.CA,
+		CertPath: cfg.TLS.Cert,
+		KeyPath:  cfg.TLS.Key,
+	})
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	kvCodec, err := keyspace.CodecFromName(ctx, pdClient, cfg.KeyspaceName)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
 
 	if cfg.TLS.IsEnabled() {
 		tlsConfig, err = cfg.TLS.ToTLSConfig()
@@ -192,27 +208,13 @@ func dialEtcdWithCfg(ctx context.Context, cfg Config) (*clientv3.Client, error) 
 			return nil, errors.Trace(err)
 		}
 	}
+
 	log.Info("trying to connect to etcd", zap.Strings("addr", cfg.PD))
-	etcdCLI, err := clientv3.New(clientv3.Config{
-		TLS:              tlsConfig,
-		Endpoints:        cfg.PD,
-		AutoSyncInterval: 30 * time.Second,
-		DialTimeout:      5 * time.Second,
-		DialOptions: []grpc.DialOption{
-			grpc.WithKeepaliveParams(keepalive.ClientParameters{
-				Time:                cfg.GRPCKeepaliveTime,
-				Timeout:             cfg.GRPCKeepaliveTimeout,
-				PermitWithoutStream: false,
-			}),
-			grpc.WithBlock(),
-			grpc.WithReturnConnectionError(),
-		},
-		Context: ctx,
-	})
+	metaServiceClient, err := etcd.NewMetaServiceClientWithTLSConfig(cfg.PD, kvCodec, tlsConfig)
 	if err != nil {
 		return nil, err
 	}
-	return etcdCLI, nil
+	return metaServiceClient.GetKeyspaceEtcdCli(), nil
 }
 
 // Config is the common configuration for all BRIE tasks.

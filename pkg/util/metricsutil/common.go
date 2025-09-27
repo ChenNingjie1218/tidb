@@ -39,15 +39,34 @@ import (
 	ttlmetrics "github.com/pingcap/tidb/pkg/ttl/metrics"
 	"github.com/pingcap/tidb/pkg/util"
 	topsqlreporter_metrics "github.com/pingcap/tidb/pkg/util/topsql/reporter/metrics"
+	"github.com/prometheus/client_golang/prometheus"
 	tikvconfig "github.com/tikv/client-go/v2/config"
 	pd "github.com/tikv/pd/client"
 )
 
-// RegisterMetrics register metrics with const label 'keyspace_id' if keyspaceName set.
-func RegisterMetrics() error {
+const (
+	// KeyspaceIDLabelKey is the label key for keyspace id.
+	KeyspaceIDLabelKey = "keyspace_id"
+	// ClusterIDLabelKey is the label key for cluster id.
+	ClusterIDLabelKey = "cluster_id"
+	// ProjectIDLabelKey is the label key for project id.
+	ProjectIDLabelKey = "project_id"
+	// TenantIDIDLabelKey is the label key for tenant id.
+	TenantIDIDLabelKey = "tenant_id"
+)
+
+// RegisterMetricsWithLabels register metrics with const label.
+func RegisterMetricsWithLabels(labels prometheus.Labels) error {
 	cfg := config.GetGlobalConfig()
 	if keyspace.IsKeyspaceNameEmpty(cfg.KeyspaceName) || strings.ToLower(cfg.Store) != "tikv" {
-		return RegisterMetricsWithKeyspaceMeta(nil) // register metrics without label 'keyspace_id'.
+		return registerMetricsWithLabels(labels)
+	}
+
+	if labels == nil {
+		labels = make(prometheus.Labels)
+	}
+	if _, ok := labels[KeyspaceIDLabelKey]; ok {
+		return registerMetricsWithLabels(labels)
 	}
 
 	pdAddrs, _, _, err := tikvconfig.ParsePath("tikv://" + cfg.Path)
@@ -71,13 +90,15 @@ func RegisterMetrics() error {
 		return err
 	}
 
-	return RegisterMetricsWithKeyspaceMeta(keyspaceMeta)
+	labels[KeyspaceIDLabelKey] = fmt.Sprint(keyspaceMeta.GetId())
+	return registerMetricsWithLabels(labels)
 }
 
 // RegisterMetricsForBR register metrics with const label keyspace_id for BR.
 func RegisterMetricsForBR(pdAddrs []string, keyspaceName string) error {
 	if keyspace.IsKeyspaceNameEmpty(keyspaceName) {
-		return RegisterMetricsWithKeyspaceMeta(nil) // register metrics without label 'keyspace_id'.
+		// Don't need to register metrics with label 'keyspace_id'.
+		return registerMetricsWithLabels(nil)
 	}
 
 	timeout := 10 * time.Second
@@ -92,18 +113,15 @@ func RegisterMetricsForBR(pdAddrs []string, keyspaceName string) error {
 	if err != nil {
 		return err
 	}
-
-	return RegisterMetricsWithKeyspaceMeta(keyspaceMeta)
+	labels := prometheus.Labels{
+		KeyspaceIDLabelKey: fmt.Sprint(keyspaceMeta.GetId()),
+	}
+	return registerMetricsWithLabels(labels)
 }
 
-// RegisterMetricsWithKeyspaceMeta register metrics with const label if keyspaceMeta set.
-func RegisterMetricsWithKeyspaceMeta(keyspaceMeta *keyspacepb.KeyspaceMeta) error {
-	if keyspaceMeta != nil {
-		metrics.SetConstLabels(
-			"keyspace_id", fmt.Sprint(keyspaceMeta.GetId()),
-			"tenant_id", metrics.ServerlessTenantID,
-			"cluster_id", metrics.ServerlessClusterID,
-			"project_id", metrics.ServerlessProjectID)
+func registerMetricsWithLabels(labels prometheus.Labels) error {
+	if len(labels) != 0 {
+		metrics.SetConstLabels(labels)
 	}
 
 	metrics.InitMetrics()

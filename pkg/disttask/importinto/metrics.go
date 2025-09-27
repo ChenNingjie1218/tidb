@@ -51,10 +51,12 @@ func (m *taskMetricManager) getOrCreateMetrics(taskID int64) *metric.Common {
 	defer m.Unlock()
 	tm, ok := m.metricsMap[taskID]
 	if !ok {
-		metrics := tidbmetrics.GetRegisteredImportMetrics(promutil.NewDefaultFactory(),
-			prometheus.Labels{
-				proto.TaskIDLabelName: strconv.FormatInt(taskID, 10),
-			})
+		constLabels := tidbmetrics.GetConstLabels()
+		if constLabels == nil {
+			constLabels = prometheus.Labels{}
+		}
+		constLabels[proto.TaskIDLabelName] = strconv.FormatInt(taskID, 10)
+		metrics := tidbmetrics.GetRegisteredImportMetrics(promutil.NewDefaultFactory(), constLabels)
 		tm = &taskMetrics{
 			metrics: metrics,
 		}

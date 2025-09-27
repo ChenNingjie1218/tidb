@@ -118,6 +118,11 @@ type KeyspaceMismatch struct {
 	Local  string `json:"local"`
 }
 
+// GetActivateRequest return the activate request
+func GetActivateRequest() ActivateRequest {
+	return activateRequest
+}
+
 func keyspaceChecker(next http.Handler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		remote := r.URL.Query().Get("keyspace")

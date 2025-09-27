@@ -380,6 +380,10 @@ func main() {
 	keyspaceMeta, pdCli, err := getServerlessInfo()
 	mainErrHandler(err)
 
+	updateConfigForServerless(keyspaceMeta)
+	err = metricsutil.RegisterMetricsWithLabels(config.GetGlobalConfig().MetricsLabels)
+	terror.MustNil(err)
+
 	var keyspaceID uint32
 	if keyspaceMeta != nil {
 		keyspaceID = keyspaceMeta.GetId()
@@ -404,10 +408,6 @@ func main() {
 		}
 		keyspace.SetUsernamePolicy(keyspace.NewPrefixPolicy(keyspaceMeta.GetName()))
 	}
-
-	err = metricsutil.RegisterMetricsWithKeyspaceMeta(keyspaceMeta)
-	mainErrHandler(err)
-
 	// Serverless ===================
 
 	if variable.EnableTmpStorageOnOOM.Load() {
@@ -551,15 +551,15 @@ func getServerlessInfo() (*keyspacepb.KeyspaceMeta, pd.Client, error) {
 		return nil, nil, nil
 	}
 
-	// TODO: activateRequest logic
-	//activateRequest := standby.GetActivateRequest()
-	//if activateRequest.KeyspaceID != "" {
-	//	metrics.SetConstLabels(
-	//		"keyspace_id", activateRequest.KeyspaceID,
-	//		"tenant_id", activateRequest.TenantID,
-	//		"cluster_id", activateRequest.ClusterID,
-	//		"project_id", activateRequest.ProjectID)
-	//}
+	activateRequest := standby.GetActivateRequest()
+	if activateRequest.KeyspaceID != "" {
+		metrics.SetConstLabels(map[string]string{
+			metricsutil.KeyspaceIDLabelKey: activateRequest.KeyspaceID,
+			metricsutil.TenantIDIDLabelKey: activateRequest.TenantID,
+			metricsutil.ClusterIDLabelKey:  activateRequest.ClusterID,
+			metricsutil.ProjectIDLabelKey:  activateRequest.ProjectID,
+		})
+	}
 
 	log.Info("serverless cluster info loading...", zap.Any("keyspace", cfg.KeyspaceName))
 	pdEtcdAddrs, _, _, err := tikvconfig.ParsePath("tikv://" + cfg.Path)
@@ -1326,6 +1326,22 @@ func closeStmtSummary() {
 	if instanceCfg.StmtSummaryEnablePersistent {
 		stmtsummaryv2.Close()
 	}
+}
+
+func updateConfigForServerless(keyspaceMeta *keyspacepb.KeyspaceMeta) {
+	if keyspaceMeta == nil {
+		return
+	}
+	config.UpdateGlobal(func(conf *config.Config) {
+		conf.MetricsLabels = make(map[string]string)
+		if keyspaceMeta.Config != nil {
+			conf.MetricsLabels[metricsutil.ClusterIDLabelKey] = keyspaceMeta.Config[serverless.LabelClusterID]
+			conf.MetricsLabels[metricsutil.ProjectIDLabelKey] = keyspaceMeta.Config[serverless.LabelProjectID]
+			conf.MetricsLabels[metricsutil.TenantIDIDLabelKey] = keyspaceMeta.Config[serverless.LabelTenantID]
+		}
+
+		conf.MetricsLabels[metricsutil.KeyspaceIDLabelKey] = fmt.Sprintf("%d", keyspaceMeta.GetId())
+	})
 }
 
 const defaultMgrRequestTimeout = 10 * time.Second

@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   tidb-cse-check:
-    runs-on: [X64, gcp]
+    runs-on: [self-hosted, amd64]
     env:
       GITHUB_TOKEN: ${{ secrets.GIT_ACTION_BOT }}
       GOPRIVATE: github.com/tidbcloud
@@ -97,7 +97,7 @@ jobs:
           key: tidb-cse/ci-check/bazel/${{ runner.os }}-${{ runner.arch }}/${{ github.ref_name }}/${{ hashFiles('./go.sum') }}
 
   tidb-cse-build:
-    runs-on: [X64, gcp]
+    runs-on: [self-hosted, amd64]
     env:
       GITHUB_TOKEN: ${{ secrets.GIT_ACTION_BOT }}
       GOPRIVATE: github.com/tidbcloud

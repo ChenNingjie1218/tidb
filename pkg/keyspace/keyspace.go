@@ -19,6 +19,7 @@ import (
 	"crypto/tls"
 	"encoding/binary"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/pingcap/kvproto/pkg/keyspacepb"
@@ -64,6 +65,9 @@ const (
 
 	// KeyspaceMetaConfigIsInETCDMigration is the name of the key for keyspace meta config migration.
 	KeyspaceMetaConfigIsInETCDMigration = "serverless_is_upgrade_etcd_group"
+
+	// EnvVarKeyspaceName is the system env name for keyspace name.
+	EnvVarKeyspaceName = "KEYSPACE_NAME"
 )
 
 // CodecV1 represents api v1 codec.
@@ -88,6 +92,16 @@ func MakeKeyspaceEtcdNamespaceSlash(c tikv.Codec) string {
 // GetKeyspaceNameBySettings is used to get Keyspace name setting.
 func GetKeyspaceNameBySettings() (keyspaceName string) {
 	keyspaceName = config.GetGlobalKeyspaceName()
+
+	if !IsKeyspaceNameEmpty(keyspaceName) {
+		return keyspaceName
+	}
+
+	keyspaceName = os.Getenv(EnvVarKeyspaceName)
+	config.UpdateGlobal(func(c *config.Config) {
+		c.KeyspaceName = keyspaceName
+	})
+
 	return keyspaceName
 }
 

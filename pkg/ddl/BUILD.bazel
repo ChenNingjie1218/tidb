@@ -142,6 +142,7 @@ go_library(
         "//pkg/table/tables",
         "//pkg/table/tblctx",
         "//pkg/tablecodec",
+        "//pkg/tidbworker",
         "//pkg/ttl/cache",
         "//pkg/types",
         "//pkg/types/parser_driver",

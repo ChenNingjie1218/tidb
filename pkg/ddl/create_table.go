@@ -46,6 +46,7 @@ import (
 	"github.com/pingcap/tidb/pkg/sessionctx/variable"
 	"github.com/pingcap/tidb/pkg/table"
 	"github.com/pingcap/tidb/pkg/table/tables"
+	"github.com/pingcap/tidb/pkg/tidbworker"
 	"github.com/pingcap/tidb/pkg/types"
 	driver "github.com/pingcap/tidb/pkg/types/parser_driver"
 	"github.com/pingcap/tidb/pkg/util/dbterror"
@@ -188,9 +189,28 @@ func (w *worker) onCreateTable(jobCtx *jobContext, job *model.Job) (ver int64, _
 		return ver, errors.Trace(err)
 	}
 
+	err = onTableCreationCompleted(tbInfo, job, jobCtx)
+	if err != nil {
+		return ver, errors.Trace(err)
+	}
+
 	// Finish this job.
 	job.FinishTableJob(model.JobStateDone, model.StatePublic, ver, tbInfo)
 	return ver, errors.Trace(err)
+}
+
+func onTableCreationCompleted(tbInfo *model.TableInfo, job *model.Job, jobCtx *jobContext) error {
+	if tidbworker.IsMaster() && tbInfo != nil {
+		ttlInfo := tbInfo.TTLInfo
+		if ttlInfo != nil && ttlInfo.Enable {
+			// tidb worker:Create table update ttl table info
+			err := tidbworker.GlobalTiDBWorkerManager.RegisterTTLTask(context.Background(), tbInfo.ID, variable.EnableTTLJob.Load())
+			if err != nil {
+				return errors.Trace(err)
+			}
+		}
+	}
+	return nil
 }
 
 func (w *worker) createTableWithForeignKeys(jobCtx *jobContext, job *model.Job, args *model.CreateTableArgs) (ver int64, err error) {

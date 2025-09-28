@@ -20,16 +20,20 @@ import (
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/tidb/pkg/config"
+	"github.com/pingcap/tidb/pkg/ddl/logutil"
 	infoschemactx "github.com/pingcap/tidb/pkg/infoschema/context"
 	"github.com/pingcap/tidb/pkg/meta/model"
 	"github.com/pingcap/tidb/pkg/parser/ast"
 	"github.com/pingcap/tidb/pkg/parser/format"
 	pmodel "github.com/pingcap/tidb/pkg/parser/model"
 	"github.com/pingcap/tidb/pkg/parser/mysql"
+	"github.com/pingcap/tidb/pkg/sessionctx/variable"
+	"github.com/pingcap/tidb/pkg/tidbworker"
 	"github.com/pingcap/tidb/pkg/ttl/cache"
 	"github.com/pingcap/tidb/pkg/types"
 	"github.com/pingcap/tidb/pkg/util/dbterror"
 	"github.com/pingcap/tidb/pkg/util/intest"
+	"go.uber.org/zap"
 )
 
 // DefaultTTLJobInterval is the default value for ttl job interval.
@@ -46,6 +50,13 @@ func onTTLInfoRemove(jobCtx *jobContext, job *model.Job) (ver int64, err error) 
 	if err != nil {
 		return ver, errors.Trace(err)
 	}
+
+	//-------------- Serverless TiDB Worker ------------
+	if tidbworker.IsMaster() {
+		// tidb worker:alter table remove ttl
+		tidbworker.GlobalTiDBWorkerManager.DeleteTTLTableInfo(jobCtx.ctx, tblInfo.ID)
+	}
+	//-------------- Serverless TiDB Worker end------------
 	job.FinishTableJob(model.JobStateDone, model.StatePublic, ver, tblInfo)
 	return ver, nil
 }
@@ -93,6 +104,26 @@ func onTTLInfoChange(jobCtx *jobContext, job *model.Job) (ver int64, err error) 
 	if err != nil {
 		return ver, errors.Trace(err)
 	}
+
+	// Serverless TiDB worker
+	// Register or Unregister the TTL task according to the new TTL settings.
+	if tidbworker.IsMaster() && tblInfo != nil {
+		ttlInfo := tblInfo.TTLInfo
+		if ttlInfo != nil && ttlInfo.Enable {
+			err := tidbworker.GlobalTiDBWorkerManager.RegisterTTLTask(
+				jobCtx.ctx,
+				tblInfo.ID,
+				variable.EnableTTLJob.Load(),
+			)
+			if err != nil {
+				logutil.DDLLogger().Error("Failed to register TTL task",
+					zap.Int64("tableID", tblInfo.ID),
+					zap.Error(err))
+			}
+		}
+	}
+	//--------- Serverless TiDB worker end ---------
+
 	job.FinishTableJob(model.JobStateDone, model.StatePublic, ver, tblInfo)
 	return ver, nil
 }
@@ -124,6 +155,14 @@ func checkTTLInfoValid(schema pmodel.CIStr, tblInfo *model.TableInfo, foreignKey
 	}
 
 	return checkTTLInfoColumnType(tblInfo)
+}
+
+func checkTTLJobInterval(_ *string) error {
+	// todo(ystaticy): fix test case
+	//if jobInterval != nil && *jobInterval != DefaultTTLJobInterval && !intest.InTest && config.GetGlobalConfig().EnableSetTableTTL {
+	//	return dbterror.ErrNotSupportedOnServerless.GenWithStackByCause("update ttl job interval")
+	//}
+	return nil
 }
 
 func checkTTLIntervalExpr(ttlInfo *model.TTLInfo) error {
@@ -217,5 +256,10 @@ func getTTLInfoInOptions(options []*ast.TableOption) (ttlInfo *model.TTLInfo, tt
 			ttlInfo.JobInterval = *ttlCronJobSchedule
 		}
 	}
+
+	if err = checkTTLJobInterval(ttlCronJobSchedule); err != nil {
+		return nil, nil, nil, err
+	}
+
 	return ttlInfo, ttlEnable, ttlCronJobSchedule, nil
 }

@@ -79,6 +79,7 @@ import (
 	handleutil "github.com/pingcap/tidb/pkg/statistics/handle/util"
 	"github.com/pingcap/tidb/pkg/store/helper"
 	"github.com/pingcap/tidb/pkg/telemetry"
+	"github.com/pingcap/tidb/pkg/tidbworker"
 	"github.com/pingcap/tidb/pkg/ttl/ttlworker"
 	"github.com/pingcap/tidb/pkg/types"
 	"github.com/pingcap/tidb/pkg/util"
@@ -3266,6 +3267,13 @@ func (do *Domain) serverIDKeeper() {
 
 // StartTTLJobManager creates and starts the ttl job manager
 func (do *Domain) StartTTLJobManager() {
+	// If use tidb worker,it must need EnableRunTTLTask=true or the current pod is ttl task worker.
+	// UT don't use tidb worker, it will start ttl job manager.
+	if tidbworker.IsUseTiDBWorker() && (!config.GetGlobalConfig().EnableRunTTLTask || !tidbworker.IsTTLTaskWorker()) {
+		logutil.BgLogger().Info("don't run ttl job manager.")
+		return
+	}
+
 	ttlJobManager := ttlworker.NewJobManager(do.ddl.GetID(), do.sysSessionPool, do.store, do.keyspaceEtcdClient, do.ddl.OwnerManager().IsOwner)
 	do.ttlJobManager.Store(ttlJobManager)
 	ttlJobManager.Start()

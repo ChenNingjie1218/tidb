@@ -384,9 +384,6 @@ type Config struct {
 	// We should remove this config when the feature become stable.
 	EnableZeroBackend bool `toml:"enable-zero-backend" json:"enable-zero-backend"`
 
-	// EnableSetTableTTL is used to control whether to create or alter table ttl .
-	EnableSetTableTTL bool `toml:"enable-set-table-ttl" json:"enable-set-table-ttl"`
-
 	// TiDBWorker is the config for tidb worker.
 	TiDBWorker TiDBWorker `toml:"tidb-worker" json:"tidb-worker"`
 
@@ -395,6 +392,11 @@ type Config struct {
 
 	// TiKVAPIServiceAddr is the address of the TiKV API service.
 	TiKVAPIServiceAddr string `toml:"tikv-api-service-addr" json:"tikv-api-service-addr"`
+
+	// EnableRunTTLTask is used to control whether to run ttl task .
+	EnableRunTTLTask bool `toml:"enable-run-ttl-task" json:"enable-run-ttl-task"`
+	// EnableSetTableTTL is used to control whether to create or alter table ttl .
+	EnableSetTableTTL bool `toml:"enable-set-table-ttl" json:"enable-set-table-ttl"`
 
 	// EnableOnlyRunUpgrade indicates whether only run upgrade process.
 	EnableOnlyRunUpgrade bool `toml:"enable-only-run-upgrade" json:"enable-only-run-upgrade"`

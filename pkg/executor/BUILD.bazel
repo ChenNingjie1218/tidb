@@ -198,6 +198,7 @@ go_library(
         "//pkg/table/tables",
         "//pkg/table/temptable",
         "//pkg/tablecodec",
+        "//pkg/tidbworker",
         "//pkg/types",
         "//pkg/types/parser_driver",
         "//pkg/util",

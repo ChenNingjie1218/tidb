@@ -26,8 +26,10 @@ import (
 	"github.com/pingcap/tidb/pkg/infoschema"
 	infoschemacontext "github.com/pingcap/tidb/pkg/infoschema/context"
 	"github.com/pingcap/tidb/pkg/kv"
+	"github.com/pingcap/tidb/pkg/owner"
 	"github.com/pingcap/tidb/pkg/parser/terror"
 	"github.com/pingcap/tidb/pkg/sessionctx/variable"
+	"github.com/pingcap/tidb/pkg/tidbworker"
 	timerapi "github.com/pingcap/tidb/pkg/timer/api"
 	ttltablestore "github.com/pingcap/tidb/pkg/timer/tablestore"
 	"github.com/pingcap/tidb/pkg/ttl/cache"
@@ -44,6 +46,10 @@ import (
 )
 
 const scanTaskNotificationType string = "scan"
+
+// Serverless TiDB worker
+const ttlJobManagerLeaderPath = "/tidb/ttl_job_manager/leader"
+const ttlJobManagerPrompt = "ttl_job_manager"
 
 const insertNewTableIntoStatusTemplate = "INSERT INTO mysql.tidb_ttl_table_status (table_id,parent_table_id) VALUES (%?, %?)"
 const setTableStatusOwnerTemplate = `UPDATE mysql.tidb_ttl_table_status
@@ -131,6 +137,9 @@ type JobManager struct {
 
 	lastReportDelayMetricsTime time.Time
 	leaderFunc                 func() bool
+
+	// Serverless TiDB worker
+	ownerManager owner.Manager
 }
 
 // NewJobManager creates a new ttl job manager
@@ -158,7 +167,37 @@ func NewJobManager(id string, sessPool util.SessionPool, store kv.Storage, etcdC
 	manager.taskManager = newTaskManager(manager.ctx, sessPool, manager.infoSchemaCache, id, store)
 	manager.leaderFunc = leaderFunc
 
+	// ------ Serverless TiDB worker ------
+	// The leader of the TTL job manager previously ran only together with the DDL owner,
+	// which made it impossible to execute on the TTL worker. Now it has been modified
+	// so that the TTL job manager elects its own leader, enabling the TTL leader to run on the worker.
+	if !intest.InTest && etcdCli != nil {
+		manager.ownerManager = owner.NewOwnerManager(context.Background(), etcdCli, ttlJobManagerPrompt, id, ttlJobManagerLeaderPath)
+
+		// ownerListener used to listen the owner change events and log the info
+		manager.ownerManager.SetListener(&ownerListener{})
+		err := manager.ownerManager.CampaignOwner(5)
+		if err != nil {
+			logutil.BgLogger().Error("failed to campaign ttl job manager owner", zap.Error(err))
+		}
+		manager.leaderFunc = manager.ownerManager.IsOwner
+	} else {
+		manager.leaderFunc = leaderFunc
+	}
+	// ------ Serverless TiDB worker ------
+
 	return
+}
+
+type ownerListener struct {
+}
+
+// OnRetireOwner just to fix implement the interface
+func (l *ownerListener) OnRetireOwner() {
+}
+
+func (l *ownerListener) OnBecomeOwner() {
+	logutil.BgLogger().Info("leader change of TTL job manager service, this node become owner")
 }
 
 func (m *JobManager) isLeader() bool {
@@ -538,6 +577,9 @@ func (m *JobManager) checkNotOwnJob() {
 }
 
 func (m *JobManager) checkFinishedJob(se session.Session) {
+	totalFinishedJobs := 0
+	maxJobCreateTime := uint64(0)
+	runningJobsCount := len(m.runningJobs)
 	// reverse iteration so that we could remove the job safely in the loop
 j:
 	for i := len(m.runningJobs) - 1; i >= 0; i-- {
@@ -580,8 +622,22 @@ j:
 				continue
 			}
 			m.removeJob(job)
+			totalFinishedJobs++
+			if maxJobCreateTime < uint64(job.createTime.Unix()) {
+				maxJobCreateTime = uint64(job.createTime.Unix())
+			}
 		}
 		cancel()
+	}
+	logutil.Logger(m.ctx).Info("ttl check job complete is ended", zap.Int("running-jobs-len", runningJobsCount), zap.Int("total-finished-job", totalFinishedJobs))
+	if totalFinishedJobs == runningJobsCount && runningJobsCount != 0 {
+		logutil.Logger(m.ctx).Info("finished all jobs", zap.Uint64("ts", maxJobCreateTime))
+		if tidbworker.IsTTLTaskWorker() {
+			err := tidbworker.GlobalTiDBWorkerManager.RecycleTTLTask(m.ctx, maxJobCreateTime)
+			if err != nil {
+				logutil.Logger(m.ctx).Info("fail to RecycleTTLTask", zap.Error(err))
+			}
+		}
 	}
 }
 

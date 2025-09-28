@@ -32,6 +32,7 @@ import (
 	"github.com/pingcap/tidb/pkg/sessionctx"
 	"github.com/pingcap/tidb/pkg/sessionctx/variable"
 	"github.com/pingcap/tidb/pkg/table/temptable"
+	"github.com/pingcap/tidb/pkg/tidbworker"
 	"github.com/pingcap/tidb/pkg/util/chunk"
 	"github.com/pingcap/tidb/pkg/util/collate"
 	"github.com/pingcap/tidb/pkg/util/dbterror/exeerrors"
@@ -185,6 +186,12 @@ func (e *SetExecutor) setSysVariable(ctx context.Context, name string, v *expres
 		// 		err = tidbworker.GlobalTiDBWorkerManager.UpdateGCLifeTime(ctx, int64(gcLifeTime/time.Second))
 		// 	}
 		// }
+
+		if name == variable.TiDBTTLJobEnable && tidbworker.IsMaster() {
+			if err = tidbworker.GlobalTiDBWorkerManager.UpdateTTLJobEnable(ctx, strings.ToUpper(valStr) == "ON"); err != nil {
+				return err
+			}
+		}
 
 		if name == variable.TiDBServiceScope {
 			dom := domain.GetDomain(e.Ctx())

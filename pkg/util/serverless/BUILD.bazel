@@ -5,6 +5,7 @@ go_library(
     srcs = [
         "labels.go",
         "memory.go",
+        "pd_config.go",
     ],
     importpath = "github.com/pingcap/tidb/pkg/util/serverless",
     visibility = ["//visibility:public"],
@@ -13,6 +14,7 @@ go_library(
         "//pkg/util/gctuner",
         "//pkg/util/logutil",
         "//pkg/util/memory",
+        "@com_github_tikv_pd_client//:client",
         "@org_uber_go_zap//:zap",
     ],
 )

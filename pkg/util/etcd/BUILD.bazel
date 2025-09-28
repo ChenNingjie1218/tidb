@@ -11,6 +11,7 @@ go_library(
         "//pkg/kv",
         "//pkg/lightning/common",
         "//pkg/metaservice",
+        "//pkg/metrics",
         "@com_github_pingcap_errors//:errors",
         "@com_github_tikv_client_go_v2//tikv",
         "@com_github_tikv_pd_client//:client",

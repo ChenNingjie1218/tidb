@@ -31,6 +31,7 @@ import (
 	"github.com/pingcap/tidb/pkg/kv"
 	"github.com/pingcap/tidb/pkg/lightning/common"
 	"github.com/pingcap/tidb/pkg/metaservice"
+	"github.com/pingcap/tidb/pkg/metrics"
 	"github.com/tikv/client-go/v2/tikv"
 	pd "github.com/tikv/pd/client"
 	clientv3 "go.etcd.io/etcd/client/v3"
@@ -487,10 +488,9 @@ func GetPDClient(keyspaceName string, pdEtcdAddrs []string) (pd.Client, error) {
 			grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(256*1024*1024)),
 		),
 		pd.WithCustomTimeoutOption(time.Duration(cfg.PDClient.PDServerTimeout)*time.Second),
+		pd.WithResourceManagerProxyOption(cfg.PDClient.UseResourceManagerProxy),
 		pd.WithForwardingOption(cfg.EnableForwarding),
-	)
-	// TODO(metrics)
-	// pd.WithMetricsLabels(metrics.GetConstLabels()))
+		pd.WithMetricsLabels(metrics.GetConstLabels()))
 	return pdCli, err
 }
 

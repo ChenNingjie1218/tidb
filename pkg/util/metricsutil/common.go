@@ -74,12 +74,11 @@ func RegisterMetricsWithLabels(labels prometheus.Labels) error {
 		return err
 	}
 
-	timeout := time.Duration(cfg.PDClient.PDServerTimeout) * time.Second
 	pdCli, err := pd.NewClientWithAPIContext(context.Background(), keyspace.BuildAPIContext(cfg.KeyspaceName), pdAddrs, pd.SecurityOption{
 		CAPath:   cfg.Security.ClusterSSLCA,
 		CertPath: cfg.Security.ClusterSSLCert,
 		KeyPath:  cfg.Security.ClusterSSLKey,
-	}, pd.WithCustomTimeoutOption(timeout))
+	}, cfg.GetPDClientOpts()...)
 	if err != nil {
 		return err
 	}

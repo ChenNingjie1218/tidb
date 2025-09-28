@@ -4,7 +4,6 @@ package gluetikv
 
 import (
 	"context"
-	"time"
 
 	"github.com/pingcap/kvproto/pkg/keyspacepb"
 	"github.com/pingcap/tidb/br/pkg/glue"
@@ -66,14 +65,15 @@ func getKeyspaceMeta(path string) (*keyspacepb.KeyspaceMeta, error) {
 		return nil, err
 	}
 	ctx := context.Background()
+	clientOpts := append(cfg.GetPDClientOpts(), pd.WithInitMetricsOption(false))
 	pdCli, err := pd.NewClientWithAPIContext(ctx, keyspace.BuildAPIContext(cfg.KeyspaceName), etcdAddrs, pd.SecurityOption{
 		CAPath:   cfg.Security.ClusterSSLCA,
 		CertPath: cfg.Security.ClusterSSLCert,
 		KeyPath:  cfg.Security.ClusterSSLKey,
-	},
-		pd.WithCustomTimeoutOption(time.Duration(cfg.PDClient.PDServerTimeout)*time.Second),
-		pd.WithInitMetricsOption(false),
-	)
+	}, clientOpts...)
+	if err != nil {
+		return nil, err
+	}
 	keyspaceMeta, err := pdCli.LoadKeyspace(ctx, cfg.KeyspaceName)
 	if err != nil {
 		return nil, err

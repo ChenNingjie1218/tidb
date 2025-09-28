@@ -24,6 +24,7 @@ import (
 	"github.com/pingcap/kvproto/pkg/keyspacepb"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/pingcap/tidb/pkg/config"
+	"github.com/pingcap/tidb/pkg/metrics"
 	"github.com/pingcap/tidb/pkg/util/codec"
 	"github.com/tikv/client-go/v2/tikv"
 	pd "github.com/tikv/pd/client"
@@ -191,7 +192,7 @@ func GetPDClient(keyspaceName string, etcdAddrs []string) (pd.Client, error) {
 			grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(256*1024*1024)),
 		),
 		pd.WithForwardingOption(cfg.EnableForwarding),
-		// pd.WithMetricsLabels(metrics.GetConstLabels()),
+		pd.WithMetricsLabels(metrics.GetConstLabels()),
 	)
 	pdCli, err := pd.NewClientWithAPIContext(context.Background(), BuildAPIContext(keyspaceName),
 		etcdAddrs, pd.SecurityOption{

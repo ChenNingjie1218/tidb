@@ -144,10 +144,9 @@ func GetPDClient(keyspaceName string, pdEtcdAddrs []string) (pd.Client, error) {
 			grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(256*1024*1024)),
 		),
 		pd.WithCustomTimeoutOption(time.Duration(cfg.PDClient.PDServerTimeout)*time.Second),
+		pd.WithResourceManagerProxyOption(cfg.PDClient.UseResourceManagerProxy),
 		pd.WithForwardingOption(cfg.EnableForwarding),
-	)
-	// TODO(metrics)
-	// pd.WithMetricsLabels(metrics.GetConstLabels()))
+		pd.WithMetricsLabels(metrics.GetConstLabels()))
 	return pdCli, err
 }
 

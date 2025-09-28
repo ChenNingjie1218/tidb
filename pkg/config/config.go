@@ -434,7 +434,7 @@ func (c *Config) GetTiKVConfig() *tikvcfg.Config {
 func (c *Config) GetPDClientOpts() []pd.ClientOption {
 	return []pd.ClientOption{
 		pd.WithCustomTimeoutOption(time.Duration(c.PDClient.PDServerTimeout) * time.Second),
-		//pd.WithResourceManagerProxyOption(c.PDClient.UseResourceManagerProxy),
+		pd.WithResourceManagerProxyOption(c.PDClient.UseResourceManagerProxy),
 	}
 }
 

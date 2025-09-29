@@ -760,6 +760,18 @@ func TestVectorConversion(t *testing.T) {
 	tk.MustQuery("SELECT CONVERT(VEC_FROM_TEXT('[1,2,3]'), VECTOR(3));").Check(testkit.Rows("[1,2,3]"))
 	err = tk.QueryToErr("SELECT CONVERT(VEC_FROM_TEXT('[1,2,3]'), VECTOR(2));")
 	require.EqualError(t, err, "vector has 3 dimensions, does not fit VECTOR(2)")
+
+	tk.MustExec("CREATE TABLE `foo` (`a` VECTOR(1) NOT NULL,`b` INT(10) UNSIGNED NOT NULL,`c` VECTOR NOT NULL,`d` VECTOR(3) NOT NULL);")
+	tk.MustExec("INSERT INTO `foo` VALUES ('[1.1]', 1 , '[1.1, 2.2, 3.3, 4.4, 5.5]', '[1, 2, 3]'), ('[100]', 2, '[1.1, 2.2, 3.3, 4.4, 5.5]', '[1, 2, 3]');")
+	tk.MustQuery("select replace(foo.c, foo.a, foo.c) from foo;").Check(testkit.Rows(
+		"[1.1,2.2,3.3,4.4,5.5]",
+		"[1.1,2.2,3.3,4.4,5.5]",
+	))
+	tk.MustQuery("explain select replace(foo.c, foo.a, foo.c) from foo;").Check(testkit.Rows(
+		"Projection_3 10000.00 root  replace(cast(test.foo.c, var_string(5)), cast(test.foo.a, var_string(5)), cast(test.foo.c, var_string(5)))->Column#6",
+		"└─TableReader_5 10000.00 root  data:TableFullScan_4",
+		"  └─TableFullScan_4 10000.00 cop[tikv] table:foo keep order:false, stats:pseudo",
+	))
 }
 
 func TestVectorAssignVariable(t *testing.T) {

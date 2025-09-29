@@ -21,6 +21,7 @@ go_library(
         "//pkg/types",
         "//pkg/util/dbterror",
         "//pkg/util/execdetails",
+        "//pkg/util/intest",
         "//pkg/util/logutil",
         "//pkg/util/tracing",
         "@com_github_pingcap_errors//:errors",

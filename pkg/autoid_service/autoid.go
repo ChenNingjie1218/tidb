@@ -24,6 +24,7 @@ import (
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
 	"github.com/pingcap/kvproto/pkg/autoid"
+	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/pingcap/tidb/pkg/kv"
 	"github.com/pingcap/tidb/pkg/meta"
 	autoid1 "github.com/pingcap/tidb/pkg/meta/autoid"
@@ -291,6 +292,8 @@ type Service struct {
 	autoIDLock sync.Mutex
 	autoIDMap  map[autoIDKey]*autoIDValue
 
+	etcdCli *clientv3.Client
+
 	leaderShip owner.Manager
 	store      kv.Storage
 
@@ -299,22 +302,23 @@ type Service struct {
 
 // New return a Service instance.
 func New(selfAddr string, _ []string, store kv.Storage, _ *tls.Config) *Service {
-	serviceCli, err := etcd.NewEtcdMetaServiceClientWithKVStore(store)
+	metaServiceCli, err := etcd.NewEtcdMetaServiceClientWithKVStore(store)
 	if err != nil {
 		panic(err)
 	}
-	service := newWithCli(selfAddr, serviceCli.GetKeyspaceEtcdCli(), store)
+	service := newWithCli(selfAddr, metaServiceCli.GetKeyspaceEtcdCli(), store)
 	// need to close the etcd client when service close.
-	service.onClose = func() { serviceCli.GetKeyspaceEtcdCli().Close() }
+	service.onClose = func() { metaServiceCli.GetKeyspaceEtcdCli().Close() }
 	return service
 }
 
-func newWithCli(selfAddr string, cli *clientv3.Client, store kv.Storage) *Service {
-	l := owner.NewOwnerManager(context.Background(), cli, "autoid", selfAddr, autoIDLeaderPath)
+func newWithCli(selfAddr string, etcdCli *clientv3.Client, store kv.Storage) *Service {
+	l := owner.NewOwnerManager(context.Background(), etcdCli, "autoid", selfAddr, autoid1.LeaderPath(store.GetCodec().GetAPIVersion() > kvrpcpb.APIVersion_V1))
 	service := &Service{
 		autoIDMap:  make(map[autoIDKey]*autoIDValue),
 		leaderShip: l,
 		store:      store,
+		etcdCli:    etcdCli,
 	}
 	l.SetListener(&ownerListener{
 		Service:  service,
@@ -577,6 +581,7 @@ func (s *Service) Rebase(ctx context.Context, req *autoid.RebaseRequest) (*autoi
 type ownerListener struct {
 	*Service
 	selfAddr string
+	etcdCli  *clientv3.Client
 }
 
 var _ owner.Listener = (*ownerListener)(nil)
@@ -592,6 +597,15 @@ func (l *ownerListener) OnBecomeOwner() {
 	logutil.BgLogger().Info("leader change of autoid service, this node become owner",
 		zap.String("addr", l.selfAddr),
 		zap.String("category", "autoid service"))
+
+	// Notify all clients that leader has changed by updating the notification key
+	_, err := l.etcdCli.Put(context.Background(), autoid1.LeaderChangeKey, l.selfAddr)
+	if err != nil {
+		logutil.BgLogger().Warn("failed to update leader change notification key",
+			zap.String("category", "autoid service"),
+			zap.String("key", autoid1.LeaderChangeKey),
+			zap.Error(err))
+	}
 }
 
 func (*ownerListener) OnRetireOwner() {

@@ -27,6 +27,7 @@ import (
 	"github.com/pingcap/tidb/pkg/config"
 	"github.com/pingcap/tidb/pkg/kv"
 	"github.com/pingcap/tidb/pkg/metrics"
+	"github.com/pingcap/tidb/pkg/util/intest"
 	"github.com/pingcap/tidb/pkg/util/logutil"
 	"github.com/pingcap/tidb/pkg/util/tracing"
 	clientv3 "go.etcd.io/etcd/client/v3"
@@ -35,6 +36,9 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 )
+
+// LeaderChangeKey is the key used to notify clients of leader changes in the autoid service.
+const LeaderChangeKey = "/tidb/autoid_owner/leader-change-notification"
 
 var _ Allocator = &singlePointAlloc{}
 
@@ -45,6 +49,8 @@ type singlePointAlloc struct {
 	isUnsigned    bool
 	*ClientDiscover
 	keyspaceID uint32
+
+	backoffDuration time.Duration
 }
 
 // ClientDiscover is used to get the AutoIDAllocClient, it creates the grpc connection with autoid service leader.
@@ -64,6 +70,12 @@ type ClientDiscover struct {
 
 	// Serverless
 	namespaced bool
+
+	// Flag indicating if connection needs to be reset due to leader change
+	isNeedResetConn atomic.Bool
+
+	// Stop channel for watcher
+	stopCh chan struct{}
 }
 
 const (
@@ -80,10 +92,18 @@ func IsNamespaced(kvStore kv.Storage) bool {
 
 // NewClientDiscover creates a ClientDiscover object.
 func NewClientDiscover(etcdCli *clientv3.Client, namespaced bool) *ClientDiscover {
-	return &ClientDiscover{
+	cd := &ClientDiscover{
 		etcdCli:    etcdCli,
 		namespaced: namespaced,
+		stopCh:     make(chan struct{}),
 	}
+
+	if !intest.InTest {
+		// Start leader change monitoring
+		go cd.watchLeaderChanges()
+	}
+
+	return cd
 }
 
 // LeaderPath returns the leader path of autoid service.
@@ -96,8 +116,45 @@ func LeaderPath(namespaced bool) string {
 	return base
 }
 
+// watchLeaderChanges watches for leader changes in etcd
+// Monitors the notification key for changes and marks when updates are needed
+func (d *ClientDiscover) watchLeaderChanges() {
+	// Monitor the leader change notification key
+	watchCh := d.etcdCli.Watch(context.Background(), LeaderChangeKey)
+
+	for {
+		select {
+		case <-d.stopCh:
+			return
+		case resp := <-watchCh:
+			for _, ev := range resp.Events {
+				if ev.Type == clientv3.EventTypePut {
+					// Leader has changed, mark that connection needs to be reset
+					d.isNeedResetConn.Store(true)
+					logutil.BgLogger().Info("autoid service leader changed, will reset connection on next use",
+						zap.String("category", "autoid client"),
+						zap.String("new_leader", string(ev.Kv.Value)))
+				}
+			}
+		}
+	}
+}
+
 // GetClient gets the AutoIDAllocClient.
 func (d *ClientDiscover) GetClient(ctx context.Context) (autoid.AutoIDAllocClient, uint64, error) {
+	// Check if connection needs to be reset due to leader change
+	isNeedReset := d.isNeedResetConn.Load()
+	if isNeedReset {
+		logutil.BgLogger().Info("resetting autoid client connection due to leader change",
+			zap.String("category", "autoid client"))
+		// Get current version and use resetConn to ensure atomicity
+		currentVersion := atomic.LoadUint64(&d.version)
+		d.resetConn(currentVersion, errors.New("leader changed"))
+		// Reset the flag when establishing new connection
+		d.isNeedResetConn.Store(false)
+		// Continue execution to re-establish connection below
+	}
+
 	d.mu.RLock()
 	cli := d.mu.AutoIDAllocClient
 	if cli != nil {
@@ -121,6 +178,9 @@ func (d *ClientDiscover) GetClient(ctx context.Context) (autoid.AutoIDAllocClien
 	}
 
 	addr := string(resp.Kvs[0].Value)
+	// Reset the flag when establishing new connection
+	d.isNeedResetConn.Store(false)
+
 	opt := grpc.WithTransportCredentials(insecure.NewCredentials())
 	security := config.GetGlobalConfig().Security
 	if len(security.ClusterSSLCA) != 0 {
@@ -158,13 +218,15 @@ func (sp *singlePointAlloc) Alloc(ctx context.Context, n uint64, increment, offs
 
 	var bo backoffer
 retry:
-	cli, ver, err := sp.GetClient(ctx)
+	reqCtx, reqCancel := context.WithTimeout(ctx, config.GetGlobalConfig().AutoIDClientTimeout)
+	defer reqCancel()
+	cli, ver, err := sp.GetClient(reqCtx)
 	if err != nil {
 		return 0, 0, errors.Trace(err)
 	}
 
 	start := time.Now()
-	resp, err := cli.AllocAutoID(ctx, &autoid.AutoIDRequest{
+	resp, err := cli.AllocAutoID(reqCtx, &autoid.AutoIDRequest{
 		DbID:       sp.dbID,
 		TblID:      sp.tblID,
 		N:          n,
@@ -173,9 +235,15 @@ retry:
 		IsUnsigned: sp.isUnsigned,
 		KeyspaceID: sp.keyspaceID,
 	})
-	metrics.AutoIDHistogram.WithLabelValues(metrics.TableAutoIDAlloc, metrics.RetLabel(err)).Observe(time.Since(start).Seconds())
+
+	spendTime := time.Since(start).Seconds()
+
+	metrics.AutoIDHistogram.WithLabelValues(metrics.TableAutoIDAlloc, metrics.RetLabel(err)).Observe(spendTime)
 	if err != nil {
 		if strings.Contains(err.Error(), "rpc error") {
+
+			logutil.BgLogger().Error("autoid Alloc rpc error", zap.String("category", "autoid client"), zap.Float64("spendTime", spendTime), zap.Error(err))
+
 			sp.resetConn(ver, err)
 			bo.Backoff()
 			goto retry

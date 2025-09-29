@@ -406,6 +406,12 @@ type Config struct {
 
 	// EnableOnlyRunUpgrade indicates whether only run upgrade process.
 	EnableOnlyRunUpgrade bool `toml:"enable-only-run-upgrade" json:"enable-only-run-upgrade"`
+
+	// AutoIDClientTimeout is used to set the timeout for auto id client.
+	AutoIDClientTimeout time.Duration `toml:"auto-id-client-timeout" json:"auto-id-client-timeout"`
+
+	// AutoIDClientRetryInterval is used to set the interval between retry attempts for the auto id client
+	AutoIDClientRetryInterval time.Duration `toml:"auto-id-client-retry-interval" json:"auto-id-client-retry-interval"`
 }
 
 // UpdateTempStoragePath is to update the `TempStoragePath` if port/statusPort was changed
@@ -1234,6 +1240,9 @@ var defaultConf = Config{
 
 	TiDBWorker: defaultTiDBWorker(),
 	RUConfig:   rmclient.DefaultRequestUnitConfig(),
+
+	AutoIDClientTimeout:       50 * time.Millisecond,
+	AutoIDClientRetryInterval: 50 * time.Millisecond,
 }
 
 var (

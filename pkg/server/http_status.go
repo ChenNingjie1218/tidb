@@ -51,6 +51,7 @@ import (
 	util2 "github.com/pingcap/tidb/pkg/server/internal/util"
 	"github.com/pingcap/tidb/pkg/session"
 	"github.com/pingcap/tidb/pkg/statistics/handle/initstats"
+	"github.com/pingcap/tidb/pkg/tidbworker"
 	"github.com/pingcap/tidb/pkg/util"
 	"github.com/pingcap/tidb/pkg/util/cpuprofile"
 	"github.com/pingcap/tidb/pkg/util/intest"
@@ -515,6 +516,15 @@ func GetKeyspaceMetaServiceAddrs(store kv.Storage) ([]string, *tls.Config, bool)
 	return keyspaceMetaServiceAddrs, ebd.TLSConfig(), true
 }
 
+func shouldRunAutoIDService() bool {
+	return !tidbworker.IsUseTiDBWorker() ||
+		tidbworker.IsMaster() ||
+		tidbworker.IsDDLWorker() ||
+		tidbworker.IsBatchWorker() ||
+		tidbworker.IsSharedWorker() ||
+		tidbworker.IsImportIntoWorker()
+}
+
 func (s *Server) startStatusServerAndRPCServer(serverMux *http.ServeMux, store kv.Storage) {
 	m := cmux.New(s.statusListener)
 	// Match connections in order:
@@ -525,21 +535,26 @@ func (s *Server) startStatusServerAndRPCServer(serverMux *http.ServeMux, store k
 	statusServer := &http.Server{Addr: s.statusAddr, Handler: util2.NewCorsHandler(serverMux, s.cfg)}
 	grpcServer := NewRPCServer(s.cfg, s.dom, s)
 	service.RegisterChannelzServiceToServer(grpcServer)
-	if s.cfg.Store == "tikv" {
-		for {
-			{
-				keyspaceMetaServiceAddrs, tlsConfig, ok := GetKeyspaceMetaServiceAddrs(store)
-				selfAddr := net.JoinHostPort(s.cfg.AdvertiseAddress, strconv.Itoa(int(s.cfg.Status.StatusPort)))
-				if !ok {
-					break
+
+	if shouldRunAutoIDService() {
+		if s.cfg.Store == "tikv" {
+			for {
+				{
+					keyspaceMetaServiceAddrs, tlsConfig, ok := GetKeyspaceMetaServiceAddrs(store)
+					selfAddr := net.JoinHostPort(s.cfg.AdvertiseAddress, strconv.Itoa(int(s.cfg.Status.StatusPort)))
+					if !ok {
+						break
+					}
+					service := autoid.New(selfAddr, keyspaceMetaServiceAddrs, store, tlsConfig)
+					logutil.BgLogger().Info("register auto service at", zap.String("addr", selfAddr))
+					pb.RegisterAutoIDAllocServer(grpcServer, service)
+					s.autoIDService = service
 				}
-				service := autoid.New(selfAddr, keyspaceMetaServiceAddrs, store, tlsConfig)
-				logutil.BgLogger().Info("register auto service at", zap.String("addr", selfAddr))
-				pb.RegisterAutoIDAllocServer(grpcServer, service)
-				s.autoIDService = service
+				break
 			}
-			break
 		}
+	} else {
+		logutil.BgLogger().Info("autoid OwnerManager is not created, because TiDBWorker is not master")
 	}
 
 	s.statusServer = statusServer

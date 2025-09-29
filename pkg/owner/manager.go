@@ -376,6 +376,19 @@ func (m *ownerManager) campaignLoop(campaignContext context.Context) {
 
 		select {
 		case <-m.etcdSes.Done():
+
+			// Check if the upper-level context is already cancelled before attempting session recovery
+			select {
+			case <-m.ctx.Done():
+				logutil.BgLogger().Info("etcd session done, but upper context already cancelled, breaking campaign loop",
+					zap.String("id", m.id),
+					zap.String("prompt", m.prompt))
+				logutil.Logger(logCtx).Info("etcd session is done, but upper context already cancelled, breaking campaign loop")
+				return
+			default:
+				// Upper context is not cancelled, proceed with session recovery
+			}
+
 			logutil.Logger(logCtx).Info("etcd session done, refresh it")
 			if err2 := m.refreshSession(util2.NewSessionRetryUnlimited, ManagerSessionTTL); err2 != nil {
 				logutil.Logger(logCtx).Info("break campaign loop, refresh session failed", zap.Error(err2))

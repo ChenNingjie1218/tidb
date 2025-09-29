@@ -1,0 +1,110 @@
+create table t(vec vector(3));
+insert into t values ('[1,2,3]'), ('[1,2,5]'), ('[1,2,1]');
+select * from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
+vec
+[1,2,1]
+[1,2,3]
+explain select * from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
+id	estRows	task	access object	operator info
+Projection_14	2.00	root		vector.t.vec
+└─TopN_7	2.00	root		Column#3, offset:?, count:?
+  └─Projection_15	2.00	root		vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#3
+    └─TableReader_13	2.00	root		data:TopN_12
+      └─TopN_12	2.00	cop[tikv]		vec_l2_distance(vector.t.vec, ?), offset:?, count:?
+        └─TableFullScan_11	10000.00	cop[tikv]	table:t	keep order:false, stats:pseudo
+drop table t;
+create table t(vec vector(3), vector index ((vec_l2_distance(vec))));
+insert into t values ('[1,2,3]'), ('[1,2,5]'), ('[1,2,1]');
+select * from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
+vec
+[1,2,1]
+[1,2,3]
+explain select * from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
+id	estRows	task	access object	operator info
+Projection_14	2.00	root		vector.t.vec
+└─TopN_7	2.00	root		Column#3, offset:?, count:?
+  └─Projection_15	2.00	root		vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#3
+    └─TableReader_13	2.00	root		data:TopN_12
+      └─TopN_12	2.00	cop[tikv]		vec_l2_distance(vector.t.vec, ?), offset:?, count:?
+        └─TableFullScan_11	10000.00	cop[tikv]	table:t	keep order:false, stats:pseudo
+drop table t;
+create table t(id int primary key, vec vector(3));
+insert into t values (1, '[1,2,3]'), (2, '[1,2,5]'), (3, '[1,2,1]');
+select id from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
+id
+3
+1
+explain select id from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
+id	estRows	task	access object	operator info
+Projection_7	2.00	root		vector.t.id
+└─Projection_15	2.00	root		vector.t.id, vector.t.vec
+  └─TopN_8	2.00	root		Column#4, offset:?, count:?
+    └─Projection_16	2.00	root		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
+      └─TableReader_14	2.00	root		data:TopN_13
+        └─TopN_13	2.00	cop[tikv]		vec_l2_distance(vector.t.vec, ?), offset:?, count:?
+          └─TableFullScan_12	10000.00	cop[tikv]	table:t	keep order:false, stats:pseudo
+select * from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
+id	vec
+3	[1,2,1]
+1	[1,2,3]
+explain select * from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
+id	estRows	task	access object	operator info
+Projection_14	2.00	root		vector.t.id, vector.t.vec
+└─TopN_7	2.00	root		Column#3, offset:?, count:?
+  └─Projection_15	2.00	root		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#3
+    └─TableReader_13	2.00	root		data:TopN_12
+      └─TopN_12	2.00	cop[tikv]		vec_l2_distance(vector.t.vec, ?), offset:?, count:?
+        └─TableFullScan_11	10000.00	cop[tikv]	table:t	keep order:false, stats:pseudo
+drop table t;
+create table t(id int primary key, vec vector(3), vector index ((vec_l2_distance(vec))));
+insert into t values (1, '[1,2,3]'), (2, '[1,2,5]'), (3, '[1,2,1]');
+select id from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
+id
+3
+1
+explain select id from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
+id	estRows	task	access object	operator info
+Projection_7	2.00	root		vector.t.id
+└─Projection_15	2.00	root		vector.t.id, vector.t.vec
+  └─TopN_8	2.00	root		Column#4, offset:?, count:?
+    └─Projection_16	2.00	root		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
+      └─TableReader_14	2.00	root		data:TopN_13
+        └─TopN_13	2.00	cop[tikv]		vec_l2_distance(vector.t.vec, ?), offset:?, count:?
+          └─TableFullScan_12	10000.00	cop[tikv]	table:t	keep order:false, stats:pseudo
+select * from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
+id	vec
+3	[1,2,1]
+1	[1,2,3]
+explain select * from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
+id	estRows	task	access object	operator info
+Projection_14	2.00	root		vector.t.id, vector.t.vec
+└─TopN_7	2.00	root		Column#3, offset:?, count:?
+  └─Projection_15	2.00	root		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#3
+    └─TableReader_13	2.00	root		data:TopN_12
+      └─TopN_12	2.00	cop[tikv]		vec_l2_distance(vector.t.vec, ?), offset:?, count:?
+        └─TableFullScan_11	10000.00	cop[tikv]	table:t	keep order:false, stats:pseudo
+drop table t;
+use test;
+create table t(embedding VECTOR);
+insert into t values ('[1,2,3]');
+insert into t values ('[1,2,3,4]');
+alter table t modify column embedding VECTOR(3);
+Error 1105 (HY000): vector has 4 dimensions, does not fit VECTOR(3)
+delete from t where vec_dims(embedding) != 3;
+alter table t modify column embedding VECTOR(3);
+insert into t values ('[]');
+Error 1105 (HY000): vector has 0 dimensions, does not fit VECTOR(3)
+insert into t values ('[1,2,3,4]');
+Error 1105 (HY000): vector has 4 dimensions, does not fit VECTOR(3)
+insert into t values (VEC_FROM_TEXT('[]'));
+Error 1105 (HY000): vector has 0 dimensions, does not fit VECTOR(3)
+insert into t values (VEC_FROM_TEXT('[1,2,3,4]'));
+Error 1105 (HY000): vector has 4 dimensions, does not fit VECTOR(3)
+update t set embedding = '[1,2,3,4]' where embedding = '[1,2,3]';
+Error 1105 (HY000): vector has 4 dimensions, does not fit VECTOR(3)
+update t set embedding = '[]' where embedding = '[1,2,3]';
+Error 1105 (HY000): vector has 0 dimensions, does not fit VECTOR(3)
+alter table t modify column embedding VECTOR;
+insert into t values ('[1,2,3,4]');
+alter table t modify column embedding VECTOR(16384);
+Error 1105 (HY000): vector cannot have more than 16383 dimensions

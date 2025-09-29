@@ -1,0 +1,52 @@
+create table t(vec vector(3));
+insert into t values ('[1,2,3]'), ('[1,2,5]'), ('[1,2,1]');
+select * from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
+explain select * from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
+drop table t;
+
+create table t(vec vector(3), vector index ((vec_l2_distance(vec))));
+insert into t values ('[1,2,3]'), ('[1,2,5]'), ('[1,2,1]');
+select * from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
+explain select * from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
+drop table t;
+
+create table t(id int primary key, vec vector(3));
+insert into t values (1, '[1,2,3]'), (2, '[1,2,5]'), (3, '[1,2,1]');
+select id from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
+explain select id from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
+select * from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
+explain select * from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
+drop table t;
+
+create table t(id int primary key, vec vector(3), vector index ((vec_l2_distance(vec))));
+insert into t values (1, '[1,2,3]'), (2, '[1,2,5]'), (3, '[1,2,1]');
+select id from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
+explain select id from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
+select * from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
+explain select * from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
+drop table t;
+
+use test;
+create table t(embedding VECTOR);
+insert into t values ('[1,2,3]');
+insert into t values ('[1,2,3,4]');
+-- error 1105
+alter table t modify column embedding VECTOR(3);
+delete from t where vec_dims(embedding) != 3;
+alter table t modify column embedding VECTOR(3);
+-- error 1105
+insert into t values ('[]');
+-- error 1105
+insert into t values ('[1,2,3,4]');
+-- error 1105
+insert into t values (VEC_FROM_TEXT('[]'));
+-- error 1105
+insert into t values (VEC_FROM_TEXT('[1,2,3,4]'));
+-- error 1105
+update t set embedding = '[1,2,3,4]' where embedding = '[1,2,3]';
+-- error 1105
+update t set embedding = '[]' where embedding = '[1,2,3]';
+alter table t modify column embedding VECTOR;
+insert into t values ('[1,2,3,4]');
+-- error 1105
+alter table t modify column embedding VECTOR(16384);

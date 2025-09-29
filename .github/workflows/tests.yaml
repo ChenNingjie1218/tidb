@@ -152,6 +152,39 @@ jobs:
         run: |
           make lightning_unit_test
 
+  cluster-integration-test:
+    name: Cluster-level Integration Test
+    runs-on: amd64
+    if: contains(github.event.pull_request.labels.*.name, 'run-ut')
+    steps:
+      - name: checkout code
+        uses: actions/checkout@v3
+
+      - name: configure git for private modules
+        env:
+          TOKEN: ${{ secrets.GIT_ACTION_BOT }}
+        run: git config --global url."https://${TOKEN}@github.com/".insteadOf "https://github.com/"
+
+      - name: Login to Harbor
+        uses: docker/login-action@v3
+        with:
+          registry: hub.pingcap.net
+          username: ${{ secrets.HARBOR_USER }}
+          password: ${{ secrets.HARBOR_TOKEN }}
+
+      - name: setup go
+        uses: actions/setup-go@v4
+        with:
+          go-version-file: ./go.mod
+          cache: false
+        env:
+          GOPRIVATE: "github.com/tidbcloud,github.com/pingcap/dbaas"
+
+      - name: run tests
+        run: |
+          cd tests/clusterintegrationtest
+          ./run.sh
+
   unit-test:
     runs-on: [self-hosted, amd64]
     if: contains(github.event.pull_request.labels.*.name, 'run-ut')

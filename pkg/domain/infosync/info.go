@@ -249,6 +249,23 @@ type infoschemaMinTS interface {
 	GetAndResetRecentInfoSchemaTS(now uint64) uint64
 }
 
+// getKeyspaceServerIDPath just add hostname prefix to the server id.
+func getKeyspaceServerIDPath(codec tikv.Codec, serverID string) string {
+	var keyspaceServerIDPath string
+	if codec != nil && codec.GetKeyspace() != nil {
+		keyspaceServerIDPath = fmt.Sprintf("%d_%s", codec.GetKeyspaceID(), serverID)
+	} else {
+		keyspaceServerIDPath = serverID
+	}
+	if hostName, err := os.Hostname(); len(hostName) != 0 && err == nil {
+		keyspaceServerIDPath = fmt.Sprintf("%s_%s", hostName, keyspaceServerIDPath)
+	} else {
+		logutil.BgLogger().Warn("failed to get hostname", zap.String("hostname", hostName), zap.Error(err))
+	}
+	logutil.BgLogger().Info("GlobalInfoSyncerInit.", zap.String("server_id", serverID))
+	return keyspaceServerIDPath
+}
+
 // GlobalInfoSyncerInit return a new InfoSyncer. It is exported for testing.
 func GlobalInfoSyncerInit(
 	ctx context.Context,
@@ -265,12 +282,13 @@ func GlobalInfoSyncerInit(
 			WithCallerID("tidb-info-syncer").
 			WithRespHandler(pdResponseHandler)
 	}
+
 	is := &InfoSyncer{
 		etcdCli:           etcdCli,
 		unprefixedEtcdCli: unprefixedEtcdCli,
 		pdHTTPCli:         pdHTTPCli,
 		serverInfoPath:    fmt.Sprintf("%s/%s", ServerInformationPath, id),
-		minStartTSPath:    fmt.Sprintf("%s/%s", ServerMinStartTSPath, id),
+		minStartTSPath:    fmt.Sprintf("%s/%s", ServerMinStartTSPath, getKeyspaceServerIDPath(codec, id)),
 		infoCache:         infoCache,
 		tikvCodec:         codec,
 	}

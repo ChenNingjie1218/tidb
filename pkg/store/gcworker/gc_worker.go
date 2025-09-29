@@ -32,6 +32,7 @@ import (
 	"github.com/pingcap/kvproto/pkg/keyspacepb"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
+	"github.com/pingcap/tidb/pkg/config"
 	"github.com/pingcap/tidb/pkg/ddl"
 	"github.com/pingcap/tidb/pkg/ddl/label"
 	"github.com/pingcap/tidb/pkg/ddl/placement"
@@ -50,6 +51,7 @@ import (
 	util2 "github.com/pingcap/tidb/pkg/util"
 	"github.com/pingcap/tidb/pkg/util/codec"
 	"github.com/pingcap/tidb/pkg/util/dbterror"
+	"github.com/pingcap/tidb/pkg/util/intest"
 	"github.com/pingcap/tidb/pkg/util/logutil"
 	tikverr "github.com/tikv/client-go/v2/error"
 	tikvstore "github.com/tikv/client-go/v2/kv"
@@ -74,6 +76,8 @@ type GCWorker struct {
 	cancel             context.CancelFunc
 	done               chan error
 	regionLockResolver tikv.RegionLockResolver
+
+	isFirstTickFinished bool
 }
 
 func getTsFromPD(store kv.Storage, tikvStore tikv.Storage) (uint64, error) {
@@ -135,8 +139,8 @@ const (
 	booleanTrue  = "true"
 	booleanFalse = "false"
 
-	gcWorkerTickInterval = time.Minute
-	gcWorkerLease        = time.Minute * 2
+	gcWorkerTickInterval = 8 * time.Minute
+	gcWorkerLease        = 9 * time.Minute
 	gcLeaderUUIDKey      = "tikv_gc_leader_uuid"
 	gcLeaderDescKey      = "tikv_gc_leader_desc"
 	gcLeaderLeaseKey     = "tikv_gc_leader_lease"
@@ -232,6 +236,7 @@ func (w *GCWorker) start(ctx context.Context, wg *sync.WaitGroup) {
 		case err := <-w.done:
 			w.gcIsRunning = false
 			w.lastFinish = time.Now()
+			w.isFirstTickFinished = true
 			if err != nil {
 				logutil.Logger(ctx).Error("runGCJob", zap.String("category", "gc worker"), zap.Error(err))
 			}
@@ -349,6 +354,13 @@ func (w *GCWorker) logIsGCSafePointTooEarly(ctx context.Context, safePoint uint6
 	return nil
 }
 
+func (w *GCWorker) isNeedToWait() bool {
+	if config.GetGlobalConfig().EnableGCFastStart && !intest.InTest {
+		return time.Since(w.lastFinish) < gcWaitTime && w.isFirstTickFinished
+	}
+	return time.Since(w.lastFinish) < gcWaitTime
+}
+
 func (w *GCWorker) runKeyspaceDeleteRangeByGlobalGCSafePoint(ctx context.Context, concurrency gcConcurrency) error {
 	// Check the current keyspace is valid.
 	if !keyspace.IsKeyspaceMetaNotNilAndUseGlobalGC(w.store.GetCodec().GetKeyspaceMeta()) {
@@ -449,7 +461,7 @@ func (w *GCWorker) leaderTick(ctx context.Context) error {
 	}
 	// When the worker is just started, or an old GC job has just finished,
 	// wait a while before starting a new job.
-	if time.Since(w.lastFinish) < gcWaitTime {
+	if w.isNeedToWait() {
 		logutil.Logger(ctx).Info("another gc job has just finished, skipped.", zap.String("category", "gc worker"),
 			zap.String("leaderTick on ", w.uuid))
 		return nil
@@ -1633,7 +1645,7 @@ func (w *GCWorker) checkLeader(ctx context.Context) (bool, error) {
 		se.RollbackTxn(ctx)
 		return false, errors.Trace(err)
 	}
-	logutil.BgLogger().Debug("got leader", zap.String("category", "gc worker"), zap.String("uuid", leader))
+	logutil.BgLogger().Info("got leader", zap.String("category", "gc worker"), zap.String("uuid", leader))
 	if leader == w.uuid {
 		err = w.saveTime(gcLeaderLeaseKey, time.Now().Add(gcWorkerLease))
 		if err != nil {

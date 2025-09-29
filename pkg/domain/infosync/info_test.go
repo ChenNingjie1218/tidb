@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/pingcap/failpoint"
+	"github.com/pingcap/kvproto/pkg/keyspacepb"
 	"github.com/pingcap/tidb/pkg/ddl/placement"
 	"github.com/pingcap/tidb/pkg/ddl/util"
 	"github.com/pingcap/tidb/pkg/keyspace"
@@ -34,6 +35,7 @@ import (
 	"github.com/pingcap/tidb/pkg/testkit/testsetup"
 	util2 "github.com/pingcap/tidb/pkg/util"
 	"github.com/stretchr/testify/require"
+	"github.com/tikv/client-go/v2/tikv"
 	"go.etcd.io/etcd/tests/v3/integration"
 	"go.uber.org/goleak"
 )
@@ -324,4 +326,26 @@ func TestInfoSyncerMarshal(t *testing.T) {
 	require.Equal(t, info.StartTimestamp, decodeInfo.StartTimestamp)
 	require.Equal(t, info.JSONServerID, decodeInfo.JSONServerID)
 	require.Equal(t, info.Labels, decodeInfo.Labels)
+}
+
+func TestSetKeyspaceMinStartTsPath(t *testing.T) {
+	keyspaceMeta := keyspacepb.KeyspaceMeta{}
+	keyspaceMeta.Id = 2
+	keyspaceMeta.Name = "test_ks_name2"
+	codec, err := tikv.NewCodecV2(tikv.ModeTxn, &keyspaceMeta)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	currentServerID := "testServerID"
+
+	infoSyncer, err := GlobalInfoSyncerInit(ctx, currentServerID, func() uint64 { return 1 }, nil, nil, nil, nil, codec, false, nil)
+	require.NoError(t, err)
+
+	hostName, err := os.Hostname()
+	require.NotEqual(t, 0, len(hostName))
+	require.NoError(t, err)
+
+	expectMinStartTSPath := fmt.Sprintf("%s/%s_%d_%s", ServerMinStartTSPath, hostName, codec.GetKeyspaceID(), currentServerID)
+	require.Equal(t, expectMinStartTSPath, infoSyncer.minStartTSPath)
 }

@@ -376,8 +376,14 @@ type Config struct {
 	// ExtendedErrorMsgs is used to store the extended error message for some error.
 	ExtendedErrorMsgs map[string]string `toml:"extended-error-msgs" json:"extended-error-msgs"`
 
+	// --------------- GC configs ---------------
 	// SkipGCWorker is used to control whether to skip run gc worker.
 	SkipGCWorker bool `toml:"skip-gc-worker" json:"skip-gc-worker"`
+
+	// EnableGCFastStart is used to control whether to ignore wait time judgment at first tick.
+	EnableGCFastStart bool `toml:"enable-gc-fast-start" json:"enable-gc-fast-start"`
+
+	// --------------- GC configs end ---------------
 
 	// EnableZeroBackend is used to control the behavior of standby idle watcher.
 	// It's introduced to make gateway zero backend feature release more smooth.

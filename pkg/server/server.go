@@ -814,11 +814,11 @@ func (s *Server) onConn(conn *clientConn) {
 	}
 
 	ctx = logutil.WithGatewayConnID(ctx, conn.gwConnID)
-	logutil.Logger(ctx).Debug("new connection", zap.String("remoteAddr", conn.bufReadConn.RemoteAddr().String()))
+	logutil.Logger(ctx).Info("new connection", zap.String("remoteAddr", conn.bufReadConn.RemoteAddr().String()), zap.Uint64("connectionID", conn.connectionID))
 
 	defer func() {
 		terror.Log(conn.Close())
-		logutil.Logger(ctx).Debug("connection closed")
+		logutil.Logger(ctx).Info("connection closed", zap.String("remoteAddr", conn.bufReadConn.RemoteAddr().String()), zap.Uint64("connectionID", conn.connectionID))
 	}()
 
 	if !s.registerConn(conn) {

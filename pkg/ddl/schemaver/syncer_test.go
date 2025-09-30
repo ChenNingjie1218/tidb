@@ -196,3 +196,63 @@ func TestPutKVToEtcdMono(t *testing.T) {
 	err = util2.PutKVToEtcdMono(ctx, cli, 3, "testKey", strconv.Itoa(1))
 	require.NoError(t, err)
 }
+
+func TestUpdateSelfVersionWithMDL(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("integration.NewClusterV3 will create file contains a colon which is not allowed on Windows")
+	}
+	integration.BeforeTestExternal(t)
+
+	cluster := integration.NewClusterV3(t, &integration.ClusterConfig{Size: 1})
+	defer cluster.Terminate(t)
+	cli := cluster.RandClient()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	schemaVerSyncer := schemaver.NewEtcdSyncer(cli, "test-ddl-id")
+	require.NoError(t, schemaVerSyncer.Init(ctx))
+	defer schemaVerSyncer.Close()
+
+	// Test with EnableMDL = true and jobID = 0
+	variable.EnableMDL.Store(true)
+	defer variable.EnableMDL.Store(false)
+
+	t.Run("jobID=0 should not write to etcd", func(t *testing.T) {
+		// When jobID is 0 and EnableMDL is true, UpdateSelfVersion should return nil immediately
+		// and should NOT write to etcd DDLAllSchemaVersionsByJob key
+		err := schemaVerSyncer.UpdateSelfVersion(ctx, 0, 123)
+		require.NoError(t, err)
+
+		// Verify that no key was written to DDLAllSchemaVersionsByJob path for jobID=0
+		expectedPath := fmt.Sprintf("%s/0/test-ddl-id", util2.DDLAllSchemaVersionsByJob)
+		resp, err := cli.Get(ctx, expectedPath)
+		require.NoError(t, err)
+		require.Len(t, resp.Kvs, 0, "No key should be written to etcd when jobID=0 and EnableMDL=true")
+	})
+
+	t.Run("jobID!=0 should write to etcd", func(t *testing.T) {
+		// When jobID is not 0 and EnableMDL is true, UpdateSelfVersion should write to etcd
+		jobID := int64(123)
+		version := int64(456)
+		err := schemaVerSyncer.UpdateSelfVersion(ctx, jobID, version)
+		require.NoError(t, err)
+
+		// Verify that key was written to DDLAllSchemaVersionsByJob path for jobID != 0
+		expectedPath := fmt.Sprintf("%s/%d/test-ddl-id", util2.DDLAllSchemaVersionsByJob, jobID)
+		resp, err := cli.Get(ctx, expectedPath)
+		require.NoError(t, err)
+		require.Len(t, resp.Kvs, 1, "Key should be written to etcd when jobID != 0 and EnableMDL=true")
+		require.Equal(t, expectedPath, string(resp.Kvs[0].Key))
+		require.Equal(t, fmt.Sprintf("%d", version), string(resp.Kvs[0].Value))
+	})
+
+	t.Run("jobID=0 with EnableMDL=false should work normally", func(t *testing.T) {
+		// Test with EnableMDL = false and jobID = 0
+		variable.EnableMDL.Store(false)
+		defer variable.EnableMDL.Store(true)
+
+		// When jobID is 0 and EnableMDL is false, UpdateSelfVersion should still work normally
+		err := schemaVerSyncer.UpdateSelfVersion(ctx, 0, 789)
+		require.NoError(t, err)
+	})
+}

@@ -21,6 +21,7 @@ import (
 	"io"
 	"os"
 	"path"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -333,4 +334,56 @@ func TestSampleLoggerFactory(t *testing.T) {
 	content, err := os.ReadFile(filename)
 	require.NoError(t, err)
 	require.Equal(t, 3, strings.Count(string(content), "sample log test"))
+}
+
+func createFileAndAssert(t *testing.T, fileName string) {
+	dir := "/tmp/logtest"
+	_, err := os.Create(filepath.Join(dir, fileName))
+	require.NoError(t, err)
+}
+
+func TestRemoveOtherKeyspaceFiles(t *testing.T) {
+	dir := "/tmp/logtest"
+	defer os.RemoveAll(dir)
+	keyspace1 := "A"
+	keyspace2 := "B"
+	slowName := "tidb-slow.log"
+	stmtName := "tidb-statement.log"
+	archiveSlowName := "tidb-slow-2022-12-27T16-21-20.245.log"
+	archiveStmtName := "tidb-statements-2022-12-27T16-21-20.245.log"
+	err := os.Mkdir(dir, 0755)
+	require.NoError(t, err)
+	createFileAndAssert(t, slowName)
+	createFileAndAssert(t, stmtName)
+	createFileAndAssert(t, archiveSlowName)
+	createFileAndAssert(t, archiveStmtName)
+	createFileAndAssert(t, fmt.Sprintf("%s.%s", keyspace1, slowName))
+	createFileAndAssert(t, fmt.Sprintf("%s.%s", keyspace1, stmtName))
+	createFileAndAssert(t, fmt.Sprintf("%s.%s", keyspace1, archiveSlowName))
+	createFileAndAssert(t, fmt.Sprintf("%s.%s", keyspace1, archiveStmtName))
+	createFileAndAssert(t, fmt.Sprintf("%s.%s", keyspace2, slowName))
+	createFileAndAssert(t, fmt.Sprintf("%s.%s", keyspace2, stmtName))
+	createFileAndAssert(t, fmt.Sprintf("%s.%s", keyspace2, archiveSlowName))
+	createFileAndAssert(t, fmt.Sprintf("%s.%s", keyspace2, archiveStmtName))
+	createFileAndAssert(t, "others")
+
+	err = RemoveOtherKeyspaceFiles(keyspace1, filepath.Join(dir, slowName))
+	require.NoError(t, err)
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	require.Equal(t, 11, len(entries))
+	_, err = os.ReadFile(filepath.Join(dir, fmt.Sprintf("%s.%s", keyspace2, slowName)))
+	require.ErrorAs(t, err, &os.ErrNotExist)
+	_, err = os.ReadFile(filepath.Join(dir, fmt.Sprintf("%s.%s", keyspace2, archiveSlowName)))
+	require.ErrorAs(t, err, &os.ErrNotExist)
+
+	err = RemoveOtherKeyspaceFiles(keyspace2, filepath.Join(dir, slowName))
+	require.NoError(t, err)
+	entries, err = os.ReadDir(dir)
+	require.NoError(t, err)
+	require.Equal(t, 9, len(entries))
+	_, err = os.ReadFile(filepath.Join(dir, fmt.Sprintf("%s.%s", keyspace1, slowName)))
+	require.ErrorAs(t, err, &os.ErrNotExist)
+	_, err = os.ReadFile(filepath.Join(dir, fmt.Sprintf("%s.%s", keyspace1, archiveSlowName)))
+	require.ErrorAs(t, err, &os.ErrNotExist)
 }

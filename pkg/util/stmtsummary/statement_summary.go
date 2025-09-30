@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/pingcap/failpoint"
+	"github.com/pingcap/tidb/pkg/config"
 	"github.com/pingcap/tidb/pkg/sessionctx/stmtctx"
 	"github.com/pingcap/tidb/pkg/util/chunk"
 	"github.com/pingcap/tidb/pkg/util/execdetails"
@@ -266,6 +267,7 @@ type StmtExecInfo struct {
 	CPUUsages         ppcpuusage.CPUUsages
 
 	PlanCacheUnqualified string
+	UnredactSQL          string
 }
 
 // newStmtSummaryByDigestMap creates an empty stmtSummaryByDigestMap.
@@ -666,9 +668,14 @@ func newStmtSummaryByDigestElement(sei *StmtExecInfo, beginTime int64, intervalS
 			binPlan = plancodec.BinaryPlanDiscardedEncoded
 		}
 	}
+	originalSQL := sei.OriginalSQL.String()
+	cfg := config.GetGlobalConfig()
+	if cfg.EnableUnredactLogger && cfg.KeyspaceName != "" {
+		originalSQL = sei.UnredactSQL
+	}
 	ssElement := &stmtSummaryByDigestElement{
 		beginTime: beginTime,
-		sampleSQL: formatSQL(sei.OriginalSQL.String()),
+		sampleSQL: formatSQL(originalSQL),
 		charset:   sei.Charset,
 		collation: sei.Collation,
 		// PrevSQL is already truncated to cfg.Log.QueryLogMaxLen.

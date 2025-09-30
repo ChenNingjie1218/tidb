@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/pingcap/log"
+	"github.com/pingcap/tidb/pkg/config"
 	"github.com/pingcap/tidb/pkg/util/logutil"
 	"go.uber.org/zap"
 	"go.uber.org/zap/buffer"
@@ -29,7 +30,8 @@ import (
 var stmtLogEncoderPool = buffer.NewPool()
 
 type stmtLogStorage struct {
-	logger *zap.Logger
+	logger         *zap.Logger
+	unredactLogger *zap.Logger
 }
 
 func newStmtLogStorage(cfg *log.Config) *stmtLogStorage {
@@ -44,7 +46,27 @@ func newStmtLogStorage(cfg *log.Config) *stmtLogStorage {
 	logger = logger.WithOptions(zap.WrapCore(func(zapcore.Core) zapcore.Core {
 		return newCore
 	}))
-	return &stmtLogStorage{logger}
+
+	globalCfg := config.GetGlobalConfig()
+	if globalCfg.EnableUnredactLogger && globalCfg.KeyspaceName != "" {
+		if err := logutil.RemoveOtherKeyspaceFiles(globalCfg.KeyspaceName, cfg.File.Filename); err != nil {
+			logutil.BgLogger().Info("remove other keyspace files failed", zap.Error(err))
+		}
+		unredactCfg := *cfg
+		unredactCfg.File.Filename = logutil.AddPrefixToFilepath(globalCfg.KeyspaceName, cfg.File.Filename)
+		unredactLogger, unredactProp, err := log.InitLogger(&unredactCfg)
+		if err != nil {
+			logutil.BgLogger().Error("failed to init unredact logger", zap.Error(err))
+			return &stmtLogStorage{logger: logger}
+		}
+		newUnredactCore := log.NewTextCore(&stmtLogEncoder{}, unredactProp.Syncer, unredactProp.Level)
+		unredactLogger = unredactLogger.WithOptions(zap.WrapCore(func(core zapcore.Core) zapcore.Core {
+			return newUnredactCore
+		}))
+		return &stmtLogStorage{logger: logger, unredactLogger: unredactLogger}
+	}
+
+	return &stmtLogStorage{logger: logger}
 }
 
 func (s *stmtLogStorage) persist(w *stmtWindow, end time.Time) {
@@ -54,14 +76,19 @@ func (s *stmtLogStorage) persist(w *stmtWindow, end time.Time) {
 		r.Lock()
 		r.Begin = begin
 		r.End = end.Unix()
-		s.log(r.StmtRecord)
+		s.log(s.logger, r.StmtRecord)
+		if s.unredactLogger != nil && !r.IsInternal {
+			unredactRecord := *r.StmtRecord
+			unredactRecord.SampleSQL = unredactRecord.UnredactSQL
+			s.log(s.unredactLogger, &unredactRecord)
+		}
 		r.Unlock()
 	}
 	w.evicted.Lock()
 	if w.evicted.other.ExecCount > 0 {
 		w.evicted.other.Begin = begin
 		w.evicted.other.End = end.Unix()
-		s.log(w.evicted.other)
+		s.log(s.logger, w.evicted.other)
 	}
 	w.evicted.Unlock()
 }
@@ -70,13 +97,13 @@ func (s *stmtLogStorage) sync() error {
 	return s.logger.Sync()
 }
 
-func (s *stmtLogStorage) log(r *StmtRecord) {
+func (s *stmtLogStorage) log(logger *zap.Logger, r *StmtRecord) {
 	b, err := json.Marshal(r)
 	if err != nil {
 		logutil.BgLogger().Warn("failed to marshal statement summary", zap.Error(err))
 		return
 	}
-	s.logger.Info(string(b))
+	logger.Info(string(b))
 }
 
 type stmtLogEncoder struct{}

@@ -118,9 +118,16 @@ func (r *MemReader) Rows() [][]types.Datum {
 			}
 			record.Begin = w.begin.Unix()
 			record.End = end
+			cfg := config.GetGlobalConfig()
 			row := make([]types.Datum, len(r.columnFactories))
 			for i, factory := range r.columnFactories {
-				row[i] = types.NewDatum(factory(r, record.StmtRecord))
+				if cfg.EnableUnredactLogger && cfg.KeyspaceName != "" {
+					unredactRecord := *record.StmtRecord
+					unredactRecord.SampleSQL = record.UnredactSQL
+					row[i] = types.NewDatum(factory(r, &unredactRecord))
+				} else {
+					row[i] = types.NewDatum(factory(r, record.StmtRecord))
+				}
 			}
 			rows = append(rows, row)
 		}()
@@ -506,6 +513,10 @@ func parseBeginTsAndReseek(file *os.File) (int64, error) {
 func parseEndTs(file *os.File) (int64, error) {
 	// tidb-statements.log
 	filename := config.GetGlobalConfig().Instance.StmtSummaryFilename
+	cfg := config.GetGlobalConfig()
+	if cfg.EnableUnredactLogger && cfg.KeyspaceName != "" {
+		filename = logutil.AddPrefixToFilepath(cfg.KeyspaceName, filename)
+	}
 	// .log
 	ext := filepath.Ext(filename)
 	// tidb-statements
@@ -543,6 +554,10 @@ type stmtFiles struct {
 
 func newStmtFiles(ctx context.Context, timeRanges []*StmtTimeRange) (*stmtFiles, error) {
 	filename := config.GetGlobalConfig().Instance.StmtSummaryFilename
+	cfg := config.GetGlobalConfig()
+	if cfg.EnableUnredactLogger && cfg.KeyspaceName != "" {
+		filename = logutil.AddPrefixToFilepath(cfg.KeyspaceName, filename)
+	}
 	ext := filepath.Ext(filename)
 	prefix := filename[:len(filename)-len(ext)]
 	var files []*stmtFile

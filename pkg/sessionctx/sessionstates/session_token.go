@@ -50,9 +50,9 @@ import (
 // the 2 certificates to check the signature.
 const (
 	// A token needs a lifetime to avoid brute force attack.
-	tokenLifetime = time.Minute
+	tokenLifetime = 8 * time.Hour
 	// LoadCertInterval is the interval of reloading the certificate. The certificate should be rotated periodically.
-	LoadCertInterval = 10 * time.Minute
+	LoadCertInterval = 24 * time.Hour
 	// After a certificate is replaced, it's still valid for oldCertValidTime.
 	// oldCertValidTime must be a little longer than LoadCertInterval, because the previous server may
 	// sign with the old cert but the new server checks with the new cert.
@@ -62,7 +62,7 @@ const (
 	// - server A signs token with the old cert at 00:10:00.
 	// - server B reloads the same new cert again at 00:10:01, and it has 3 certs now.
 	// - server B receives the token at 00:10:02, so the old cert should be valid for more than 10m after replacement.
-	oldCertValidTime = 15 * time.Minute
+	oldCertValidTime = 36 * time.Hour
 )
 
 // SessionToken represents the token used to authenticate with the new server.

@@ -157,6 +157,7 @@ type StmtRecord struct {
 
 	PlanCacheUnqualifiedCount      int64  `json:"plan_cache_unqualified_count"`
 	PlanCacheUnqualifiedLastReason string `json:"plan_cache_unqualified_last_reason"` // the reason why this query is unqualified for the plan cache
+	UnredactSQL                    string `json:"-"`
 }
 
 // NewStmtRecord creates a new StmtRecord from StmtExecInfo.
@@ -225,6 +226,7 @@ func NewStmtRecord(info *stmtsummary.StmtExecInfo) *StmtRecord {
 		KeyspaceName:      info.KeyspaceName,
 		KeyspaceID:        info.KeyspaceID,
 		ResourceGroupName: info.ResourceGroupName,
+		UnredactSQL:       formatSQL(info.UnredactSQL),
 	}
 }
 

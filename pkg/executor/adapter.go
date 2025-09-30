@@ -86,6 +86,8 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+const cloudAdminSuffix = "cloud_admin"
+
 // processinfoSetter is the interface use to set current running process info.
 type processinfoSetter interface {
 	SetProcessInfo(string, time.Time, byte, uint64)
@@ -1634,6 +1636,11 @@ func (a *ExecStmt) LogSlowQuery(txnTS uint64, succ bool, hasMoreResults bool) {
 	sql := FormatSQL(a.GetTextToLog(true))
 	_, digest := stmtCtx.SQLDigest()
 
+	// filter cloud admin executed sqls
+	if sessVars.User != nil && strings.HasSuffix(sessVars.User.Username, cloudAdminSuffix) {
+		return
+	}
+
 	var indexNames string
 	if len(stmtCtx.IndexNames) > 0 {
 		// remove duplicate index.
@@ -1940,6 +1947,10 @@ func (a *ExecStmt) SummaryStmt(succ bool) {
 	if sessVars.User != nil {
 		userString = sessVars.User.Username
 	}
+	// filter cloud admin executed sqls
+	if strings.HasSuffix(userString, cloudAdminSuffix) {
+		return
+	}
 
 	// Internal SQLs must also be recorded to keep the consistency of `PrevStmt` and `PrevStmtDigest`.
 	if !stmtsummaryv2.Enabled() || ((sessVars.InRestrictedSQL || len(userString) == 0) && !stmtsummaryv2.EnabledInternal()) {
@@ -2010,6 +2021,7 @@ func (a *ExecStmt) SummaryStmt(succ bool) {
 	memMax := sessVars.MemTracker.MaxConsumed()
 	diskMax := sessVars.DiskTracker.MaxConsumed()
 	sql := a.getLazyStmtText()
+	unredactSQL := a.GetUnredactTextToLog()
 	var stmtDetail execdetails.StmtExecDetails
 	stmtDetailRaw := a.GoCtx.Value(execdetails.StmtExecDetailKey)
 	if stmtDetailRaw != nil {
@@ -2084,6 +2096,7 @@ func (a *ExecStmt) SummaryStmt(succ bool) {
 		CPUUsages:           sessVars.SQLCPUUsages.GetCPUUsages(),
 
 		PlanCacheUnqualified: sessVars.StmtCtx.PlanCacheUnqualified(),
+		UnredactSQL:          unredactSQL,
 	}
 	if a.retryCount > 0 {
 		stmtExecInfo.ExecRetryTime = costTime - sessVars.DurationParse - sessVars.DurationCompile - time.Since(a.retryStartTime)
@@ -2145,6 +2158,18 @@ func (a *ExecStmt) updatePrevStmt() {
 	} else {
 		sessVars.PrevStmt.Update(rmode, sessVars.StmtCtx.OriginalSQL, sessVars.PlanCacheParams)
 	}
+}
+
+// GetUnredactTextToLog return the unredact query text to log.
+func (a *ExecStmt) GetUnredactTextToLog() string {
+	var sql string
+	sessVars := a.Ctx.GetSessionVars()
+	if sensitiveStmt, ok := a.StmtNode.(ast.SensitiveStmtNode); ok {
+		sql = sensitiveStmt.SecureText()
+	} else {
+		sql = sessVars.StmtCtx.OriginalSQL + sessVars.PlanCacheParams.String()
+	}
+	return sql
 }
 
 func (a *ExecStmt) observeStmtBeginForTopSQL(ctx context.Context) context.Context {

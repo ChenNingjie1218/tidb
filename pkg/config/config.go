@@ -412,6 +412,10 @@ type Config struct {
 
 	// AutoIDClientRetryInterval is used to set the interval between retry attempts for the auto id client
 	AutoIDClientRetryInterval time.Duration `toml:"auto-id-client-retry-interval" json:"auto-id-client-retry-interval"`
+
+	// EnableUnredactLogger is used to control whether to print unredact log to a another file which has keyspace prefix.
+	// It's a temporary solution for index advisor and may be removed in the future.
+	EnableUnredactLogger bool `toml:"enable-unredact-logger" json:"enable-unredact-logger"`
 }
 
 // UpdateTempStoragePath is to update the `TempStoragePath` if port/statusPort was changed
@@ -1243,6 +1247,8 @@ var defaultConf = Config{
 
 	AutoIDClientTimeout:       50 * time.Millisecond,
 	AutoIDClientRetryInterval: 50 * time.Millisecond,
+
+	EnableZeroBackend: true,
 }
 
 var (

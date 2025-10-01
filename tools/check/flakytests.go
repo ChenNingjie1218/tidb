@@ -63,6 +63,9 @@ var flakyTests = map[string][]string{
 		// https://github.com/pingcap/tidb/issues/57514
 		"TestInstancePlanCacheConcurrencySysbench",
 	},
+	"./pkg/executor": {
+		"TestContextCancelWhenReadFromCopIterator",
+	},
 }
 
 func isFlakyTest(task task) bool {

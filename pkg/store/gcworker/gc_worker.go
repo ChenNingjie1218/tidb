@@ -218,7 +218,16 @@ func (w *GCWorker) start(ctx context.Context, wg *sync.WaitGroup) {
 	w.tick(ctx) // Immediately tick once to initialize configs.
 	wg.Done()
 
-	ticker := time.NewTicker(gcWorkerTickInterval)
+	tickInterval := gcWorkerTickInterval
+
+	// For testing ONLY! Should not use in production environment.
+	if hackInterval, err := time.ParseDuration(os.Getenv("HACK_GC_RUN_INTERVAL")); err == nil {
+		tickInterval = hackInterval
+		logutil.BgLogger().Warn("[gc worker] gc run interval hacked",
+			zap.Duration("gc run interval", tickInterval))
+	}
+
+	ticker := time.NewTicker(tickInterval)
 	defer ticker.Stop()
 	defer func() {
 		r := recover()
@@ -699,6 +708,12 @@ func (w *GCWorker) checkGCInterval(now time.Time) (bool, error) {
 	if err != nil {
 		return false, errors.Trace(err)
 	}
+
+	// For testing ONLY! Should not use in production environment.
+	if hackInterval, err := time.ParseDuration(os.Getenv("HACK_GC_RUN_INTERVAL")); err == nil {
+		*runInterval = hackInterval
+	}
+
 	metrics.GCConfigGauge.WithLabelValues(gcRunIntervalKey).Set(runInterval.Seconds())
 	lastRun, err := w.loadTime(gcLastRunTimeKey)
 	if err != nil {
@@ -739,6 +754,14 @@ func (w *GCWorker) calcNewSafePoint(ctx context.Context, now time.Time) (*time.T
 	if err != nil {
 		return nil, 0, err
 	}
+
+	// For testing ONLY! Should not use in production environment.
+	if hackLifeTime, err := time.ParseDuration(os.Getenv("HACK_GC_LIFE_TIME")); err == nil {
+		*lifeTime = hackLifeTime
+		logutil.BgLogger().Warn("[gc worker] gc life time hacked",
+			zap.Duration("gc life time", *lifeTime))
+	}
+
 	metrics.GCConfigGauge.WithLabelValues(gcLifeTimeKey).Set(lifeTime.Seconds())
 
 	lastSafePoint, err := w.loadTime(gcSafePointKey)

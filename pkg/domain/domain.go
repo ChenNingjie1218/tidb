@@ -79,6 +79,7 @@ import (
 	handleutil "github.com/pingcap/tidb/pkg/statistics/handle/util"
 	"github.com/pingcap/tidb/pkg/store/helper"
 	"github.com/pingcap/tidb/pkg/telemetry"
+	"github.com/pingcap/tidb/pkg/telemetryv2"
 	"github.com/pingcap/tidb/pkg/tidbworker"
 	"github.com/pingcap/tidb/pkg/ttl/ttlworker"
 	"github.com/pingcap/tidb/pkg/types"
@@ -2111,6 +2112,28 @@ func (do *Domain) globalBindHandleWorkerLoop(owner owner.Manager) {
 			}
 		}
 	}, "globalBindHandleWorkerLoop")
+}
+
+// TelemetryV2ReportLoop create a goroutine that reports usage data in a loop, it should be called only once
+// in BootstrapSession.
+func (do *Domain) TelemetryV2ReportLoop(ctx sessionctx.Context) {
+	ctx.GetSessionVars().InRestrictedSQL = true
+
+	do.wg.Run(func() {
+		defer func() {
+			logutil.BgLogger().Info("TelemetryV2ReportLoop exited.")
+		}()
+		defer util.Recover(metrics.LabelDomain, "TelemetryV2ReportLoop", nil, false)
+
+		for {
+			select {
+			case <-do.exit:
+				return
+			case <-time.After(telemetryv2.UpdateInterval):
+				telemetryv2.ApplyUpdates(ctx)
+			}
+		}
+	}, "TelemetryV2ReportLoop")
 }
 
 // TelemetryLoop create a goroutine that reports usage data in a loop, it should be called only once

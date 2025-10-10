@@ -1466,6 +1466,10 @@ func (a *ExecStmt) FinishExecuteStmt(txnTS uint64, err error, hasMoreResults boo
 			metrics.TiFlashQueryTotalCounter.WithLabelValues(metrics.ExecuteErrorToLabel(err), metrics.LblError).Inc()
 		}
 	}
+	if sessVars.StmtCtx.VectorSearchIsANNQuery && succ {
+		metrics.VectorSearchIndexQueryLatency.Observe(time.Since(sessVars.StartTime).Seconds())
+		metrics.VectorSearchIndexQueryTopK.Observe(float64(sessVars.StmtCtx.VectorSearchTopK))
+	}
 	a.updatePrevStmt()
 	a.recordLastQueryInfo(err)
 	a.recordAffectedRows2Metrics()

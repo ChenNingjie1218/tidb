@@ -434,6 +434,10 @@ type StatementContext struct {
 	// and the `for share` execution is enabled by `tidb_enable_noop_functions`, no locks should be
 	// acquired in this case.
 	ForShareLockEnabledByNoop bool
+
+	// Note: These VectorSearch fields will also set in a valid EXPLAIN (ANALYZE) statement.
+	VectorSearchIsANNQuery bool
+	VectorSearchTopK       uint32
 }
 
 // DefaultStmtErrLevels is the default error levels for statement

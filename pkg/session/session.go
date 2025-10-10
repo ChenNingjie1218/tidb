@@ -3616,6 +3616,12 @@ func bootstrapSessionImpl(ctx context.Context, store kv.Storage, createSessionsI
 		}()
 	}
 
+	// TelemetryV2 does not report data to remote, only records data in metrics. So it is safe
+	// to enable by default.
+	go func() {
+		dom.TelemetryV2ReportLoop(ses[5])
+	}()
+
 	planReplayerWorkerCnt := config.GetGlobalConfig().Performance.PlanReplayerDumpWorkerConcurrency
 	planReplayerWorkersSctx := make([]sessionctx.Context, planReplayerWorkerCnt)
 	pworkerSes, err := createSessions(store, int(planReplayerWorkerCnt))

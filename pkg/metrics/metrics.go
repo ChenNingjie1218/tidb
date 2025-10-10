@@ -102,6 +102,7 @@ func InitMetrics() {
 	InitVPAMetrics()
 	// InitVectorSearchMetrics() // FIXME: 8.5-keyspace @disksing
 	InitRemoteQueryMetrics()
+	InitVectorSearchMetrics()
 
 	PanicCounter = NewCounterVec(
 		prometheus.CounterOpts{
@@ -314,6 +315,8 @@ func RegisterMetrics() {
 	prometheus.MustRegister(RemoteQueryRecordSetDuration)
 	prometheus.MustRegister(RemoteQueryWorkerCounter)
 	prometheus.MustRegister(RemoteQueryWorkerDuration)
+
+	RegisterVectorSearchMetrics()
 
 	prometheus.MustRegister(WorkerTaskCounter)
 

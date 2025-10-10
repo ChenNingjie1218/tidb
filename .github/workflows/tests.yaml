@@ -152,10 +152,11 @@ jobs:
         run: |
           make lightning_unit_test
 
-  cluster-integration-test:
-    name: Cluster-level Integration Test
+  cluster-integration-test-1:
+    name: Cluster integration test (MySQL Tester)
     runs-on: amd64
     if: contains(github.event.pull_request.labels.*.name, 'run-ut')
+    timeout-minutes: 20
     steps:
       - name: checkout code
         uses: actions/checkout@v3
@@ -183,7 +184,41 @@ jobs:
       - name: run tests
         run: |
           cd tests/clusterintegrationtest
-          ./run.sh
+          ./run1.sh
+
+  cluster-integration-test-2:
+    name: Cluster integration test (Vector Recall Test)
+    runs-on: amd64
+    if: contains(github.event.pull_request.labels.*.name, 'run-ut')
+    timeout-minutes: 20
+    steps:
+      - name: checkout code
+        uses: actions/checkout@v3
+
+      - name: configure git for private modules
+        env:
+          TOKEN: ${{ secrets.GIT_ACTION_BOT }}
+        run: git config --global url."https://${TOKEN}@github.com/".insteadOf "https://github.com/"
+
+      - name: Login to Harbor
+        uses: docker/login-action@v3
+        with:
+          registry: hub.pingcap.net
+          username: ${{ secrets.HARBOR_USER }}
+          password: ${{ secrets.HARBOR_TOKEN }}
+
+      - name: setup go
+        uses: actions/setup-go@v4
+        with:
+          go-version-file: ./go.mod
+          cache: false
+        env:
+          GOPRIVATE: "github.com/tidbcloud,github.com/pingcap/dbaas"
+
+      - name: run tests
+        run: |
+          cd tests/clusterintegrationtest
+          ./run2.sh
 
   unit-test:
     runs-on: [X64, gcp]
@@ -249,6 +284,8 @@ jobs:
         "test-part-2",
         "unit-test",
         "lightning-ut",
+        "cluster-integration-test-1",
+        "cluster-integration-test-2",
       ]
     steps:
       - run: |
@@ -256,6 +293,9 @@ jobs:
           part_2_result="${{ needs.test-part-2.result }}"
           unit_test_result="${{ needs.unit-test.result }}"
           lightning_ut_result="${{ needs.lightning-ut.result }}"
+          cluster_it1_result="${{ needs.cluster-integration-test-1.result }}"
+          cluster_it2_result="${{ needs.cluster-integration-test-2.result }}"
+          declare -a results=($part_1_result $part_2_result $unit_test_result $cluster_it1_result $cluster_it2_result)
           declare -a results=($part_1_result $part_2_result $unit_test_result $lightning_ut_result)
           for result in "${results[@]}"; do
             if [[ "$result" != "success" ]]; then

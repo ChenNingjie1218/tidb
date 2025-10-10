@@ -6,6 +6,7 @@ header:
     - "docs/"
     - "br/"
     - ".gitignore"
+    - ".gitkeep"
     - ".gitmodules"
     - ".dockerignore"
     - ".gitattributes"

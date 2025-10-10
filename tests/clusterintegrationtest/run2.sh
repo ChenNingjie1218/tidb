@@ -26,12 +26,12 @@ cd "$(dirname "$0")"
 # WD=tidb, make a tidb server binary
 echo "+ Building TiDB server with current source..."
 pushd ../.. > /dev/null
+export TIDB_BUILD_TIME="2024-01-01 00:00:00" # Use a fixed build time to keep cache valid
 make server
 popd > /dev/null
 
 # Don't use a new ID, to make sure previous build can be cleaned up.
 IMAGE_ID=clusterintegrationtest:latest
-CONTAINER_NAME=clusterintegrationtest-record
 
 # Make an image with TiDB+TiKV+TiFlash
 cp ../../bin/tidb-server ./tidb-server
@@ -40,11 +40,5 @@ docker build --rm -t $IMAGE_ID .
 echo
 echo "+ Clean up previous builds..."
 docker builder prune --force
-echo "+ Run /root/docker-record.sh"
-docker container rm -f $CONTAINER_NAME
-docker run -v clusterintegrationtest_tiup_cache:/root/.tiup/components --name $CONTAINER_NAME $USE_TTY $IMAGE_ID /bin/bash -c "/root/docker-record.sh"
-echo "+ Copy out results..."
-rm -rf ./r
-docker container cp $CONTAINER_NAME:/root/r ./
-echo "+ Clean up container..."
-docker container rm -f $CONTAINER_NAME
+echo "+ Run /root/docker-run.sh"
+docker run -v clusterintegrationtest_tiup_cache:/root/.tiup/components --rm $USE_TTY $IMAGE_ID /bin/bash -c "/root/docker-run2.sh"

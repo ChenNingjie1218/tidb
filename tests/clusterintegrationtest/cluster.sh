@@ -26,6 +26,7 @@ cd "$(dirname "$0")"
 # WD=tidb, make a tidb server binary
 echo "+ Building TiDB server with current source..."
 pushd ../.. > /dev/null
+export TIDB_BUILD_TIME="2024-01-01 00:00:00" # Use a fixed build time to keep cache valid
 make server
 popd > /dev/null
 
@@ -40,4 +41,4 @@ echo
 echo "+ Clean up previous builds..."
 docker builder prune --force
 echo "+ Run /root/docker-run.sh"
-docker run -v clusterintegrationtest_tiup_cache:/root/.tiup/components --rm $USE_TTY $IMAGE_ID /bin/bash -c "/root/docker-run.sh"
+docker run -v clusterintegrationtest_tiup_cache:/root/.tiup/components -p 4000:4000 --rm $USE_TTY $IMAGE_ID /bin/bash -c "/root/docker-cluster.sh"

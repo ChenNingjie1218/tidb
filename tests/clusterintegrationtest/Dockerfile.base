@@ -19,13 +19,20 @@ WORKDIR /root/
 
 # Install tiup
 RUN curl --proto '=https' --tlsv1.2 -sSf https://tiup-mirrors.pingcap.com/install.sh | sh
-# Install mysql-client
-RUN yum install -y mysql golang
+
+# Necessary dependencies to run or build the tests.
+RUN yum install -y mysql golang python3-pip
 
 COPY --from=image-minio /bin/minio /root/minio
 
 # For caching later.
 RUN mkdir -p /root/.tiup/components
 
+# The followings are resources that we would like to keep in the base image, avoid downloading repeatedly.
 RUN go install github.com/pingcap/mysql-tester/src@314107b26aa8fce86beb0dd48e75827fb269b365
 RUN mv /root/go/bin/src /root/mysql-tester
+
+COPY ./requirements.txt /root/requirements.txt
+RUN pip3 install -r requirements.txt
+
+COPY ./datasets /root/datasets

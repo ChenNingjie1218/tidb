@@ -1328,22 +1328,6 @@ func closeStmtSummary() {
 	}
 }
 
-func updateConfigForServerless(keyspaceMeta *keyspacepb.KeyspaceMeta) {
-	if keyspaceMeta == nil {
-		return
-	}
-	config.UpdateGlobal(func(conf *config.Config) {
-		conf.MetricsLabels = make(map[string]string)
-		if keyspaceMeta.Config != nil {
-			conf.MetricsLabels[metricsutil.ClusterIDLabelKey] = keyspaceMeta.Config[serverless.LabelClusterID]
-			conf.MetricsLabels[metricsutil.ProjectIDLabelKey] = keyspaceMeta.Config[serverless.LabelProjectID]
-			conf.MetricsLabels[metricsutil.TenantIDIDLabelKey] = keyspaceMeta.Config[serverless.LabelTenantID]
-		}
-
-		conf.MetricsLabels[metricsutil.KeyspaceIDLabelKey] = fmt.Sprintf("%d", keyspaceMeta.GetId())
-	})
-}
-
 const defaultMgrRequestTimeout = 10 * time.Second
 
 func createMrgClient() (tidbmanager.Client, error) {
@@ -1368,4 +1352,27 @@ func createMrgClient() (tidbmanager.Client, error) {
 		os.Getenv("POD_IP"),
 		os.Getenv("NAMESPACE"),
 	), nil
+}
+
+func updateConfigForServerless(keyspaceMeta *keyspacepb.KeyspaceMeta) {
+	if keyspaceMeta == nil {
+		return
+	}
+	config.UpdateGlobal(func(conf *config.Config) {
+		conf.MetricsLabels = make(map[string]string)
+		if keyspaceMeta.Config != nil {
+			conf.MetricsLabels[metricsutil.ClusterIDLabelKey] = keyspaceMeta.Config[serverless.LabelClusterID]
+			conf.MetricsLabels[metricsutil.ProjectIDLabelKey] = keyspaceMeta.Config[serverless.LabelProjectID]
+			conf.MetricsLabels[metricsutil.TenantIDIDLabelKey] = keyspaceMeta.Config[serverless.LabelTenantID]
+
+			conf.StmtSummaryAdditionalInfo[serverless.LabelClusterID] = keyspaceMeta.Config[serverless.LabelClusterID]
+			conf.StmtSummaryAdditionalInfo[serverless.LabelProjectID] = keyspaceMeta.Config[serverless.LabelProjectID]
+			conf.StmtSummaryAdditionalInfo[serverless.LabelTenantID] = keyspaceMeta.Config[serverless.LabelTenantID]
+
+			conf.Log.SlowLogAdditionalInfo[serverless.SlowLogServerlessClusterIDKey] = keyspaceMeta.Config[serverless.LabelClusterID]
+			conf.Log.SlowLogAdditionalInfo[serverless.SlowLogServerlessProjectIDKey] = keyspaceMeta.Config[serverless.LabelProjectID]
+			conf.Log.SlowLogAdditionalInfo[serverless.SlowLogServerlessTenantIDKey] = keyspaceMeta.Config[serverless.LabelTenantID]
+		}
+		conf.MetricsLabels[metricsutil.KeyspaceIDLabelKey] = fmt.Sprintf("%d", keyspaceMeta.GetId())
+	})
 }

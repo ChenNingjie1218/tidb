@@ -314,6 +314,14 @@ func TestSlowLogFormat(t *testing.T) {
 	logString = seVar.SlowLogFormat(logItems)
 	require.Equal(t, resultFields+"\n"+"use test;\n"+sql, logString)
 	require.False(t, seVar.CurrentDBChanged)
+
+	config.UpdateGlobal(func(conf *config.Config) {
+		conf.Log.SlowLogAdditionalInfo = map[string]string{
+			"Slow_log_additional_info_key": "Slow_log_additional_info_value",
+		}
+	})
+	logString = seVar.SlowLogFormat(logItems)
+	require.Equal(t, resultFields+"\n"+"# Slow_log_additional_info_key: Slow_log_additional_info_value\n"+sql, logString)
 }
 
 func TestIsolationRead(t *testing.T) {

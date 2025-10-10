@@ -23,10 +23,12 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/pingcap/tidb/pkg/config"
 	"github.com/pingcap/tidb/pkg/sessionctx/stmtctx"
 	"github.com/pingcap/tidb/pkg/util/execdetails"
 	"github.com/pingcap/tidb/pkg/util/plancodec"
 	"github.com/pingcap/tidb/pkg/util/ppcpuusage"
+	"github.com/pingcap/tidb/pkg/util/serverless"
 	"github.com/pingcap/tidb/pkg/util/stmtsummary"
 	"github.com/pingcap/tidb/pkg/util/stringutil"
 	"github.com/tikv/client-go/v2/util"
@@ -151,6 +153,11 @@ type StmtRecord struct {
 
 	KeyspaceName string `json:"keyspace_name,omitempty"`
 	KeyspaceID   uint32 `json:"keyspace_id,omitempty"`
+	// AdditionalInfo is used to store some additional information.
+	ServerlessTenantID  string `json:"serverless_tenant_id"`
+	ServerlessProjectID string `json:"serverless_project_id"`
+	ServerlessClusterID string `json:"serverless_cluster_id"`
+
 	// request units(RU)
 	ResourceGroupName string `json:"resource_group_name"`
 	stmtsummary.StmtRUSummary
@@ -198,6 +205,7 @@ func NewStmtRecord(info *stmtsummary.StmtExecInfo) *StmtRecord {
 			binPlan = plancodec.BinaryPlanDiscardedEncoded
 		}
 	}
+	config := config.GetGlobalConfig()
 	return &StmtRecord{
 		SchemaName:    info.SchemaName,
 		Digest:        info.Digest,
@@ -212,21 +220,24 @@ func NewStmtRecord(info *stmtsummary.StmtExecInfo) *StmtRecord {
 		// PrevSQL is already truncated to cfg.Log.QueryLogMaxLen.
 		PrevSQL: info.PrevSQL,
 		// SamplePlan needs to be decoded so it can't be truncated.
-		SamplePlan:        samplePlan,
-		SampleBinaryPlan:  binPlan,
-		PlanHint:          planHint,
-		IndexNames:        info.StmtCtx.IndexNames,
-		MinLatency:        info.TotalLatency,
-		BackoffTypes:      make(map[string]int),
-		AuthUsers:         make(map[string]struct{}),
-		MinResultRows:     math.MaxInt64,
-		Prepared:          info.Prepared,
-		FirstSeen:         info.StartTime,
-		LastSeen:          info.StartTime,
-		KeyspaceName:      info.KeyspaceName,
-		KeyspaceID:        info.KeyspaceID,
-		ResourceGroupName: info.ResourceGroupName,
-		UnredactSQL:       formatSQL(info.UnredactSQL),
+		SamplePlan:          samplePlan,
+		SampleBinaryPlan:    binPlan,
+		PlanHint:            planHint,
+		IndexNames:          info.StmtCtx.IndexNames,
+		MinLatency:          info.TotalLatency,
+		BackoffTypes:        make(map[string]int),
+		AuthUsers:           make(map[string]struct{}),
+		MinResultRows:       math.MaxInt64,
+		Prepared:            info.Prepared,
+		FirstSeen:           info.StartTime,
+		LastSeen:            info.StartTime,
+		KeyspaceName:        info.KeyspaceName,
+		KeyspaceID:          info.KeyspaceID,
+		ResourceGroupName:   info.ResourceGroupName,
+		ServerlessTenantID:  config.StmtSummaryAdditionalInfo[serverless.LabelTenantID],
+		ServerlessClusterID: config.StmtSummaryAdditionalInfo[serverless.LabelClusterID],
+		ServerlessProjectID: config.StmtSummaryAdditionalInfo[serverless.LabelProjectID],
+		UnredactSQL:         formatSQL(info.UnredactSQL),
 	}
 }
 

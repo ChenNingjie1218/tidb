@@ -407,6 +407,9 @@ type Config struct {
 	// EnableOnlyRunUpgrade indicates whether only run upgrade process.
 	EnableOnlyRunUpgrade bool `toml:"enable-only-run-upgrade" json:"enable-only-run-upgrade"`
 
+	// StmtSummaryAdditionalInfo will be recorded in the stmtsummary when Instance.StmtSummaryEnablePersistent is true.
+	StmtSummaryAdditionalInfo map[string]string `toml:"stmt-summary-additional-info" json:"stmt-summary-additional-info"`
+
 	// AutoIDClientTimeout is used to set the timeout for auto id client.
 	AutoIDClientTimeout time.Duration `toml:"auto-id-client-timeout" json:"auto-id-client-timeout"`
 
@@ -610,6 +613,8 @@ type Log struct {
 	EnableSlowLog       AtomicBool `toml:"enable-slow-log" json:"enable-slow-log"`
 	SlowThreshold       uint64     `toml:"slow-threshold" json:"slow-threshold"`
 	RecordPlanInSlowLog uint32     `toml:"record-plan-in-slow-log" json:"record-plan-in-slow-log"`
+	// SlowLogAdditionalInfo will be added to slow query log as additional information.
+	SlowLogAdditionalInfo map[string]string `toml:"slow-log-additional-info" json:"slow-log-additional-info"`
 
 	// Make tidb panic if write log operation hang in `Timeout` seconds
 	Timeout int `toml:"timeout" json:"timeout"`
@@ -1097,6 +1102,8 @@ var defaultConf = Config{
 		QueryLogMaxLen:      logutil.DefaultQueryLogMaxLen,
 		RecordPlanInSlowLog: logutil.DefaultRecordPlanInSlowLog,
 		EnableSlowLog:       *NewAtomicBool(logutil.DefaultTiDBEnableSlowLog),
+
+		SlowLogAdditionalInfo: make(map[string]string),
 	},
 	Instance: Instance{
 		TiDBGeneralLog:              false,
@@ -1244,6 +1251,8 @@ var defaultConf = Config{
 
 	TiDBWorker: defaultTiDBWorker(),
 	RUConfig:   rmclient.DefaultRequestUnitConfig(),
+
+	StmtSummaryAdditionalInfo: make(map[string]string),
 
 	AutoIDClientTimeout:       50 * time.Millisecond,
 	AutoIDClientRetryInterval: 50 * time.Millisecond,

@@ -405,6 +405,11 @@ func main() {
 					c.AutoScalerClusterID = clusterID
 				})
 			}
+			if IsBootstrappedForRestore, ok := keyspaceMeta.Config[serverless.LabelIsBootstrappedForRestore]; ok {
+				config.UpdateGlobal(func(c *config.Config) {
+					c.IsBootstrappedForRestore = IsBootstrappedForRestore
+				})
+			}
 		}
 		keyspace.SetUsernamePolicy(keyspace.NewPrefixPolicy(keyspaceMeta.GetName()))
 	}

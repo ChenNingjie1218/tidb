@@ -1867,7 +1867,7 @@ func (do *Domain) LoadPrivilegeLoop(sctx sessionctx.Context) error {
 		return err
 	}
 	do.privHandle = privileges.NewHandle(sctx.GetRestrictedSQLExecutor())
-	if err := do.privHandle.Update(); err != nil {
+	if err := do.privHandle.Update(sctx); err != nil {
 		return errors.Trace(err)
 	}
 
@@ -1904,7 +1904,7 @@ func (do *Domain) LoadPrivilegeLoop(sctx sessionctx.Context) error {
 			}
 
 			count = 0
-			err := do.privHandle.Update()
+			err := do.privHandle.Update(sctx)
 			metrics.LoadPrivilegeCounter.WithLabelValues(metrics.RetLabel(err)).Inc()
 			if err != nil {
 				logutil.BgLogger().Warn("load privilege failed", zap.Error(err))
@@ -2930,7 +2930,7 @@ func (do *Domain) NotifyUpdatePrivilege() error {
 		return nil
 	}
 
-	return do.PrivilegeHandle().Update()
+	return do.PrivilegeHandle().Update(nil)
 }
 
 // NotifyUpdateSysVarCache updates the sysvar cache key in etcd, which other TiDB

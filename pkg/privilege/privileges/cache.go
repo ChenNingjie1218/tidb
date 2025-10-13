@@ -553,6 +553,7 @@ func (p *MySQLPrivilege) LoadUserTable(ctx sqlexec.RestrictedSQLExecutor) error 
 	if err != nil {
 		return errors.Trace(err)
 	}
+	p.user = append(p.user, getBuiltInUserRecords()...)
 	// See https://dev.mysql.com/doc/refman/8.0/en/connection-access.html
 	// When multiple matches are possible, the server must determine which of them to use. It resolves this issue as follows:
 	// 1. Whenever the server reads the user table into memory, it sorts the rows.
@@ -706,6 +707,7 @@ func (p *MySQLPrivilege) LoadDBTable(ctx sqlexec.RestrictedSQLExecutor) error {
 	if err != nil {
 		return err
 	}
+	p.db = append(p.db, getBuiltInDbRecords()...)
 	p.buildDBMap()
 	return nil
 }
@@ -1843,7 +1845,8 @@ func (h *Handle) Get() *MySQLPrivilege {
 }
 
 // Update loads all the privilege info from kv storage.
-func (h *Handle) Update() error {
+func (h *Handle) Update(ctx sessionctx.Context) error {
+	initBuiltIn()
 	var priv MySQLPrivilege
 	err := priv.LoadAll(h.sctx)
 	if err != nil {

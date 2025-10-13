@@ -138,6 +138,14 @@ const (
 	PatAny
 )
 
+// CompilePatternBytes is a adapter for `CompilePatternInner`, `pattern` can only be an ascii string.
+func CompilePatternBytes(pattern string, escape byte) (patChars, patTypes []byte) {
+	patWeights, patTypes := CompilePatternInner(pattern, escape)
+	patChars = []byte(string(patWeights))
+
+	return patChars, patTypes
+}
+
 // CompilePatternBinary is used for binary strings.
 func CompilePatternBinary(pattern string, escape byte) (patChars, patTypes []byte) {
 	return CompilePatternInnerBinary(pattern, escape)

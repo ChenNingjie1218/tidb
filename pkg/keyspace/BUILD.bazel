@@ -3,6 +3,7 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 go_library(
     name = "keyspace",
     srcs = [
+        "builtin_users.go",
         "keyspace.go",
         "username_policy.go",
     ],
@@ -11,6 +12,7 @@ go_library(
     deps = [
         "//pkg/config",
         "//pkg/metrics",
+        "//pkg/parser/mysql",
         "//pkg/util/codec",
         "//pkg/util/dbterror/exeerrors",
         "//pkg/util/errmsg",
@@ -28,11 +30,17 @@ go_library(
 go_test(
     name = "keyspace_test",
     timeout = "short",
-    srcs = ["keyspace_test.go"],
+    srcs = [
+        "builtin_users_test.go",
+        "keyspace_test.go",
+    ],
     embed = [":keyspace"],
     flaky = True,
+    shard_count = 6,
     deps = [
         "//pkg/config",
+        "//pkg/parser/mysql",
+        "@com_github_stretchr_testify//assert",
         "@com_github_stretchr_testify//require",
     ],
 )

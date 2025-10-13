@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pingcap/tidb/pkg/keyspace"
 	"github.com/pingcap/tidb/pkg/parser/auth"
 	"github.com/pingcap/tidb/pkg/parser/mysql"
 	"github.com/pingcap/tidb/pkg/privilege/privileges"
@@ -35,9 +36,8 @@ func TestLoadUserTable(t *testing.T) {
 	tk.MustExec("truncate table user;")
 
 	var p privileges.MySQLPrivilege
-	se := tk.Session()
-	require.NoError(t, p.LoadUserTable(se.GetRestrictedSQLExecutor()))
-	require.Len(t, p.User(), 0)
+	require.NoError(t, p.LoadUserTable(tk.Session().GetRestrictedSQLExecutor()))
+	require.Len(t, p.User(), len(keyspace.GetBuiltInUsers()))
 
 	// Host | User | authentication_string | Select_priv | Insert_priv | Update_priv | Delete_priv | Create_priv | Drop_priv | Process_priv | Grant_priv | References_priv | Alter_priv | Show_db_priv | Super_priv | Execute_priv | Index_priv | Create_user_priv | Trigger_priv
 	tk.MustExec(`INSERT INTO mysql.user (Host, User, authentication_string, Select_priv) VALUES ("%", "root", "", "Y")`)
@@ -49,10 +49,16 @@ func TestLoadUserTable(t *testing.T) {
 	tk.MustExec(`INSERT INTO mysql.user (Host, User, password_expired, password_last_changed) VALUES ("%", "root3", "N", "2022-10-10 12:00:00")`)
 
 	p = privileges.MySQLPrivilege{}
-	require.NoError(t, p.LoadUserTable(se.GetRestrictedSQLExecutor()))
+	require.NoError(t, p.LoadUserTable(tk.Session().GetRestrictedSQLExecutor()))
 	require.Len(t, p.User(), len(p.UserMap))
 
-	user := p.User()
+	user := make([]privileges.UserRecord, 0, len(p.User()))
+	for _, u := range p.User() {
+		if keyspace.IsBuiltInUser(u.User) {
+			continue
+		}
+		user = append(user, u)
+	}
 	require.Equal(t, "root", user[0].User)
 	require.Equal(t, mysql.SelectPriv, user[0].Privileges)
 	require.Equal(t, mysql.InsertPriv, user[1].Privileges)

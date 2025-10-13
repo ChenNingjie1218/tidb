@@ -13,6 +13,7 @@ go_library(
     visibility = ["//visibility:public"],
     deps = [
         "//pkg/config",
+        "//pkg/keyspace",
         "//pkg/meta/model",
         "//pkg/parser/auth",
         "//pkg/parser/mysql",

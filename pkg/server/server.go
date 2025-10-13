@@ -935,6 +935,9 @@ func (s *Server) GetUserProcessList() map[uint64]*util.ProcessInfo {
 	defer s.rwlock.RUnlock()
 	rs := make(map[uint64]*util.ProcessInfo)
 	for _, client := range s.clients {
+		if keyspace.IsBuiltInUser(client.user) {
+			continue
+		}
 		if pi := client.ctx.ShowProcess(); pi != nil {
 			rs[pi.ID] = pi
 		}

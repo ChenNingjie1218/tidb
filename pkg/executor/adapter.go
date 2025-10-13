@@ -1634,6 +1634,11 @@ func (a *ExecStmt) LogSlowQuery(txnTS uint64, succ bool, hasMoreResults bool) {
 	enable := cfg.Instance.EnableSlowLog.Load()
 	// if the level is Debug, or trace is enabled, print slow logs anyway
 	force := level <= zapcore.DebugLevel || trace.IsEnabled()
+	if sessVars.User != nil {
+		if keyspace.IsBuiltInUser(sessVars.User.Username) {
+			return
+		}
+	}
 	if (!enable || costTime < threshold) && !force {
 		return
 	}

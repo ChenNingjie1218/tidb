@@ -25,6 +25,7 @@ import (
 
 	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/pkg/config"
+	"github.com/pingcap/tidb/pkg/keyspace"
 	"github.com/pingcap/tidb/pkg/parser/mysql"
 	"github.com/pingcap/tidb/pkg/types"
 	"github.com/pingcap/tidb/pkg/util/hack"
@@ -534,6 +535,9 @@ func (*mockStmtStorage) sync() error {
 
 // Add wraps GlobalStmtSummary.Add and stmtsummary.StmtSummaryByDigestMap.AddStatement.
 func Add(stmtExecInfo *stmtsummary.StmtExecInfo) {
+	if keyspace.IsBuiltInUser(stmtExecInfo.User) {
+		return
+	}
 	if config.GetGlobalConfig().Instance.StmtSummaryEnablePersistent {
 		GlobalStmtSummary.Add(stmtExecInfo)
 	} else {

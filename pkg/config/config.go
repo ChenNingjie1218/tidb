@@ -1252,6 +1252,7 @@ var defaultConf = Config{
 	TiDBWorker: defaultTiDBWorker(),
 	RUConfig:   rmclient.DefaultRequestUnitConfig(),
 
+	ExportID:                  "",
 	StmtSummaryAdditionalInfo: make(map[string]string),
 
 	AutoIDClientTimeout:       50 * time.Millisecond,

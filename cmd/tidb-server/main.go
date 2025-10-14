@@ -159,6 +159,8 @@ const (
 
 	// nmEnableOnlyRunUpgrade used to activate existing keyspaces when upgrading TiDB.
 	nmEnableOnlyRunUpgrade = "enable-only-run-upgrade"
+
+	nmExportID = "export-id"
 )
 
 var (
@@ -235,6 +237,7 @@ var (
 
 	// If enableOnlyRunUpgrade is true, Serverless TiDB can only do upgrade process.
 	enableOnlyRunUpgrade *bool
+	exportID             *string
 )
 
 func initFlagSet() *flag.FlagSet {
@@ -299,6 +302,8 @@ func initFlagSet() *flag.FlagSet {
 	sqlCA = flag.String(nmSQLCA, "", "SQL ca file path")
 	sqlCert = flag.String(nmSQLCert, "", "SQL cert file path")
 	sqlKey = flag.String(nmSQLKey, "", "SQL key file path")
+	// export mode
+	exportID = flag.String(nmExportID, "", "export id")
 
 	// Serverless flags
 	waitKeyspaceEnabled = flagBoolean(fset, nmWaitKeyspaceEnabled, true, "wait for keyspace to become enabled during bootstrap")
@@ -1006,6 +1011,10 @@ func overrideConfig(cfg *config.Config, fset *flag.FlagSet) {
 
 	if actualFlags[nmEnableOnlyRunUpgrade] {
 		cfg.EnableOnlyRunUpgrade = *enableOnlyRunUpgrade
+	}
+
+	if actualFlags[nmExportID] {
+		cfg.ExportID = *exportID
 	}
 }
 

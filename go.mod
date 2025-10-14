@@ -106,7 +106,6 @@ require (
 	github.com/spkg/bom v1.0.0
 	github.com/stathat/consistent v1.0.0
 	github.com/stretchr/testify v1.9.0
-	github.com/tdakkota/asciicheck v0.2.0
 	github.com/tiancaiamao/appdash v0.0.0-20181126055449-889f96f722a2
 	github.com/tidbcloud/aws-shared-provider/pkg/tidbworker/clientv2 v0.0.0-20240929071820-0c047349cbf9
 	github.com/tikv/client-go/v2 v2.0.8-0.20250711063936-827bf098b155

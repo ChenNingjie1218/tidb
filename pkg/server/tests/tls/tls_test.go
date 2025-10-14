@@ -255,16 +255,23 @@ func TestTLSVerify(t *testing.T) {
 	// Test connecting with a client that does not have TLS configured.
 	// It can still connect, but it should not be able to change "require_secure_transport" to "ON"
 	// because that is a lock-out risk.
-	err = cli.RunTestEnableSecureTransport(t, nil)
-	require.ErrorContains(t, err, "require_secure_transport can only be set to ON if the connection issuing the change is secure")
+	// skip this test in Serverless: TiDB Serverless can not set require_secure_transport.
+	// err = cli.RunTestEnableSecureTransport(t, nil)
+	// require.ErrorContains(t, err, "require_secure_transport can only be set to ON if the connection issuing the change is secure")
 
 	// Success: when using a secure connection, the value of "require_secure_transport" can change to "ON"
+	// skip this test in Serverless:  TiDB Serverless can not set require_secure_transport.
+	// err = cli.RunTestEnableSecureTransport(t, connOverrider)
+	// require.NoError(t, err)
+
+	// TiDB Serverless can not set require_secure_transport.
 	err = cli.RunTestEnableSecureTransport(t, connOverrider)
-	require.NoError(t, err)
+	require.ErrorContains(t, err, "require_secure_transport can not be set")
 
 	// This connection will now fail since the client is not configured to use TLS.
-	err = cli.RunTestTLSConnection(t, nil)
-	require.ErrorContains(t, err, "Connections using insecure transport are prohibited while --require_secure_transport=ON")
+	// skip this for TiDB Serverless: TiDB Serverless require_secure_transport is always false underlying.
+	// err = cli.RunTestTLSConnection(t, nil)
+	// require.ErrorContains(t, err, "Connections using insecure transport are prohibited while --require_secure_transport=ON")
 
 	// However, this connection is successful
 	err = cli.RunTestTLSConnection(t, connOverrider)

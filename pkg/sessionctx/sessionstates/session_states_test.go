@@ -352,6 +352,8 @@ func TestInvisibleVars(t *testing.T) {
 }
 
 func TestIssue47665(t *testing.T) {
+	// skip in TiDB Serverless: TiDB Serverless can not set require_secure_transport.
+	t.Skip()
 	store := testkit.CreateMockStore(t)
 	tk := testkit.NewTestKit(t, store)
 	tk.Session().GetSessionVars().TLSConnectionState = &tls.ConnectionState{} // unrelated mock for the test.

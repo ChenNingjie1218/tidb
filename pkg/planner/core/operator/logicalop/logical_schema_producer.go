@@ -90,6 +90,22 @@ func (s *LogicalSchemaProducer) InlineProjection(parentUsedCols []*expression.Co
 			used[chosenPos] = true
 		}
 	}
+	if len(parentUsedCols) == 0 {
+		// When this operator output no columns, we return its smallest column for safety.
+		minColLen := math.MaxInt
+		chosenPos := 0
+		for i, col := range s.schema.Columns {
+			flen := col.GetType(s.SCtx().GetExprCtx().GetEvalCtx()).GetFlen()
+			if flen < minColLen {
+				chosenPos = i
+				minColLen = flen
+			}
+		}
+		// It should be always true.
+		if len(used) > 0 {
+			used[chosenPos] = true
+		}
+	}
 	for i := len(used) - 1; i >= 0; i-- {
 		if !used[i] {
 			prunedColumns = append(prunedColumns, s.Schema().Columns[i])

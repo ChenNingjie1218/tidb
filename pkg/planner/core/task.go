@@ -907,11 +907,24 @@ func (p *PhysicalTopN) getPushedDownTopN(childPlan base.PhysicalPlan, storeTp kv
 	// but "regionNum" is unknown since the copTask can be a double read, so we ignore it now.
 	stats := util.DeriveLimitStats(childProfile, float64(newCount))
 
+	// Add a extra physicalProjection to save the distance column, a example like :
+	// select id from t order by vec_distance(vec, '[1,2,3]') limit x
+	// The Plan will be modified like:
+	//
+	// Original: DataSource(id, vec) -> TopN(by vec->dis) -> Projection(id)
+	//                                  └─Byitem: vec_distance(vec, '[1,2,3]')
+	//                                  └─Schema: id, vec
+	//
+	// New:      DataSource(id, vec) -> Projection(id, vec->dis) -> TopN(by dis) -> Projection(id)
+	//                                  └─Byitem: dis
+	//                                  └─Schema: id, dis
+	//
+	// Note that for plan now, TopN has its own schema and does not use the schema of children.
 	if newGlobalTopN != nil {
 		// create a new PhysicalProjection to calculate the distance columns, and add it into plan route
 		bottomProjSchemaCols := make([]*expression.Column, 0, len(childPlan.Schema().Columns))
 		bottomProjExprs := make([]expression.Expression, 0, len(childPlan.Schema().Columns))
-		for _, col := range childPlan.Schema().Columns {
+		for _, col := range newGlobalTopN.Schema().Columns {
 			newCol := col.Clone().(*expression.Column)
 			bottomProjSchemaCols = append(bottomProjSchemaCols, newCol)
 			bottomProjExprs = append(bottomProjExprs, newCol)

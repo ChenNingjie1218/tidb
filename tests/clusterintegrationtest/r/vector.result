@@ -9,24 +9,22 @@ vec
 [1,2,3]
 explain select * from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 id	estRows	task	access object	operator info
-Projection_6	2.00	root		vector.t.vec
-└─TopN_7	2.00	root		Column#3, offset:?, count:?
-  └─TableReader_14	2.00	root		data:TopN_13
-    └─TopN_13	2.00	cop[tikv]		Column#3, offset:?, count:?
-      └─Projection_12	2.00	cop[tikv]		vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#3
-        └─TableFullScan_11	3.00	cop[tikv]	table:t	keep order:false, stats:pseudo
+TopN_7	2.00	root		Column#3, offset:?, count:?
+└─TableReader_14	2.00	root		data:TopN_13
+  └─TopN_13	2.00	cop[tikv]		Column#3, offset:?, count:?
+    └─Projection_12	2.00	cop[tikv]		vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#3
+      └─TableFullScan_11	3.00	cop[tikv]	table:t	keep order:false, stats:pseudo
 select vec from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 vec
 [1,2,1]
 [1,2,3]
 explain select vec from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 id	estRows	task	access object	operator info
-Projection_6	2.00	root		vector.t.vec
-└─TopN_7	2.00	root		Column#3, offset:?, count:?
-  └─TableReader_14	2.00	root		data:TopN_13
-    └─TopN_13	2.00	cop[tikv]		Column#3, offset:?, count:?
-      └─Projection_12	2.00	cop[tikv]		vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#3
-        └─TableFullScan_11	3.00	cop[tikv]	table:t	keep order:false, stats:pseudo
+TopN_7	2.00	root		Column#3, offset:?, count:?
+└─TableReader_14	2.00	root		data:TopN_13
+  └─TopN_13	2.00	cop[tikv]		Column#3, offset:?, count:?
+    └─Projection_12	2.00	cop[tikv]		vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#3
+      └─TableFullScan_11	3.00	cop[tikv]	table:t	keep order:false, stats:pseudo
 select sleep(5);
 sleep(5)
 0
@@ -37,26 +35,24 @@ vec
 [1,2,3]
 explain select * from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 id	estRows	task	access object	operator info
-Projection_6	2.00	root		vector.t.vec
-└─TopN_10	2.00	root		Column#3, offset:?, count:?
-  └─TableReader_20	2.00	root		MppVersion: 2, data:ExchangeSender_19
-    └─ExchangeSender_19	2.00	mpp[tiflash]		ExchangeType: PassThrough
-      └─TopN_18	2.00	mpp[tiflash]		Column#3, offset:?, count:?
-        └─Projection_17	2.00	mpp[tiflash]		vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#3
-          └─TableFullScan_16	3.00	mpp[tiflash]	table:t	keep order:false, stats:pseudo
+TopN_10	2.00	root		Column#3, offset:?, count:?
+└─TableReader_20	2.00	root		MppVersion: 2, data:ExchangeSender_19
+  └─ExchangeSender_19	2.00	mpp[tiflash]		ExchangeType: PassThrough
+    └─TopN_18	2.00	mpp[tiflash]		Column#3, offset:?, count:?
+      └─Projection_17	2.00	mpp[tiflash]		vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#3
+        └─TableFullScan_16	3.00	mpp[tiflash]	table:t	keep order:false, stats:pseudo
 select vec from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 vec
 [1,2,1]
 [1,2,3]
 explain select vec from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 id	estRows	task	access object	operator info
-Projection_6	2.00	root		vector.t.vec
-└─TopN_10	2.00	root		Column#3, offset:?, count:?
-  └─TableReader_20	2.00	root		MppVersion: 2, data:ExchangeSender_19
-    └─ExchangeSender_19	2.00	mpp[tiflash]		ExchangeType: PassThrough
-      └─TopN_18	2.00	mpp[tiflash]		Column#3, offset:?, count:?
-        └─Projection_17	2.00	mpp[tiflash]		vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#3
-          └─TableFullScan_16	3.00	mpp[tiflash]	table:t	keep order:false, stats:pseudo
+TopN_10	2.00	root		Column#3, offset:?, count:?
+└─TableReader_20	2.00	root		MppVersion: 2, data:ExchangeSender_19
+  └─ExchangeSender_19	2.00	mpp[tiflash]		ExchangeType: PassThrough
+    └─TopN_18	2.00	mpp[tiflash]		Column#3, offset:?, count:?
+      └─Projection_17	2.00	mpp[tiflash]		vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#3
+        └─TableFullScan_16	3.00	mpp[tiflash]	table:t	keep order:false, stats:pseudo
 alter table t compact;
 select * from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 vec
@@ -64,26 +60,24 @@ vec
 [1,2,3]
 explain select * from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 id	estRows	task	access object	operator info
-Projection_6	2.00	root		vector.t.vec
-└─TopN_10	2.00	root		Column#3, offset:?, count:?
-  └─TableReader_20	2.00	root		MppVersion: 2, data:ExchangeSender_19
-    └─ExchangeSender_19	2.00	mpp[tiflash]		ExchangeType: PassThrough
-      └─TopN_18	2.00	mpp[tiflash]		Column#3, offset:?, count:?
-        └─Projection_17	2.00	mpp[tiflash]		vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#3
-          └─TableFullScan_16	3.00	mpp[tiflash]	table:t	keep order:false, stats:pseudo
+TopN_10	2.00	root		Column#3, offset:?, count:?
+└─TableReader_20	2.00	root		MppVersion: 2, data:ExchangeSender_19
+  └─ExchangeSender_19	2.00	mpp[tiflash]		ExchangeType: PassThrough
+    └─TopN_18	2.00	mpp[tiflash]		Column#3, offset:?, count:?
+      └─Projection_17	2.00	mpp[tiflash]		vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#3
+        └─TableFullScan_16	3.00	mpp[tiflash]	table:t	keep order:false, stats:pseudo
 select vec from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 vec
 [1,2,1]
 [1,2,3]
 explain select vec from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 id	estRows	task	access object	operator info
-Projection_6	2.00	root		vector.t.vec
-└─TopN_10	2.00	root		Column#3, offset:?, count:?
-  └─TableReader_20	2.00	root		MppVersion: 2, data:ExchangeSender_19
-    └─ExchangeSender_19	2.00	mpp[tiflash]		ExchangeType: PassThrough
-      └─TopN_18	2.00	mpp[tiflash]		Column#3, offset:?, count:?
-        └─Projection_17	2.00	mpp[tiflash]		vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#3
-          └─TableFullScan_16	3.00	mpp[tiflash]	table:t	keep order:false, stats:pseudo
+TopN_10	2.00	root		Column#3, offset:?, count:?
+└─TableReader_20	2.00	root		MppVersion: 2, data:ExchangeSender_19
+  └─ExchangeSender_19	2.00	mpp[tiflash]		ExchangeType: PassThrough
+    └─TopN_18	2.00	mpp[tiflash]		Column#3, offset:?, count:?
+      └─Projection_17	2.00	mpp[tiflash]		vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#3
+        └─TableFullScan_16	3.00	mpp[tiflash]	table:t	keep order:false, stats:pseudo
 set @@tidb_isolation_read_engines="tidb,tikv,tiflash";
 drop table t;
 // small dataset, fixed vector, tidb_rowid, indexed
@@ -96,24 +90,22 @@ vec
 [1,2,3]
 explain select * from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 id	estRows	task	access object	operator info
-Projection_6	2.00	root		vector.t.vec
-└─TopN_7	2.00	root		Column#3, offset:?, count:?
-  └─TableReader_14	2.00	root		data:TopN_13
-    └─TopN_13	2.00	cop[tikv]		Column#3, offset:?, count:?
-      └─Projection_12	2.00	cop[tikv]		vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#3
-        └─TableFullScan_11	3.00	cop[tikv]	table:t	keep order:false, stats:pseudo
+TopN_7	2.00	root		Column#3, offset:?, count:?
+└─TableReader_14	2.00	root		data:TopN_13
+  └─TopN_13	2.00	cop[tikv]		Column#3, offset:?, count:?
+    └─Projection_12	2.00	cop[tikv]		vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#3
+      └─TableFullScan_11	3.00	cop[tikv]	table:t	keep order:false, stats:pseudo
 select vec from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 vec
 [1,2,1]
 [1,2,3]
 explain select vec from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 id	estRows	task	access object	operator info
-Projection_6	2.00	root		vector.t.vec
-└─TopN_7	2.00	root		Column#3, offset:?, count:?
-  └─TableReader_14	2.00	root		data:TopN_13
-    └─TopN_13	2.00	cop[tikv]		Column#3, offset:?, count:?
-      └─Projection_12	2.00	cop[tikv]		vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#3
-        └─TableFullScan_11	3.00	cop[tikv]	table:t	keep order:false, stats:pseudo
+TopN_7	2.00	root		Column#3, offset:?, count:?
+└─TableReader_14	2.00	root		data:TopN_13
+  └─TopN_13	2.00	cop[tikv]		Column#3, offset:?, count:?
+    └─Projection_12	2.00	cop[tikv]		vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#3
+      └─TableFullScan_11	3.00	cop[tikv]	table:t	keep order:false, stats:pseudo
 select sleep(5);
 sleep(5)
 0
@@ -124,26 +116,24 @@ vec
 [1,2,3]
 explain select * from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 id	estRows	task	access object	operator info
-Projection_6	2.00	root		vector.t.vec
-└─TopN_11	2.00	root		Column#4, offset:?, count:?
-  └─TableReader_29	2.00	root		MppVersion: 2, data:ExchangeSender_28
-    └─ExchangeSender_28	2.00	mpp[tiflash]		ExchangeType: PassThrough
-      └─TopN_27	2.00	mpp[tiflash]		Column#4, offset:?, count:?
-        └─Projection_26	2.00	mpp[tiflash]		vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
-          └─TableFullScan_25	2.00	mpp[tiflash]	table:t, index:vector_index(vec)	keep order:false, stats:pseudo, annIndex:L2(vec..[0,0,0], limit:2)
+TopN_11	2.00	root		Column#4, offset:?, count:?
+└─TableReader_29	2.00	root		MppVersion: 2, data:ExchangeSender_28
+  └─ExchangeSender_28	2.00	mpp[tiflash]		ExchangeType: PassThrough
+    └─TopN_27	2.00	mpp[tiflash]		Column#4, offset:?, count:?
+      └─Projection_26	2.00	mpp[tiflash]		vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
+        └─TableFullScan_25	2.00	mpp[tiflash]	table:t, index:vector_index(vec)	keep order:false, stats:pseudo, annIndex:L2(vec..[0,0,0], limit:2)
 select vec from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 vec
 [1,2,1]
 [1,2,3]
 explain select vec from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 id	estRows	task	access object	operator info
-Projection_6	2.00	root		vector.t.vec
-└─TopN_11	2.00	root		Column#4, offset:?, count:?
-  └─TableReader_29	2.00	root		MppVersion: 2, data:ExchangeSender_28
-    └─ExchangeSender_28	2.00	mpp[tiflash]		ExchangeType: PassThrough
-      └─TopN_27	2.00	mpp[tiflash]		Column#4, offset:?, count:?
-        └─Projection_26	2.00	mpp[tiflash]		vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
-          └─TableFullScan_25	2.00	mpp[tiflash]	table:t, index:vector_index(vec)	keep order:false, stats:pseudo, annIndex:L2(vec..[0,0,0], limit:2)
+TopN_11	2.00	root		Column#4, offset:?, count:?
+└─TableReader_29	2.00	root		MppVersion: 2, data:ExchangeSender_28
+  └─ExchangeSender_28	2.00	mpp[tiflash]		ExchangeType: PassThrough
+    └─TopN_27	2.00	mpp[tiflash]		Column#4, offset:?, count:?
+      └─Projection_26	2.00	mpp[tiflash]		vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
+        └─TableFullScan_25	2.00	mpp[tiflash]	table:t, index:vector_index(vec)	keep order:false, stats:pseudo, annIndex:L2(vec..[0,0,0], limit:2)
 alter table t compact;
 select * from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 vec
@@ -151,26 +141,24 @@ vec
 [1,2,3]
 explain select * from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 id	estRows	task	access object	operator info
-Projection_6	2.00	root		vector.t.vec
-└─TopN_11	2.00	root		Column#4, offset:?, count:?
-  └─TableReader_29	2.00	root		MppVersion: 2, data:ExchangeSender_28
-    └─ExchangeSender_28	2.00	mpp[tiflash]		ExchangeType: PassThrough
-      └─TopN_27	2.00	mpp[tiflash]		Column#4, offset:?, count:?
-        └─Projection_26	2.00	mpp[tiflash]		vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
-          └─TableFullScan_25	2.00	mpp[tiflash]	table:t, index:vector_index(vec)	keep order:false, stats:pseudo, annIndex:L2(vec..[0,0,0], limit:2)
+TopN_11	2.00	root		Column#4, offset:?, count:?
+└─TableReader_29	2.00	root		MppVersion: 2, data:ExchangeSender_28
+  └─ExchangeSender_28	2.00	mpp[tiflash]		ExchangeType: PassThrough
+    └─TopN_27	2.00	mpp[tiflash]		Column#4, offset:?, count:?
+      └─Projection_26	2.00	mpp[tiflash]		vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
+        └─TableFullScan_25	2.00	mpp[tiflash]	table:t, index:vector_index(vec)	keep order:false, stats:pseudo, annIndex:L2(vec..[0,0,0], limit:2)
 select vec from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 vec
 [1,2,1]
 [1,2,3]
 explain select vec from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 id	estRows	task	access object	operator info
-Projection_6	2.00	root		vector.t.vec
-└─TopN_11	2.00	root		Column#4, offset:?, count:?
-  └─TableReader_29	2.00	root		MppVersion: 2, data:ExchangeSender_28
-    └─ExchangeSender_28	2.00	mpp[tiflash]		ExchangeType: PassThrough
-      └─TopN_27	2.00	mpp[tiflash]		Column#4, offset:?, count:?
-        └─Projection_26	2.00	mpp[tiflash]		vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
-          └─TableFullScan_25	2.00	mpp[tiflash]	table:t, index:vector_index(vec)	keep order:false, stats:pseudo, annIndex:L2(vec..[0,0,0], limit:2)
+TopN_11	2.00	root		Column#4, offset:?, count:?
+└─TableReader_29	2.00	root		MppVersion: 2, data:ExchangeSender_28
+  └─ExchangeSender_28	2.00	mpp[tiflash]		ExchangeType: PassThrough
+    └─TopN_27	2.00	mpp[tiflash]		Column#4, offset:?, count:?
+      └─Projection_26	2.00	mpp[tiflash]		vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
+        └─TableFullScan_25	2.00	mpp[tiflash]	table:t, index:vector_index(vec)	keep order:false, stats:pseudo, annIndex:L2(vec..[0,0,0], limit:2)
 set @@tidb_isolation_read_engines="tidb,tikv,tiflash";
 drop table t;
 // small dataset, fixed vector, int PK, no index
@@ -184,24 +172,22 @@ id
 1
 explain select id from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 id	estRows	task	access object	operator info
-Projection_7	2.00	root		vector.t.id
-└─TopN_8	2.00	root		Column#4, offset:?, count:?
-  └─TableReader_15	2.00	root		data:TopN_14
-    └─TopN_14	2.00	cop[tikv]		Column#4, offset:?, count:?
-      └─Projection_13	2.00	cop[tikv]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
-        └─TableFullScan_12	3.00	cop[tikv]	table:t	keep order:false
+TopN_8	2.00	root		Column#4, offset:?, count:?
+└─TableReader_15	2.00	root		data:TopN_14
+  └─TopN_14	2.00	cop[tikv]		Column#4, offset:?, count:?
+    └─Projection_13	2.00	cop[tikv]		vector.t.id, vec_l2_distance(vector.t.vec, ?)->Column#4
+      └─TableFullScan_12	3.00	cop[tikv]	table:t	keep order:false
 select * from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 id	vec
 3	[1,2,1]
 1	[1,2,3]
 explain select * from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 id	estRows	task	access object	operator info
-Projection_6	2.00	root		vector.t.id, vector.t.vec
-└─TopN_7	2.00	root		Column#3, offset:?, count:?
-  └─TableReader_14	2.00	root		data:TopN_13
-    └─TopN_13	2.00	cop[tikv]		Column#3, offset:?, count:?
-      └─Projection_12	2.00	cop[tikv]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#3
-        └─TableFullScan_11	3.00	cop[tikv]	table:t	keep order:false
+TopN_7	2.00	root		Column#3, offset:?, count:?
+└─TableReader_14	2.00	root		data:TopN_13
+  └─TopN_13	2.00	cop[tikv]		Column#3, offset:?, count:?
+    └─Projection_12	2.00	cop[tikv]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#3
+      └─TableFullScan_11	3.00	cop[tikv]	table:t	keep order:false
 select sleep(5);
 sleep(5)
 0
@@ -212,26 +198,24 @@ id
 1
 explain select id from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 id	estRows	task	access object	operator info
-Projection_7	2.00	root		vector.t.id
-└─TopN_11	2.00	root		Column#4, offset:?, count:?
-  └─TableReader_21	2.00	root		MppVersion: 2, data:ExchangeSender_20
-    └─ExchangeSender_20	2.00	mpp[tiflash]		ExchangeType: PassThrough
-      └─TopN_19	2.00	mpp[tiflash]		Column#4, offset:?, count:?
-        └─Projection_18	2.00	mpp[tiflash]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
-          └─TableFullScan_17	3.00	mpp[tiflash]	table:t	keep order:false
+TopN_11	2.00	root		Column#4, offset:?, count:?
+└─TableReader_21	2.00	root		MppVersion: 2, data:ExchangeSender_20
+  └─ExchangeSender_20	2.00	mpp[tiflash]		ExchangeType: PassThrough
+    └─TopN_19	2.00	mpp[tiflash]		Column#4, offset:?, count:?
+      └─Projection_18	2.00	mpp[tiflash]		vector.t.id, vec_l2_distance(vector.t.vec, ?)->Column#4
+        └─TableFullScan_17	3.00	mpp[tiflash]	table:t	keep order:false
 select * from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 id	vec
 3	[1,2,1]
 1	[1,2,3]
 explain select * from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 id	estRows	task	access object	operator info
-Projection_6	2.00	root		vector.t.id, vector.t.vec
-└─TopN_10	2.00	root		Column#3, offset:?, count:?
-  └─TableReader_20	2.00	root		MppVersion: 2, data:ExchangeSender_19
-    └─ExchangeSender_19	2.00	mpp[tiflash]		ExchangeType: PassThrough
-      └─TopN_18	2.00	mpp[tiflash]		Column#3, offset:?, count:?
-        └─Projection_17	2.00	mpp[tiflash]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#3
-          └─TableFullScan_16	3.00	mpp[tiflash]	table:t	keep order:false
+TopN_10	2.00	root		Column#3, offset:?, count:?
+└─TableReader_20	2.00	root		MppVersion: 2, data:ExchangeSender_19
+  └─ExchangeSender_19	2.00	mpp[tiflash]		ExchangeType: PassThrough
+    └─TopN_18	2.00	mpp[tiflash]		Column#3, offset:?, count:?
+      └─Projection_17	2.00	mpp[tiflash]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#3
+        └─TableFullScan_16	3.00	mpp[tiflash]	table:t	keep order:false
 alter table t compact;
 select id from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 id
@@ -239,26 +223,24 @@ id
 1
 explain select id from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 id	estRows	task	access object	operator info
-Projection_7	2.00	root		vector.t.id
-└─TopN_11	2.00	root		Column#4, offset:?, count:?
-  └─TableReader_21	2.00	root		MppVersion: 2, data:ExchangeSender_20
-    └─ExchangeSender_20	2.00	mpp[tiflash]		ExchangeType: PassThrough
-      └─TopN_19	2.00	mpp[tiflash]		Column#4, offset:?, count:?
-        └─Projection_18	2.00	mpp[tiflash]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
-          └─TableFullScan_17	3.00	mpp[tiflash]	table:t	keep order:false
+TopN_11	2.00	root		Column#4, offset:?, count:?
+└─TableReader_21	2.00	root		MppVersion: 2, data:ExchangeSender_20
+  └─ExchangeSender_20	2.00	mpp[tiflash]		ExchangeType: PassThrough
+    └─TopN_19	2.00	mpp[tiflash]		Column#4, offset:?, count:?
+      └─Projection_18	2.00	mpp[tiflash]		vector.t.id, vec_l2_distance(vector.t.vec, ?)->Column#4
+        └─TableFullScan_17	3.00	mpp[tiflash]	table:t	keep order:false
 select * from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 id	vec
 3	[1,2,1]
 1	[1,2,3]
 explain select * from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 id	estRows	task	access object	operator info
-Projection_6	2.00	root		vector.t.id, vector.t.vec
-└─TopN_10	2.00	root		Column#3, offset:?, count:?
-  └─TableReader_20	2.00	root		MppVersion: 2, data:ExchangeSender_19
-    └─ExchangeSender_19	2.00	mpp[tiflash]		ExchangeType: PassThrough
-      └─TopN_18	2.00	mpp[tiflash]		Column#3, offset:?, count:?
-        └─Projection_17	2.00	mpp[tiflash]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#3
-          └─TableFullScan_16	3.00	mpp[tiflash]	table:t	keep order:false
+TopN_10	2.00	root		Column#3, offset:?, count:?
+└─TableReader_20	2.00	root		MppVersion: 2, data:ExchangeSender_19
+  └─ExchangeSender_19	2.00	mpp[tiflash]		ExchangeType: PassThrough
+    └─TopN_18	2.00	mpp[tiflash]		Column#3, offset:?, count:?
+      └─Projection_17	2.00	mpp[tiflash]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#3
+        └─TableFullScan_16	3.00	mpp[tiflash]	table:t	keep order:false
 set @@tidb_isolation_read_engines="tidb,tikv,tiflash";
 drop table t;
 // small dataset, fixed vector, int PK, indexed
@@ -271,24 +253,22 @@ id
 1
 explain select id from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 id	estRows	task	access object	operator info
-Projection_7	2.00	root		vector.t.id
-└─TopN_8	2.00	root		Column#4, offset:?, count:?
-  └─TableReader_15	2.00	root		data:TopN_14
-    └─TopN_14	2.00	cop[tikv]		Column#4, offset:?, count:?
-      └─Projection_13	2.00	cop[tikv]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
-        └─TableFullScan_12	3.00	cop[tikv]	table:t	keep order:false
+TopN_8	2.00	root		Column#4, offset:?, count:?
+└─TableReader_15	2.00	root		data:TopN_14
+  └─TopN_14	2.00	cop[tikv]		Column#4, offset:?, count:?
+    └─Projection_13	2.00	cop[tikv]		vector.t.id, vec_l2_distance(vector.t.vec, ?)->Column#4
+      └─TableFullScan_12	3.00	cop[tikv]	table:t	keep order:false
 select * from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 id	vec
 3	[1,2,1]
 1	[1,2,3]
 explain select * from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 id	estRows	task	access object	operator info
-Projection_6	2.00	root		vector.t.id, vector.t.vec
-└─TopN_7	2.00	root		Column#3, offset:?, count:?
-  └─TableReader_14	2.00	root		data:TopN_13
-    └─TopN_13	2.00	cop[tikv]		Column#3, offset:?, count:?
-      └─Projection_12	2.00	cop[tikv]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#3
-        └─TableFullScan_11	3.00	cop[tikv]	table:t	keep order:false
+TopN_7	2.00	root		Column#3, offset:?, count:?
+└─TableReader_14	2.00	root		data:TopN_13
+  └─TopN_13	2.00	cop[tikv]		Column#3, offset:?, count:?
+    └─Projection_12	2.00	cop[tikv]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#3
+      └─TableFullScan_11	3.00	cop[tikv]	table:t	keep order:false
 select sleep(5);
 sleep(5)
 0
@@ -299,26 +279,24 @@ id
 1
 explain select id from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 id	estRows	task	access object	operator info
-Projection_7	2.00	root		vector.t.id
-└─TopN_12	2.00	root		Column#5, offset:?, count:?
-  └─TableReader_30	2.00	root		MppVersion: 2, data:ExchangeSender_29
-    └─ExchangeSender_29	2.00	mpp[tiflash]		ExchangeType: PassThrough
-      └─TopN_28	2.00	mpp[tiflash]		Column#5, offset:?, count:?
-        └─Projection_27	2.00	mpp[tiflash]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#5
-          └─TableFullScan_26	2.00	mpp[tiflash]	table:t, index:vector_index(vec)	keep order:false, annIndex:L2(vec..[0,0,0], limit:2)
+TopN_12	2.00	root		Column#5, offset:?, count:?
+└─TableReader_30	2.00	root		MppVersion: 2, data:ExchangeSender_29
+  └─ExchangeSender_29	2.00	mpp[tiflash]		ExchangeType: PassThrough
+    └─TopN_28	2.00	mpp[tiflash]		Column#5, offset:?, count:?
+      └─Projection_27	2.00	mpp[tiflash]		vector.t.id, vec_l2_distance(vector.t.vec, ?)->Column#5
+        └─TableFullScan_26	2.00	mpp[tiflash]	table:t, index:vector_index(vec)	keep order:false, annIndex:L2(vec..[0,0,0], limit:2)
 select * from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 id	vec
 3	[1,2,1]
 1	[1,2,3]
 explain select * from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 id	estRows	task	access object	operator info
-Projection_6	2.00	root		vector.t.id, vector.t.vec
-└─TopN_11	2.00	root		Column#4, offset:?, count:?
-  └─TableReader_29	2.00	root		MppVersion: 2, data:ExchangeSender_28
-    └─ExchangeSender_28	2.00	mpp[tiflash]		ExchangeType: PassThrough
-      └─TopN_27	2.00	mpp[tiflash]		Column#4, offset:?, count:?
-        └─Projection_26	2.00	mpp[tiflash]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
-          └─TableFullScan_25	2.00	mpp[tiflash]	table:t, index:vector_index(vec)	keep order:false, annIndex:L2(vec..[0,0,0], limit:2)
+TopN_11	2.00	root		Column#4, offset:?, count:?
+└─TableReader_29	2.00	root		MppVersion: 2, data:ExchangeSender_28
+  └─ExchangeSender_28	2.00	mpp[tiflash]		ExchangeType: PassThrough
+    └─TopN_27	2.00	mpp[tiflash]		Column#4, offset:?, count:?
+      └─Projection_26	2.00	mpp[tiflash]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
+        └─TableFullScan_25	2.00	mpp[tiflash]	table:t, index:vector_index(vec)	keep order:false, annIndex:L2(vec..[0,0,0], limit:2)
 set @@tidb_isolation_read_engines="tidb,tikv,tiflash";
 alter table t compact;
 select id from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
@@ -327,24 +305,22 @@ id
 1
 explain select id from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 id	estRows	task	access object	operator info
-Projection_7	2.00	root		vector.t.id
-└─TopN_8	2.00	root		Column#4, offset:?, count:?
-  └─TableReader_17	2.00	root		data:TopN_16
-    └─TopN_16	2.00	cop[tikv]		Column#4, offset:?, count:?
-      └─Projection_15	2.00	cop[tikv]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
-        └─TableFullScan_12	3.00	cop[tikv]	table:t	keep order:false
+TopN_8	2.00	root		Column#4, offset:?, count:?
+└─TableReader_17	2.00	root		data:TopN_16
+  └─TopN_16	2.00	cop[tikv]		Column#4, offset:?, count:?
+    └─Projection_15	2.00	cop[tikv]		vector.t.id, vec_l2_distance(vector.t.vec, ?)->Column#4
+      └─TableFullScan_12	3.00	cop[tikv]	table:t	keep order:false
 select * from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 id	vec
 3	[1,2,1]
 1	[1,2,3]
 explain select * from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 id	estRows	task	access object	operator info
-Projection_6	2.00	root		vector.t.id, vector.t.vec
-└─TopN_7	2.00	root		Column#3, offset:?, count:?
-  └─TableReader_16	2.00	root		data:TopN_15
-    └─TopN_15	2.00	cop[tikv]		Column#3, offset:?, count:?
-      └─Projection_14	2.00	cop[tikv]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#3
-        └─TableFullScan_11	3.00	cop[tikv]	table:t	keep order:false
+TopN_7	2.00	root		Column#3, offset:?, count:?
+└─TableReader_16	2.00	root		data:TopN_15
+  └─TopN_15	2.00	cop[tikv]		Column#3, offset:?, count:?
+    └─Projection_14	2.00	cop[tikv]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#3
+      └─TableFullScan_11	3.00	cop[tikv]	table:t	keep order:false
 drop table t;
 // small dataset, fixed vector, clustered char PK, indexed
 create table t(id varchar(40) primary key CLUSTERED, vec vector(3), vector index ((vec_l2_distance(vec))));
@@ -356,24 +332,22 @@ id3
 id1
 explain select id from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 id	estRows	task	access object	operator info
-Projection_7	2.00	root		vector.t.id
-└─TopN_8	2.00	root		Column#4, offset:?, count:?
-  └─TableReader_15	2.00	root		data:TopN_14
-    └─TopN_14	2.00	cop[tikv]		Column#4, offset:?, count:?
-      └─Projection_13	2.00	cop[tikv]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
-        └─TableFullScan_12	3.00	cop[tikv]	table:t	keep order:false
+TopN_8	2.00	root		Column#4, offset:?, count:?
+└─TableReader_15	2.00	root		data:TopN_14
+  └─TopN_14	2.00	cop[tikv]		Column#4, offset:?, count:?
+    └─Projection_13	2.00	cop[tikv]		vector.t.id, vec_l2_distance(vector.t.vec, ?)->Column#4
+      └─TableFullScan_12	3.00	cop[tikv]	table:t	keep order:false
 select * from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 id	vec
 id3	[1,2,1]
 id1	[1,2,3]
 explain select * from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 id	estRows	task	access object	operator info
-Projection_6	2.00	root		vector.t.id, vector.t.vec
-└─TopN_7	2.00	root		Column#3, offset:?, count:?
-  └─TableReader_14	2.00	root		data:TopN_13
-    └─TopN_13	2.00	cop[tikv]		Column#3, offset:?, count:?
-      └─Projection_12	2.00	cop[tikv]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#3
-        └─TableFullScan_11	3.00	cop[tikv]	table:t	keep order:false
+TopN_7	2.00	root		Column#3, offset:?, count:?
+└─TableReader_14	2.00	root		data:TopN_13
+  └─TopN_13	2.00	cop[tikv]		Column#3, offset:?, count:?
+    └─Projection_12	2.00	cop[tikv]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#3
+      └─TableFullScan_11	3.00	cop[tikv]	table:t	keep order:false
 select sleep(5);
 sleep(5)
 0
@@ -384,26 +358,24 @@ id3
 id1
 explain select id from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 id	estRows	task	access object	operator info
-Projection_7	2.00	root		vector.t.id
-└─TopN_11	2.00	root		Column#4, offset:?, count:?
-  └─TableReader_24	2.00	root		MppVersion: 2, data:ExchangeSender_23
-    └─ExchangeSender_23	2.00	mpp[tiflash]		ExchangeType: PassThrough
-      └─TopN_22	2.00	mpp[tiflash]		Column#4, offset:?, count:?
-        └─Projection_21	2.00	mpp[tiflash]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
-          └─TableFullScan_19	3.00	mpp[tiflash]	table:t	keep order:false
+TopN_11	2.00	root		Column#4, offset:?, count:?
+└─TableReader_24	2.00	root		MppVersion: 2, data:ExchangeSender_23
+  └─ExchangeSender_23	2.00	mpp[tiflash]		ExchangeType: PassThrough
+    └─TopN_22	2.00	mpp[tiflash]		Column#4, offset:?, count:?
+      └─Projection_21	2.00	mpp[tiflash]		vector.t.id, vec_l2_distance(vector.t.vec, ?)->Column#4
+        └─TableFullScan_19	3.00	mpp[tiflash]	table:t	keep order:false
 select * from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 id	vec
 id3	[1,2,1]
 id1	[1,2,3]
 explain select * from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 id	estRows	task	access object	operator info
-Projection_6	2.00	root		vector.t.id, vector.t.vec
-└─TopN_10	2.00	root		Column#3, offset:?, count:?
-  └─TableReader_23	2.00	root		MppVersion: 2, data:ExchangeSender_22
-    └─ExchangeSender_22	2.00	mpp[tiflash]		ExchangeType: PassThrough
-      └─TopN_21	2.00	mpp[tiflash]		Column#3, offset:?, count:?
-        └─Projection_20	2.00	mpp[tiflash]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#3
-          └─TableFullScan_18	3.00	mpp[tiflash]	table:t	keep order:false
+TopN_10	2.00	root		Column#3, offset:?, count:?
+└─TableReader_23	2.00	root		MppVersion: 2, data:ExchangeSender_22
+  └─ExchangeSender_22	2.00	mpp[tiflash]		ExchangeType: PassThrough
+    └─TopN_21	2.00	mpp[tiflash]		Column#3, offset:?, count:?
+      └─Projection_20	2.00	mpp[tiflash]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#3
+        └─TableFullScan_18	3.00	mpp[tiflash]	table:t	keep order:false
 alter table t compact;
 select id from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 id
@@ -411,26 +383,24 @@ id3
 id1
 explain select id from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 id	estRows	task	access object	operator info
-Projection_7	2.00	root		vector.t.id
-└─TopN_11	2.00	root		Column#4, offset:?, count:?
-  └─TableReader_24	2.00	root		MppVersion: 2, data:ExchangeSender_23
-    └─ExchangeSender_23	2.00	mpp[tiflash]		ExchangeType: PassThrough
-      └─TopN_22	2.00	mpp[tiflash]		Column#4, offset:?, count:?
-        └─Projection_21	2.00	mpp[tiflash]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
-          └─TableFullScan_19	3.00	mpp[tiflash]	table:t	keep order:false
+TopN_11	2.00	root		Column#4, offset:?, count:?
+└─TableReader_24	2.00	root		MppVersion: 2, data:ExchangeSender_23
+  └─ExchangeSender_23	2.00	mpp[tiflash]		ExchangeType: PassThrough
+    └─TopN_22	2.00	mpp[tiflash]		Column#4, offset:?, count:?
+      └─Projection_21	2.00	mpp[tiflash]		vector.t.id, vec_l2_distance(vector.t.vec, ?)->Column#4
+        └─TableFullScan_19	3.00	mpp[tiflash]	table:t	keep order:false
 select * from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 id	vec
 id3	[1,2,1]
 id1	[1,2,3]
 explain select * from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 id	estRows	task	access object	operator info
-Projection_6	2.00	root		vector.t.id, vector.t.vec
-└─TopN_10	2.00	root		Column#3, offset:?, count:?
-  └─TableReader_23	2.00	root		MppVersion: 2, data:ExchangeSender_22
-    └─ExchangeSender_22	2.00	mpp[tiflash]		ExchangeType: PassThrough
-      └─TopN_21	2.00	mpp[tiflash]		Column#3, offset:?, count:?
-        └─Projection_20	2.00	mpp[tiflash]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#3
-          └─TableFullScan_18	3.00	mpp[tiflash]	table:t	keep order:false
+TopN_10	2.00	root		Column#3, offset:?, count:?
+└─TableReader_23	2.00	root		MppVersion: 2, data:ExchangeSender_22
+  └─ExchangeSender_22	2.00	mpp[tiflash]		ExchangeType: PassThrough
+    └─TopN_21	2.00	mpp[tiflash]		Column#3, offset:?, count:?
+      └─Projection_20	2.00	mpp[tiflash]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#3
+        └─TableFullScan_18	3.00	mpp[tiflash]	table:t	keep order:false
 set @@tidb_isolation_read_engines="tidb,tikv,tiflash";
 drop table t;
 // small dataset, fixed vector, non-clustered char PK, indexed
@@ -443,24 +413,22 @@ id3
 id1
 explain select id from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 id	estRows	task	access object	operator info
-Projection_7	2.00	root		vector.t.id
-└─TopN_8	2.00	root		Column#5, offset:?, count:?
-  └─TableReader_15	2.00	root		data:TopN_14
-    └─TopN_14	2.00	cop[tikv]		Column#5, offset:?, count:?
-      └─Projection_13	2.00	cop[tikv]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#5
-        └─TableFullScan_12	3.00	cop[tikv]	table:t	keep order:false
+TopN_8	2.00	root		Column#5, offset:?, count:?
+└─TableReader_15	2.00	root		data:TopN_14
+  └─TopN_14	2.00	cop[tikv]		Column#5, offset:?, count:?
+    └─Projection_13	2.00	cop[tikv]		vector.t.id, vec_l2_distance(vector.t.vec, ?)->Column#5
+      └─TableFullScan_12	3.00	cop[tikv]	table:t	keep order:false
 select * from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 id	vec
 id3	[1,2,1]
 id1	[1,2,3]
 explain select * from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 id	estRows	task	access object	operator info
-Projection_6	2.00	root		vector.t.id, vector.t.vec
-└─TopN_7	2.00	root		Column#4, offset:?, count:?
-  └─TableReader_14	2.00	root		data:TopN_13
-    └─TopN_13	2.00	cop[tikv]		Column#4, offset:?, count:?
-      └─Projection_12	2.00	cop[tikv]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
-        └─TableFullScan_11	3.00	cop[tikv]	table:t	keep order:false
+TopN_7	2.00	root		Column#4, offset:?, count:?
+└─TableReader_14	2.00	root		data:TopN_13
+  └─TopN_13	2.00	cop[tikv]		Column#4, offset:?, count:?
+    └─Projection_12	2.00	cop[tikv]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
+      └─TableFullScan_11	3.00	cop[tikv]	table:t	keep order:false
 select sleep(5);
 sleep(5)
 0
@@ -471,26 +439,24 @@ id3
 id1
 explain select id from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 id	estRows	task	access object	operator info
-Projection_7	2.00	root		vector.t.id
-└─TopN_11	2.00	root		Column#5, offset:?, count:?
-  └─TableReader_24	2.00	root		MppVersion: 2, data:ExchangeSender_23
-    └─ExchangeSender_23	2.00	mpp[tiflash]		ExchangeType: PassThrough
-      └─TopN_22	2.00	mpp[tiflash]		Column#5, offset:?, count:?
-        └─Projection_21	2.00	mpp[tiflash]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#5
-          └─TableFullScan_19	3.00	mpp[tiflash]	table:t	keep order:false
+TopN_11	2.00	root		Column#5, offset:?, count:?
+└─TableReader_24	2.00	root		MppVersion: 2, data:ExchangeSender_23
+  └─ExchangeSender_23	2.00	mpp[tiflash]		ExchangeType: PassThrough
+    └─TopN_22	2.00	mpp[tiflash]		Column#5, offset:?, count:?
+      └─Projection_21	2.00	mpp[tiflash]		vector.t.id, vec_l2_distance(vector.t.vec, ?)->Column#5
+        └─TableFullScan_19	3.00	mpp[tiflash]	table:t	keep order:false
 select * from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 id	vec
 id3	[1,2,1]
 id1	[1,2,3]
 explain select * from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 id	estRows	task	access object	operator info
-Projection_6	2.00	root		vector.t.id, vector.t.vec
-└─TopN_10	2.00	root		Column#4, offset:?, count:?
-  └─TableReader_23	2.00	root		MppVersion: 2, data:ExchangeSender_22
-    └─ExchangeSender_22	2.00	mpp[tiflash]		ExchangeType: PassThrough
-      └─TopN_21	2.00	mpp[tiflash]		Column#4, offset:?, count:?
-        └─Projection_20	2.00	mpp[tiflash]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
-          └─TableFullScan_18	3.00	mpp[tiflash]	table:t	keep order:false
+TopN_10	2.00	root		Column#4, offset:?, count:?
+└─TableReader_23	2.00	root		MppVersion: 2, data:ExchangeSender_22
+  └─ExchangeSender_22	2.00	mpp[tiflash]		ExchangeType: PassThrough
+    └─TopN_21	2.00	mpp[tiflash]		Column#4, offset:?, count:?
+      └─Projection_20	2.00	mpp[tiflash]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
+        └─TableFullScan_18	3.00	mpp[tiflash]	table:t	keep order:false
 alter table t compact;
 select id from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 id
@@ -498,26 +464,24 @@ id3
 id1
 explain select id from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 id	estRows	task	access object	operator info
-Projection_7	2.00	root		vector.t.id
-└─TopN_11	2.00	root		Column#5, offset:?, count:?
-  └─TableReader_24	2.00	root		MppVersion: 2, data:ExchangeSender_23
-    └─ExchangeSender_23	2.00	mpp[tiflash]		ExchangeType: PassThrough
-      └─TopN_22	2.00	mpp[tiflash]		Column#5, offset:?, count:?
-        └─Projection_21	2.00	mpp[tiflash]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#5
-          └─TableFullScan_19	3.00	mpp[tiflash]	table:t	keep order:false
+TopN_11	2.00	root		Column#5, offset:?, count:?
+└─TableReader_24	2.00	root		MppVersion: 2, data:ExchangeSender_23
+  └─ExchangeSender_23	2.00	mpp[tiflash]		ExchangeType: PassThrough
+    └─TopN_22	2.00	mpp[tiflash]		Column#5, offset:?, count:?
+      └─Projection_21	2.00	mpp[tiflash]		vector.t.id, vec_l2_distance(vector.t.vec, ?)->Column#5
+        └─TableFullScan_19	3.00	mpp[tiflash]	table:t	keep order:false
 select * from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 id	vec
 id3	[1,2,1]
 id1	[1,2,3]
 explain select * from t order by vec_l2_distance(vec, '[0,0,0]') limit 2;
 id	estRows	task	access object	operator info
-Projection_6	2.00	root		vector.t.id, vector.t.vec
-└─TopN_10	2.00	root		Column#4, offset:?, count:?
-  └─TableReader_23	2.00	root		MppVersion: 2, data:ExchangeSender_22
-    └─ExchangeSender_22	2.00	mpp[tiflash]		ExchangeType: PassThrough
-      └─TopN_21	2.00	mpp[tiflash]		Column#4, offset:?, count:?
-        └─Projection_20	2.00	mpp[tiflash]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
-          └─TableFullScan_18	3.00	mpp[tiflash]	table:t	keep order:false
+TopN_10	2.00	root		Column#4, offset:?, count:?
+└─TableReader_23	2.00	root		MppVersion: 2, data:ExchangeSender_22
+  └─ExchangeSender_22	2.00	mpp[tiflash]		ExchangeType: PassThrough
+    └─TopN_21	2.00	mpp[tiflash]		Column#4, offset:?, count:?
+      └─Projection_20	2.00	mpp[tiflash]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
+        └─TableFullScan_18	3.00	mpp[tiflash]	table:t	keep order:false
 set @@tidb_isolation_read_engines="tidb,tikv,tiflash";
 drop table t;
 // large dataset, fixed vector, tidb_rowid, indexed
@@ -530,24 +494,22 @@ vec
 [200,200,200]
 explain select * from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 id	estRows	task	access object	operator info
-Projection_6	2.00	root		vector.t.vec
-└─TopN_7	2.00	root		Column#3, offset:?, count:?
-  └─TableReader_14	2.00	root		data:TopN_13
-    └─TopN_13	2.00	cop[tikv]		Column#3, offset:?, count:?
-      └─Projection_12	2.00	cop[tikv]		vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#3
-        └─TableFullScan_11	500.00	cop[tikv]	table:t	keep order:false, stats:pseudo
+TopN_7	2.00	root		Column#3, offset:?, count:?
+└─TableReader_14	2.00	root		data:TopN_13
+  └─TopN_13	2.00	cop[tikv]		Column#3, offset:?, count:?
+    └─Projection_12	2.00	cop[tikv]		vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#3
+      └─TableFullScan_11	500.00	cop[tikv]	table:t	keep order:false, stats:pseudo
 select vec from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 vec
 [201,201,201]
 [200,200,200]
 explain select vec from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 id	estRows	task	access object	operator info
-Projection_6	2.00	root		vector.t.vec
-└─TopN_7	2.00	root		Column#3, offset:?, count:?
-  └─TableReader_14	2.00	root		data:TopN_13
-    └─TopN_13	2.00	cop[tikv]		Column#3, offset:?, count:?
-      └─Projection_12	2.00	cop[tikv]		vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#3
-        └─TableFullScan_11	500.00	cop[tikv]	table:t	keep order:false, stats:pseudo
+TopN_7	2.00	root		Column#3, offset:?, count:?
+└─TableReader_14	2.00	root		data:TopN_13
+  └─TopN_13	2.00	cop[tikv]		Column#3, offset:?, count:?
+    └─Projection_12	2.00	cop[tikv]		vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#3
+      └─TableFullScan_11	500.00	cop[tikv]	table:t	keep order:false, stats:pseudo
 select sleep(5);
 sleep(5)
 0
@@ -558,26 +520,24 @@ vec
 [200,200,200]
 explain select * from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 id	estRows	task	access object	operator info
-Projection_6	2.00	root		vector.t.vec
-└─TopN_11	2.00	root		Column#4, offset:?, count:?
-  └─TableReader_29	2.00	root		MppVersion: 2, data:ExchangeSender_28
-    └─ExchangeSender_28	2.00	mpp[tiflash]		ExchangeType: PassThrough
-      └─TopN_27	2.00	mpp[tiflash]		Column#4, offset:?, count:?
-        └─Projection_26	2.00	mpp[tiflash]		vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
-          └─TableFullScan_25	2.00	mpp[tiflash]	table:t, index:vector_index(vec)	keep order:false, stats:pseudo, annIndex:L2(vec..[2e+02,2e+02,2e+02], limit:2)
+TopN_11	2.00	root		Column#4, offset:?, count:?
+└─TableReader_29	2.00	root		MppVersion: 2, data:ExchangeSender_28
+  └─ExchangeSender_28	2.00	mpp[tiflash]		ExchangeType: PassThrough
+    └─TopN_27	2.00	mpp[tiflash]		Column#4, offset:?, count:?
+      └─Projection_26	2.00	mpp[tiflash]		vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
+        └─TableFullScan_25	2.00	mpp[tiflash]	table:t, index:vector_index(vec)	keep order:false, stats:pseudo, annIndex:L2(vec..[2e+02,2e+02,2e+02], limit:2)
 select vec from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 vec
 [201,201,201]
 [200,200,200]
 explain select vec from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 id	estRows	task	access object	operator info
-Projection_6	2.00	root		vector.t.vec
-└─TopN_11	2.00	root		Column#4, offset:?, count:?
-  └─TableReader_29	2.00	root		MppVersion: 2, data:ExchangeSender_28
-    └─ExchangeSender_28	2.00	mpp[tiflash]		ExchangeType: PassThrough
-      └─TopN_27	2.00	mpp[tiflash]		Column#4, offset:?, count:?
-        └─Projection_26	2.00	mpp[tiflash]		vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
-          └─TableFullScan_25	2.00	mpp[tiflash]	table:t, index:vector_index(vec)	keep order:false, stats:pseudo, annIndex:L2(vec..[2e+02,2e+02,2e+02], limit:2)
+TopN_11	2.00	root		Column#4, offset:?, count:?
+└─TableReader_29	2.00	root		MppVersion: 2, data:ExchangeSender_28
+  └─ExchangeSender_28	2.00	mpp[tiflash]		ExchangeType: PassThrough
+    └─TopN_27	2.00	mpp[tiflash]		Column#4, offset:?, count:?
+      └─Projection_26	2.00	mpp[tiflash]		vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
+        └─TableFullScan_25	2.00	mpp[tiflash]	table:t, index:vector_index(vec)	keep order:false, stats:pseudo, annIndex:L2(vec..[2e+02,2e+02,2e+02], limit:2)
 alter table t compact;
 select * from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 vec
@@ -585,26 +545,24 @@ vec
 [200,200,200]
 explain select * from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 id	estRows	task	access object	operator info
-Projection_6	2.00	root		vector.t.vec
-└─TopN_11	2.00	root		Column#4, offset:?, count:?
-  └─TableReader_29	2.00	root		MppVersion: 2, data:ExchangeSender_28
-    └─ExchangeSender_28	2.00	mpp[tiflash]		ExchangeType: PassThrough
-      └─TopN_27	2.00	mpp[tiflash]		Column#4, offset:?, count:?
-        └─Projection_26	2.00	mpp[tiflash]		vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
-          └─TableFullScan_25	2.00	mpp[tiflash]	table:t, index:vector_index(vec)	keep order:false, stats:pseudo, annIndex:L2(vec..[2e+02,2e+02,2e+02], limit:2)
+TopN_11	2.00	root		Column#4, offset:?, count:?
+└─TableReader_29	2.00	root		MppVersion: 2, data:ExchangeSender_28
+  └─ExchangeSender_28	2.00	mpp[tiflash]		ExchangeType: PassThrough
+    └─TopN_27	2.00	mpp[tiflash]		Column#4, offset:?, count:?
+      └─Projection_26	2.00	mpp[tiflash]		vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
+        └─TableFullScan_25	2.00	mpp[tiflash]	table:t, index:vector_index(vec)	keep order:false, stats:pseudo, annIndex:L2(vec..[2e+02,2e+02,2e+02], limit:2)
 select vec from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 vec
 [201,201,201]
 [200,200,200]
 explain select vec from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 id	estRows	task	access object	operator info
-Projection_6	2.00	root		vector.t.vec
-└─TopN_11	2.00	root		Column#4, offset:?, count:?
-  └─TableReader_29	2.00	root		MppVersion: 2, data:ExchangeSender_28
-    └─ExchangeSender_28	2.00	mpp[tiflash]		ExchangeType: PassThrough
-      └─TopN_27	2.00	mpp[tiflash]		Column#4, offset:?, count:?
-        └─Projection_26	2.00	mpp[tiflash]		vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
-          └─TableFullScan_25	2.00	mpp[tiflash]	table:t, index:vector_index(vec)	keep order:false, stats:pseudo, annIndex:L2(vec..[2e+02,2e+02,2e+02], limit:2)
+TopN_11	2.00	root		Column#4, offset:?, count:?
+└─TableReader_29	2.00	root		MppVersion: 2, data:ExchangeSender_28
+  └─ExchangeSender_28	2.00	mpp[tiflash]		ExchangeType: PassThrough
+    └─TopN_27	2.00	mpp[tiflash]		Column#4, offset:?, count:?
+      └─Projection_26	2.00	mpp[tiflash]		vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
+        └─TableFullScan_25	2.00	mpp[tiflash]	table:t, index:vector_index(vec)	keep order:false, stats:pseudo, annIndex:L2(vec..[2e+02,2e+02,2e+02], limit:2)
 set @@tidb_isolation_read_engines="tidb,tikv,tiflash";
 drop table t;
 // large dataset, fixed vector, int PK, indexed
@@ -617,36 +575,33 @@ id	vec
 200	[200,200,200]
 explain select * from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 id	estRows	task	access object	operator info
-Projection_6	2.00	root		vector.t.id, vector.t.vec
-└─TopN_7	2.00	root		Column#3, offset:?, count:?
-  └─TableReader_14	2.00	root		data:TopN_13
-    └─TopN_13	2.00	cop[tikv]		Column#3, offset:?, count:?
-      └─Projection_12	2.00	cop[tikv]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#3
-        └─TableFullScan_11	500.00	cop[tikv]	table:t	keep order:false
+TopN_7	2.00	root		Column#3, offset:?, count:?
+└─TableReader_14	2.00	root		data:TopN_13
+  └─TopN_13	2.00	cop[tikv]		Column#3, offset:?, count:?
+    └─Projection_12	2.00	cop[tikv]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#3
+      └─TableFullScan_11	500.00	cop[tikv]	table:t	keep order:false
 select id from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 id
 201
 200
 explain select id from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 id	estRows	task	access object	operator info
-Projection_7	2.00	root		vector.t.id
-└─TopN_8	2.00	root		Column#4, offset:?, count:?
-  └─TableReader_15	2.00	root		data:TopN_14
-    └─TopN_14	2.00	cop[tikv]		Column#4, offset:?, count:?
-      └─Projection_13	2.00	cop[tikv]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
-        └─TableFullScan_12	500.00	cop[tikv]	table:t	keep order:false
+TopN_8	2.00	root		Column#4, offset:?, count:?
+└─TableReader_15	2.00	root		data:TopN_14
+  └─TopN_14	2.00	cop[tikv]		Column#4, offset:?, count:?
+    └─Projection_13	2.00	cop[tikv]		vector.t.id, vec_l2_distance(vector.t.vec, ?)->Column#4
+      └─TableFullScan_12	500.00	cop[tikv]	table:t	keep order:false
 select vec from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 vec
 [201,201,201]
 [200,200,200]
 explain select vec from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 id	estRows	task	access object	operator info
-Projection_6	2.00	root		vector.t.vec
-└─TopN_7	2.00	root		Column#3, offset:?, count:?
-  └─TableReader_14	2.00	root		data:TopN_13
-    └─TopN_13	2.00	cop[tikv]		Column#3, offset:?, count:?
-      └─Projection_12	2.00	cop[tikv]		vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#3
-        └─TableFullScan_11	500.00	cop[tikv]	table:t	keep order:false
+TopN_7	2.00	root		Column#3, offset:?, count:?
+└─TableReader_14	2.00	root		data:TopN_13
+  └─TopN_13	2.00	cop[tikv]		Column#3, offset:?, count:?
+    └─Projection_12	2.00	cop[tikv]		vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#3
+      └─TableFullScan_11	500.00	cop[tikv]	table:t	keep order:false
 select sleep(5);
 sleep(5)
 0
@@ -657,39 +612,36 @@ id	vec
 200	[200,200,200]
 explain select * from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 id	estRows	task	access object	operator info
-Projection_6	2.00	root		vector.t.id, vector.t.vec
-└─TopN_11	2.00	root		Column#4, offset:?, count:?
-  └─TableReader_29	2.00	root		MppVersion: 2, data:ExchangeSender_28
-    └─ExchangeSender_28	2.00	mpp[tiflash]		ExchangeType: PassThrough
-      └─TopN_27	2.00	mpp[tiflash]		Column#4, offset:?, count:?
-        └─Projection_26	2.00	mpp[tiflash]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
-          └─TableFullScan_25	2.00	mpp[tiflash]	table:t, index:vector_index(vec)	keep order:false, annIndex:L2(vec..[2e+02,2e+02,2e+02], limit:2)
+TopN_11	2.00	root		Column#4, offset:?, count:?
+└─TableReader_29	2.00	root		MppVersion: 2, data:ExchangeSender_28
+  └─ExchangeSender_28	2.00	mpp[tiflash]		ExchangeType: PassThrough
+    └─TopN_27	2.00	mpp[tiflash]		Column#4, offset:?, count:?
+      └─Projection_26	2.00	mpp[tiflash]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
+        └─TableFullScan_25	2.00	mpp[tiflash]	table:t, index:vector_index(vec)	keep order:false, annIndex:L2(vec..[2e+02,2e+02,2e+02], limit:2)
 select id from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 id
 201
 200
 explain select id from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 id	estRows	task	access object	operator info
-Projection_7	2.00	root		vector.t.id
-└─TopN_12	2.00	root		Column#5, offset:?, count:?
-  └─TableReader_30	2.00	root		MppVersion: 2, data:ExchangeSender_29
-    └─ExchangeSender_29	2.00	mpp[tiflash]		ExchangeType: PassThrough
-      └─TopN_28	2.00	mpp[tiflash]		Column#5, offset:?, count:?
-        └─Projection_27	2.00	mpp[tiflash]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#5
-          └─TableFullScan_26	2.00	mpp[tiflash]	table:t, index:vector_index(vec)	keep order:false, annIndex:L2(vec..[2e+02,2e+02,2e+02], limit:2)
+TopN_12	2.00	root		Column#5, offset:?, count:?
+└─TableReader_30	2.00	root		MppVersion: 2, data:ExchangeSender_29
+  └─ExchangeSender_29	2.00	mpp[tiflash]		ExchangeType: PassThrough
+    └─TopN_28	2.00	mpp[tiflash]		Column#5, offset:?, count:?
+      └─Projection_27	2.00	mpp[tiflash]		vector.t.id, vec_l2_distance(vector.t.vec, ?)->Column#5
+        └─TableFullScan_26	2.00	mpp[tiflash]	table:t, index:vector_index(vec)	keep order:false, annIndex:L2(vec..[2e+02,2e+02,2e+02], limit:2)
 select vec from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 vec
 [201,201,201]
 [200,200,200]
 explain select vec from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 id	estRows	task	access object	operator info
-Projection_6	2.00	root		vector.t.vec
-└─TopN_11	2.00	root		Column#4, offset:?, count:?
-  └─TableReader_29	2.00	root		MppVersion: 2, data:ExchangeSender_28
-    └─ExchangeSender_28	2.00	mpp[tiflash]		ExchangeType: PassThrough
-      └─TopN_27	2.00	mpp[tiflash]		Column#4, offset:?, count:?
-        └─Projection_26	2.00	mpp[tiflash]		vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
-          └─TableFullScan_25	2.00	mpp[tiflash]	table:t, index:vector_index(vec)	keep order:false, annIndex:L2(vec..[2e+02,2e+02,2e+02], limit:2)
+TopN_11	2.00	root		Column#4, offset:?, count:?
+└─TableReader_29	2.00	root		MppVersion: 2, data:ExchangeSender_28
+  └─ExchangeSender_28	2.00	mpp[tiflash]		ExchangeType: PassThrough
+    └─TopN_27	2.00	mpp[tiflash]		Column#4, offset:?, count:?
+      └─Projection_26	2.00	mpp[tiflash]		vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
+        └─TableFullScan_25	2.00	mpp[tiflash]	table:t, index:vector_index(vec)	keep order:false, annIndex:L2(vec..[2e+02,2e+02,2e+02], limit:2)
 alter table t compact;
 select * from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 id	vec
@@ -697,39 +649,36 @@ id	vec
 200	[200,200,200]
 explain select * from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 id	estRows	task	access object	operator info
-Projection_6	2.00	root		vector.t.id, vector.t.vec
-└─TopN_11	2.00	root		Column#4, offset:?, count:?
-  └─TableReader_29	2.00	root		MppVersion: 2, data:ExchangeSender_28
-    └─ExchangeSender_28	2.00	mpp[tiflash]		ExchangeType: PassThrough
-      └─TopN_27	2.00	mpp[tiflash]		Column#4, offset:?, count:?
-        └─Projection_26	2.00	mpp[tiflash]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
-          └─TableFullScan_25	2.00	mpp[tiflash]	table:t, index:vector_index(vec)	keep order:false, annIndex:L2(vec..[2e+02,2e+02,2e+02], limit:2)
+TopN_11	2.00	root		Column#4, offset:?, count:?
+└─TableReader_29	2.00	root		MppVersion: 2, data:ExchangeSender_28
+  └─ExchangeSender_28	2.00	mpp[tiflash]		ExchangeType: PassThrough
+    └─TopN_27	2.00	mpp[tiflash]		Column#4, offset:?, count:?
+      └─Projection_26	2.00	mpp[tiflash]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
+        └─TableFullScan_25	2.00	mpp[tiflash]	table:t, index:vector_index(vec)	keep order:false, annIndex:L2(vec..[2e+02,2e+02,2e+02], limit:2)
 select id from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 id
 201
 200
 explain select id from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 id	estRows	task	access object	operator info
-Projection_7	2.00	root		vector.t.id
-└─TopN_12	2.00	root		Column#5, offset:?, count:?
-  └─TableReader_30	2.00	root		MppVersion: 2, data:ExchangeSender_29
-    └─ExchangeSender_29	2.00	mpp[tiflash]		ExchangeType: PassThrough
-      └─TopN_28	2.00	mpp[tiflash]		Column#5, offset:?, count:?
-        └─Projection_27	2.00	mpp[tiflash]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#5
-          └─TableFullScan_26	2.00	mpp[tiflash]	table:t, index:vector_index(vec)	keep order:false, annIndex:L2(vec..[2e+02,2e+02,2e+02], limit:2)
+TopN_12	2.00	root		Column#5, offset:?, count:?
+└─TableReader_30	2.00	root		MppVersion: 2, data:ExchangeSender_29
+  └─ExchangeSender_29	2.00	mpp[tiflash]		ExchangeType: PassThrough
+    └─TopN_28	2.00	mpp[tiflash]		Column#5, offset:?, count:?
+      └─Projection_27	2.00	mpp[tiflash]		vector.t.id, vec_l2_distance(vector.t.vec, ?)->Column#5
+        └─TableFullScan_26	2.00	mpp[tiflash]	table:t, index:vector_index(vec)	keep order:false, annIndex:L2(vec..[2e+02,2e+02,2e+02], limit:2)
 select vec from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 vec
 [201,201,201]
 [200,200,200]
 explain select vec from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 id	estRows	task	access object	operator info
-Projection_6	2.00	root		vector.t.vec
-└─TopN_11	2.00	root		Column#4, offset:?, count:?
-  └─TableReader_29	2.00	root		MppVersion: 2, data:ExchangeSender_28
-    └─ExchangeSender_28	2.00	mpp[tiflash]		ExchangeType: PassThrough
-      └─TopN_27	2.00	mpp[tiflash]		Column#4, offset:?, count:?
-        └─Projection_26	2.00	mpp[tiflash]		vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
-          └─TableFullScan_25	2.00	mpp[tiflash]	table:t, index:vector_index(vec)	keep order:false, annIndex:L2(vec..[2e+02,2e+02,2e+02], limit:2)
+TopN_11	2.00	root		Column#4, offset:?, count:?
+└─TableReader_29	2.00	root		MppVersion: 2, data:ExchangeSender_28
+  └─ExchangeSender_28	2.00	mpp[tiflash]		ExchangeType: PassThrough
+    └─TopN_27	2.00	mpp[tiflash]		Column#4, offset:?, count:?
+      └─Projection_26	2.00	mpp[tiflash]		vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
+        └─TableFullScan_25	2.00	mpp[tiflash]	table:t, index:vector_index(vec)	keep order:false, annIndex:L2(vec..[2e+02,2e+02,2e+02], limit:2)
 set @@tidb_isolation_read_engines="tidb,tikv,tiflash";
 drop table t;
 // large dataset, fixed vector, clustered char PK, indexed
@@ -742,36 +691,33 @@ id201	[201,201,201]
 id200	[200,200,200]
 explain select * from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 id	estRows	task	access object	operator info
-Projection_6	2.00	root		vector.t.id, vector.t.vec
-└─TopN_7	2.00	root		Column#3, offset:?, count:?
-  └─TableReader_14	2.00	root		data:TopN_13
-    └─TopN_13	2.00	cop[tikv]		Column#3, offset:?, count:?
-      └─Projection_12	2.00	cop[tikv]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#3
-        └─TableFullScan_11	500.00	cop[tikv]	table:t	keep order:false
+TopN_7	2.00	root		Column#3, offset:?, count:?
+└─TableReader_14	2.00	root		data:TopN_13
+  └─TopN_13	2.00	cop[tikv]		Column#3, offset:?, count:?
+    └─Projection_12	2.00	cop[tikv]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#3
+      └─TableFullScan_11	500.00	cop[tikv]	table:t	keep order:false
 select id from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 id
 id201
 id200
 explain select id from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 id	estRows	task	access object	operator info
-Projection_7	2.00	root		vector.t.id
-└─TopN_8	2.00	root		Column#4, offset:?, count:?
-  └─TableReader_15	2.00	root		data:TopN_14
-    └─TopN_14	2.00	cop[tikv]		Column#4, offset:?, count:?
-      └─Projection_13	2.00	cop[tikv]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
-        └─TableFullScan_12	500.00	cop[tikv]	table:t	keep order:false
+TopN_8	2.00	root		Column#4, offset:?, count:?
+└─TableReader_15	2.00	root		data:TopN_14
+  └─TopN_14	2.00	cop[tikv]		Column#4, offset:?, count:?
+    └─Projection_13	2.00	cop[tikv]		vector.t.id, vec_l2_distance(vector.t.vec, ?)->Column#4
+      └─TableFullScan_12	500.00	cop[tikv]	table:t	keep order:false
 select vec from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 vec
 [201,201,201]
 [200,200,200]
 explain select vec from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 id	estRows	task	access object	operator info
-Projection_6	2.00	root		vector.t.vec
-└─TopN_7	2.00	root		Column#3, offset:?, count:?
-  └─TableReader_14	2.00	root		data:TopN_13
-    └─TopN_13	2.00	cop[tikv]		Column#3, offset:?, count:?
-      └─Projection_12	2.00	cop[tikv]		vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#3
-        └─TableFullScan_11	500.00	cop[tikv]	table:t	keep order:false
+TopN_7	2.00	root		Column#3, offset:?, count:?
+└─TableReader_14	2.00	root		data:TopN_13
+  └─TopN_13	2.00	cop[tikv]		Column#3, offset:?, count:?
+    └─Projection_12	2.00	cop[tikv]		vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#3
+      └─TableFullScan_11	500.00	cop[tikv]	table:t	keep order:false
 select sleep(5);
 sleep(5)
 0
@@ -782,39 +728,36 @@ id201	[201,201,201]
 id200	[200,200,200]
 explain select * from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 id	estRows	task	access object	operator info
-Projection_6	2.00	root		vector.t.id, vector.t.vec
-└─TopN_10	2.00	root		Column#3, offset:?, count:?
-  └─TableReader_23	2.00	root		MppVersion: 2, data:ExchangeSender_22
-    └─ExchangeSender_22	2.00	mpp[tiflash]		ExchangeType: PassThrough
-      └─TopN_21	2.00	mpp[tiflash]		Column#3, offset:?, count:?
-        └─Projection_20	2.00	mpp[tiflash]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#3
-          └─TableFullScan_18	500.00	mpp[tiflash]	table:t	keep order:false
+TopN_10	2.00	root		Column#3, offset:?, count:?
+└─TableReader_23	2.00	root		MppVersion: 2, data:ExchangeSender_22
+  └─ExchangeSender_22	2.00	mpp[tiflash]		ExchangeType: PassThrough
+    └─TopN_21	2.00	mpp[tiflash]		Column#3, offset:?, count:?
+      └─Projection_20	2.00	mpp[tiflash]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#3
+        └─TableFullScan_18	500.00	mpp[tiflash]	table:t	keep order:false
 select id from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 id
 id201
 id200
 explain select id from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 id	estRows	task	access object	operator info
-Projection_7	2.00	root		vector.t.id
-└─TopN_11	2.00	root		Column#4, offset:?, count:?
-  └─TableReader_24	2.00	root		MppVersion: 2, data:ExchangeSender_23
-    └─ExchangeSender_23	2.00	mpp[tiflash]		ExchangeType: PassThrough
-      └─TopN_22	2.00	mpp[tiflash]		Column#4, offset:?, count:?
-        └─Projection_21	2.00	mpp[tiflash]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
-          └─TableFullScan_19	500.00	mpp[tiflash]	table:t	keep order:false
+TopN_11	2.00	root		Column#4, offset:?, count:?
+└─TableReader_24	2.00	root		MppVersion: 2, data:ExchangeSender_23
+  └─ExchangeSender_23	2.00	mpp[tiflash]		ExchangeType: PassThrough
+    └─TopN_22	2.00	mpp[tiflash]		Column#4, offset:?, count:?
+      └─Projection_21	2.00	mpp[tiflash]		vector.t.id, vec_l2_distance(vector.t.vec, ?)->Column#4
+        └─TableFullScan_19	500.00	mpp[tiflash]	table:t	keep order:false
 select vec from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 vec
 [201,201,201]
 [200,200,200]
 explain select vec from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 id	estRows	task	access object	operator info
-Projection_6	2.00	root		vector.t.vec
-└─TopN_11	2.00	root		Column#4, offset:?, count:?
-  └─TableReader_29	2.00	root		MppVersion: 2, data:ExchangeSender_28
-    └─ExchangeSender_28	2.00	mpp[tiflash]		ExchangeType: PassThrough
-      └─TopN_27	2.00	mpp[tiflash]		Column#4, offset:?, count:?
-        └─Projection_26	2.00	mpp[tiflash]		vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
-          └─TableFullScan_25	2.00	mpp[tiflash]	table:t, index:vector_index(vec)	keep order:false, annIndex:L2(vec..[2e+02,2e+02,2e+02], limit:2)
+TopN_11	2.00	root		Column#4, offset:?, count:?
+└─TableReader_29	2.00	root		MppVersion: 2, data:ExchangeSender_28
+  └─ExchangeSender_28	2.00	mpp[tiflash]		ExchangeType: PassThrough
+    └─TopN_27	2.00	mpp[tiflash]		Column#4, offset:?, count:?
+      └─Projection_26	2.00	mpp[tiflash]		vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
+        └─TableFullScan_25	2.00	mpp[tiflash]	table:t, index:vector_index(vec)	keep order:false, annIndex:L2(vec..[2e+02,2e+02,2e+02], limit:2)
 alter table t compact;
 select * from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 id	vec
@@ -822,39 +765,36 @@ id201	[201,201,201]
 id200	[200,200,200]
 explain select * from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 id	estRows	task	access object	operator info
-Projection_6	2.00	root		vector.t.id, vector.t.vec
-└─TopN_10	2.00	root		Column#3, offset:?, count:?
-  └─TableReader_23	2.00	root		MppVersion: 2, data:ExchangeSender_22
-    └─ExchangeSender_22	2.00	mpp[tiflash]		ExchangeType: PassThrough
-      └─TopN_21	2.00	mpp[tiflash]		Column#3, offset:?, count:?
-        └─Projection_20	2.00	mpp[tiflash]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#3
-          └─TableFullScan_18	500.00	mpp[tiflash]	table:t	keep order:false
+TopN_10	2.00	root		Column#3, offset:?, count:?
+└─TableReader_23	2.00	root		MppVersion: 2, data:ExchangeSender_22
+  └─ExchangeSender_22	2.00	mpp[tiflash]		ExchangeType: PassThrough
+    └─TopN_21	2.00	mpp[tiflash]		Column#3, offset:?, count:?
+      └─Projection_20	2.00	mpp[tiflash]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#3
+        └─TableFullScan_18	500.00	mpp[tiflash]	table:t	keep order:false
 select id from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 id
 id201
 id200
 explain select id from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 id	estRows	task	access object	operator info
-Projection_7	2.00	root		vector.t.id
-└─TopN_11	2.00	root		Column#4, offset:?, count:?
-  └─TableReader_24	2.00	root		MppVersion: 2, data:ExchangeSender_23
-    └─ExchangeSender_23	2.00	mpp[tiflash]		ExchangeType: PassThrough
-      └─TopN_22	2.00	mpp[tiflash]		Column#4, offset:?, count:?
-        └─Projection_21	2.00	mpp[tiflash]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
-          └─TableFullScan_19	500.00	mpp[tiflash]	table:t	keep order:false
+TopN_11	2.00	root		Column#4, offset:?, count:?
+└─TableReader_24	2.00	root		MppVersion: 2, data:ExchangeSender_23
+  └─ExchangeSender_23	2.00	mpp[tiflash]		ExchangeType: PassThrough
+    └─TopN_22	2.00	mpp[tiflash]		Column#4, offset:?, count:?
+      └─Projection_21	2.00	mpp[tiflash]		vector.t.id, vec_l2_distance(vector.t.vec, ?)->Column#4
+        └─TableFullScan_19	500.00	mpp[tiflash]	table:t	keep order:false
 select vec from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 vec
 [201,201,201]
 [200,200,200]
 explain select vec from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 id	estRows	task	access object	operator info
-Projection_6	2.00	root		vector.t.vec
-└─TopN_11	2.00	root		Column#4, offset:?, count:?
-  └─TableReader_29	2.00	root		MppVersion: 2, data:ExchangeSender_28
-    └─ExchangeSender_28	2.00	mpp[tiflash]		ExchangeType: PassThrough
-      └─TopN_27	2.00	mpp[tiflash]		Column#4, offset:?, count:?
-        └─Projection_26	2.00	mpp[tiflash]		vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
-          └─TableFullScan_25	2.00	mpp[tiflash]	table:t, index:vector_index(vec)	keep order:false, annIndex:L2(vec..[2e+02,2e+02,2e+02], limit:2)
+TopN_11	2.00	root		Column#4, offset:?, count:?
+└─TableReader_29	2.00	root		MppVersion: 2, data:ExchangeSender_28
+  └─ExchangeSender_28	2.00	mpp[tiflash]		ExchangeType: PassThrough
+    └─TopN_27	2.00	mpp[tiflash]		Column#4, offset:?, count:?
+      └─Projection_26	2.00	mpp[tiflash]		vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
+        └─TableFullScan_25	2.00	mpp[tiflash]	table:t, index:vector_index(vec)	keep order:false, annIndex:L2(vec..[2e+02,2e+02,2e+02], limit:2)
 set @@tidb_isolation_read_engines="tidb,tikv,tiflash";
 drop table t;
 // large dataset, fixed vector, non-clustered char PK, indexed
@@ -867,36 +807,33 @@ id201	[201,201,201]
 id200	[200,200,200]
 explain select * from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 id	estRows	task	access object	operator info
-Projection_6	2.00	root		vector.t.id, vector.t.vec
-└─TopN_7	2.00	root		Column#4, offset:?, count:?
-  └─TableReader_14	2.00	root		data:TopN_13
-    └─TopN_13	2.00	cop[tikv]		Column#4, offset:?, count:?
-      └─Projection_12	2.00	cop[tikv]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
-        └─TableFullScan_11	500.00	cop[tikv]	table:t	keep order:false
+TopN_7	2.00	root		Column#4, offset:?, count:?
+└─TableReader_14	2.00	root		data:TopN_13
+  └─TopN_13	2.00	cop[tikv]		Column#4, offset:?, count:?
+    └─Projection_12	2.00	cop[tikv]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
+      └─TableFullScan_11	500.00	cop[tikv]	table:t	keep order:false
 select id from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 id
 id201
 id200
 explain select id from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 id	estRows	task	access object	operator info
-Projection_7	2.00	root		vector.t.id
-└─TopN_8	2.00	root		Column#5, offset:?, count:?
-  └─TableReader_15	2.00	root		data:TopN_14
-    └─TopN_14	2.00	cop[tikv]		Column#5, offset:?, count:?
-      └─Projection_13	2.00	cop[tikv]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#5
-        └─TableFullScan_12	500.00	cop[tikv]	table:t	keep order:false
+TopN_8	2.00	root		Column#5, offset:?, count:?
+└─TableReader_15	2.00	root		data:TopN_14
+  └─TopN_14	2.00	cop[tikv]		Column#5, offset:?, count:?
+    └─Projection_13	2.00	cop[tikv]		vector.t.id, vec_l2_distance(vector.t.vec, ?)->Column#5
+      └─TableFullScan_12	500.00	cop[tikv]	table:t	keep order:false
 select vec from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 vec
 [201,201,201]
 [200,200,200]
 explain select vec from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 id	estRows	task	access object	operator info
-Projection_6	2.00	root		vector.t.vec
-└─TopN_7	2.00	root		Column#4, offset:?, count:?
-  └─TableReader_14	2.00	root		data:TopN_13
-    └─TopN_13	2.00	cop[tikv]		Column#4, offset:?, count:?
-      └─Projection_12	2.00	cop[tikv]		vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
-        └─TableFullScan_11	500.00	cop[tikv]	table:t	keep order:false
+TopN_7	2.00	root		Column#4, offset:?, count:?
+└─TableReader_14	2.00	root		data:TopN_13
+  └─TopN_13	2.00	cop[tikv]		Column#4, offset:?, count:?
+    └─Projection_12	2.00	cop[tikv]		vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
+      └─TableFullScan_11	500.00	cop[tikv]	table:t	keep order:false
 select sleep(5);
 sleep(5)
 0
@@ -907,39 +844,36 @@ id201	[201,201,201]
 id200	[200,200,200]
 explain select * from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 id	estRows	task	access object	operator info
-Projection_6	2.00	root		vector.t.id, vector.t.vec
-└─TopN_10	2.00	root		Column#4, offset:?, count:?
-  └─TableReader_23	2.00	root		MppVersion: 2, data:ExchangeSender_22
-    └─ExchangeSender_22	2.00	mpp[tiflash]		ExchangeType: PassThrough
-      └─TopN_21	2.00	mpp[tiflash]		Column#4, offset:?, count:?
-        └─Projection_20	2.00	mpp[tiflash]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
-          └─TableFullScan_18	500.00	mpp[tiflash]	table:t	keep order:false
+TopN_10	2.00	root		Column#4, offset:?, count:?
+└─TableReader_23	2.00	root		MppVersion: 2, data:ExchangeSender_22
+  └─ExchangeSender_22	2.00	mpp[tiflash]		ExchangeType: PassThrough
+    └─TopN_21	2.00	mpp[tiflash]		Column#4, offset:?, count:?
+      └─Projection_20	2.00	mpp[tiflash]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
+        └─TableFullScan_18	500.00	mpp[tiflash]	table:t	keep order:false
 select id from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 id
 id201
 id200
 explain select id from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 id	estRows	task	access object	operator info
-Projection_7	2.00	root		vector.t.id
-└─TopN_11	2.00	root		Column#5, offset:?, count:?
-  └─TableReader_24	2.00	root		MppVersion: 2, data:ExchangeSender_23
-    └─ExchangeSender_23	2.00	mpp[tiflash]		ExchangeType: PassThrough
-      └─TopN_22	2.00	mpp[tiflash]		Column#5, offset:?, count:?
-        └─Projection_21	2.00	mpp[tiflash]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#5
-          └─TableFullScan_19	500.00	mpp[tiflash]	table:t	keep order:false
+TopN_11	2.00	root		Column#5, offset:?, count:?
+└─TableReader_24	2.00	root		MppVersion: 2, data:ExchangeSender_23
+  └─ExchangeSender_23	2.00	mpp[tiflash]		ExchangeType: PassThrough
+    └─TopN_22	2.00	mpp[tiflash]		Column#5, offset:?, count:?
+      └─Projection_21	2.00	mpp[tiflash]		vector.t.id, vec_l2_distance(vector.t.vec, ?)->Column#5
+        └─TableFullScan_19	500.00	mpp[tiflash]	table:t	keep order:false
 select vec from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 vec
 [201,201,201]
 [200,200,200]
 explain select vec from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 id	estRows	task	access object	operator info
-Projection_6	2.00	root		vector.t.vec
-└─TopN_11	2.00	root		Column#5, offset:?, count:?
-  └─TableReader_29	2.00	root		MppVersion: 2, data:ExchangeSender_28
-    └─ExchangeSender_28	2.00	mpp[tiflash]		ExchangeType: PassThrough
-      └─TopN_27	2.00	mpp[tiflash]		Column#5, offset:?, count:?
-        └─Projection_26	2.00	mpp[tiflash]		vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#5
-          └─TableFullScan_25	2.00	mpp[tiflash]	table:t, index:vector_index(vec)	keep order:false, annIndex:L2(vec..[2e+02,2e+02,2e+02], limit:2)
+TopN_11	2.00	root		Column#5, offset:?, count:?
+└─TableReader_29	2.00	root		MppVersion: 2, data:ExchangeSender_28
+  └─ExchangeSender_28	2.00	mpp[tiflash]		ExchangeType: PassThrough
+    └─TopN_27	2.00	mpp[tiflash]		Column#5, offset:?, count:?
+      └─Projection_26	2.00	mpp[tiflash]		vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#5
+        └─TableFullScan_25	2.00	mpp[tiflash]	table:t, index:vector_index(vec)	keep order:false, annIndex:L2(vec..[2e+02,2e+02,2e+02], limit:2)
 alter table t compact;
 select * from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 id	vec
@@ -947,39 +881,36 @@ id201	[201,201,201]
 id200	[200,200,200]
 explain select * from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 id	estRows	task	access object	operator info
-Projection_6	2.00	root		vector.t.id, vector.t.vec
-└─TopN_10	2.00	root		Column#4, offset:?, count:?
-  └─TableReader_23	2.00	root		MppVersion: 2, data:ExchangeSender_22
-    └─ExchangeSender_22	2.00	mpp[tiflash]		ExchangeType: PassThrough
-      └─TopN_21	2.00	mpp[tiflash]		Column#4, offset:?, count:?
-        └─Projection_20	2.00	mpp[tiflash]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
-          └─TableFullScan_18	500.00	mpp[tiflash]	table:t	keep order:false
+TopN_10	2.00	root		Column#4, offset:?, count:?
+└─TableReader_23	2.00	root		MppVersion: 2, data:ExchangeSender_22
+  └─ExchangeSender_22	2.00	mpp[tiflash]		ExchangeType: PassThrough
+    └─TopN_21	2.00	mpp[tiflash]		Column#4, offset:?, count:?
+      └─Projection_20	2.00	mpp[tiflash]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#4
+        └─TableFullScan_18	500.00	mpp[tiflash]	table:t	keep order:false
 select id from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 id
 id201
 id200
 explain select id from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 id	estRows	task	access object	operator info
-Projection_7	2.00	root		vector.t.id
-└─TopN_11	2.00	root		Column#5, offset:?, count:?
-  └─TableReader_24	2.00	root		MppVersion: 2, data:ExchangeSender_23
-    └─ExchangeSender_23	2.00	mpp[tiflash]		ExchangeType: PassThrough
-      └─TopN_22	2.00	mpp[tiflash]		Column#5, offset:?, count:?
-        └─Projection_21	2.00	mpp[tiflash]		vector.t.id, vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#5
-          └─TableFullScan_19	500.00	mpp[tiflash]	table:t	keep order:false
+TopN_11	2.00	root		Column#5, offset:?, count:?
+└─TableReader_24	2.00	root		MppVersion: 2, data:ExchangeSender_23
+  └─ExchangeSender_23	2.00	mpp[tiflash]		ExchangeType: PassThrough
+    └─TopN_22	2.00	mpp[tiflash]		Column#5, offset:?, count:?
+      └─Projection_21	2.00	mpp[tiflash]		vector.t.id, vec_l2_distance(vector.t.vec, ?)->Column#5
+        └─TableFullScan_19	500.00	mpp[tiflash]	table:t	keep order:false
 select vec from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 vec
 [201,201,201]
 [200,200,200]
 explain select vec from t order by vec_l2_distance(vec, '[200.8,200.8,200.8]') limit 2;
 id	estRows	task	access object	operator info
-Projection_6	2.00	root		vector.t.vec
-└─TopN_11	2.00	root		Column#5, offset:?, count:?
-  └─TableReader_29	2.00	root		MppVersion: 2, data:ExchangeSender_28
-    └─ExchangeSender_28	2.00	mpp[tiflash]		ExchangeType: PassThrough
-      └─TopN_27	2.00	mpp[tiflash]		Column#5, offset:?, count:?
-        └─Projection_26	2.00	mpp[tiflash]		vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#5
-          └─TableFullScan_25	2.00	mpp[tiflash]	table:t, index:vector_index(vec)	keep order:false, annIndex:L2(vec..[2e+02,2e+02,2e+02], limit:2)
+TopN_11	2.00	root		Column#5, offset:?, count:?
+└─TableReader_29	2.00	root		MppVersion: 2, data:ExchangeSender_28
+  └─ExchangeSender_28	2.00	mpp[tiflash]		ExchangeType: PassThrough
+    └─TopN_27	2.00	mpp[tiflash]		Column#5, offset:?, count:?
+      └─Projection_26	2.00	mpp[tiflash]		vector.t.vec, vec_l2_distance(vector.t.vec, ?)->Column#5
+        └─TableFullScan_25	2.00	mpp[tiflash]	table:t, index:vector_index(vec)	keep order:false, annIndex:L2(vec..[2e+02,2e+02,2e+02], limit:2)
 set @@tidb_isolation_read_engines="tidb,tikv,tiflash";
 drop table t;
 // Test cases from expression/integration_test

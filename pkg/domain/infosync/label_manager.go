@@ -17,9 +17,12 @@ package infosync
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/pingcap/tidb/pkg/ddl/label"
+	"github.com/tikv/client-go/v2/tikv"
 	pd "github.com/tikv/pd/client/http"
 )
 
@@ -27,7 +30,7 @@ import (
 type LabelRuleManager interface {
 	PutLabelRule(ctx context.Context, rule *label.Rule) error
 	UpdateLabelRules(ctx context.Context, patch *pd.LabelRulePatch) error
-	GetAllLabelRules(ctx context.Context) ([]*label.Rule, error)
+	GetAllLabelRules(ctx context.Context, codec tikv.Codec) ([]*label.Rule, error)
 	GetLabelRules(ctx context.Context, ruleIDs []string) (map[string]*label.Rule, error)
 }
 
@@ -47,16 +50,31 @@ func (lm *PDLabelManager) UpdateLabelRules(ctx context.Context, patch *pd.LabelR
 }
 
 // GetAllLabelRules implements GetAllLabelRules
-func (lm *PDLabelManager) GetAllLabelRules(ctx context.Context) ([]*label.Rule, error) {
+func (lm *PDLabelManager) GetAllLabelRules(ctx context.Context, codec tikv.Codec) ([]*label.Rule, error) {
 	labelRules, err := lm.pdHTTPCli.GetAllRegionLabelRules(ctx)
 	if err != nil {
 		return nil, err
 	}
-	r := make([]*label.Rule, 0, len(labelRules))
+	rules := make([]*label.Rule, 0, len(labelRules))
 	for _, labelRule := range labelRules {
-		r = append(r, (*label.Rule)(labelRule))
+		rules = append(rules, (*label.Rule)(labelRule))
 	}
-	return r, nil
+
+	var rulePrefix string
+	if codec.GetKeyspaceMeta() == nil {
+		rulePrefix = label.IDPrefix
+	} else {
+		rulePrefix = fmt.Sprintf("%s/%d/", label.KeyspacePrefix, codec.GetKeyspaceID())
+	}
+
+	// Filter rules to only keep those with IDs matching the rulePrefix
+	filteredRules := make([]*label.Rule, 0, len(rules))
+	for _, rule := range rules {
+		if strings.HasPrefix(rule.ID, rulePrefix) {
+			filteredRules = append(filteredRules, rule)
+		}
+	}
+	return filteredRules, nil
 }
 
 // GetLabelRules implements GetLabelRules
@@ -116,7 +134,7 @@ func (mm *mockLabelManager) UpdateLabelRules(_ context.Context, patch *pd.LabelR
 }
 
 // mockLabelManager implements GetAllLabelRules
-func (mm *mockLabelManager) GetAllLabelRules(context.Context) ([]*label.Rule, error) {
+func (mm *mockLabelManager) GetAllLabelRules(ctx context.Context, codec tikv.Codec) ([]*label.Rule, error) {
 	mm.RLock()
 	defer mm.RUnlock()
 	r := make([]*label.Rule, 0, len(mm.labelRules))
@@ -131,7 +149,22 @@ func (mm *mockLabelManager) GetAllLabelRules(context.Context) ([]*label.Rule, er
 		}
 		r = append(r, rule)
 	}
-	return r, nil
+
+	var rulePrefix string
+	if codec.GetKeyspaceMeta() == nil {
+		rulePrefix = label.IDPrefix
+	} else {
+		rulePrefix = fmt.Sprintf("%s/%d/", label.KeyspacePrefix, codec.GetKeyspaceID())
+	}
+
+	// Filter rules to only keep those with IDs matching the rulePrefix
+	filteredRules := make([]*label.Rule, 0, len(r))
+	for _, rule := range r {
+		if strings.HasPrefix(rule.ID, rulePrefix) {
+			filteredRules = append(filteredRules, rule)
+		}
+	}
+	return filteredRules, nil
 }
 
 // mockLabelManager implements GetLabelRules

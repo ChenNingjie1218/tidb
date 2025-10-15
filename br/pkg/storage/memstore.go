@@ -287,6 +287,10 @@ func (s *MemStorage) Close() {
 	s.dataStore = nil
 }
 
+func (s *MemStorage) UseLocalDisk(context.Context) (bool, error) {
+	return false, nil
+}
+
 // memFileReader is the struct to read data from an opend mem storage file
 type memFileReader struct {
 	br       *bytes.Reader

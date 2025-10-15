@@ -1105,7 +1105,7 @@ func (e *LoadDataController) InitDataFiles(ctx context.Context) error {
 			Compression: compressTp,
 			Type:        sourceType,
 		}
-		fileMeta.RealSize = mydump.EstimateRealSizeForFile(ctx, fileMeta, s)
+		fileMeta.RealSize = mydump.EstimateRealSizeForFile(ctx, fileMeta, s, 0)
 		dataFiles = append(dataFiles, &fileMeta)
 		totalSize = size
 	} else {
@@ -1147,7 +1147,7 @@ func (e *LoadDataController) InitDataFiles(ctx context.Context) error {
 					Compression: compressTp,
 					Type:        sourceType,
 				}
-				fileMeta.RealSize = mydump.EstimateRealSizeForFile(ctx, fileMeta, s)
+				fileMeta.RealSize = mydump.EstimateRealSizeForFile(ctx, fileMeta, s, 0)
 				return &fileMeta, nil
 			}); err != nil {
 			return err

@@ -131,6 +131,26 @@ func TestCreateStorage(t *testing.T) {
 	require.Equal(t, "https://gcs.example.com/", gcs.Endpoint)
 	require.Equal(t, "", gcs.CredentialsBlob)
 
+	s, err = ParseBackend("gcs://bucket/more/prefix/?credentials=Pz8_fn5-fg==", &BackendOptions{
+		GCS: GCSBackendOptions{},
+	})
+	require.NoError(t, err)
+	gcs = s.GetGcs()
+	require.NotNil(t, gcs)
+	require.Equal(t, "bucket", gcs.Bucket)
+	require.Equal(t, "more/prefix", gcs.Prefix)
+	require.Equal(t, "???~~~~", gcs.CredentialsBlob)
+
+	s, err = ParseBackend("gcs://bucket/more/prefix/?credentials=Pz8_fn5-fg%3D%3D", &BackendOptions{
+		GCS: GCSBackendOptions{},
+	})
+	require.NoError(t, err)
+	gcs = s.GetGcs()
+	require.NotNil(t, gcs)
+	require.Equal(t, "bucket", gcs.Bucket)
+	require.Equal(t, "more/prefix", gcs.Prefix)
+	require.Equal(t, "???~~~~", gcs.CredentialsBlob)
+
 	var credFilePerm os.FileMode = 0o600
 	fakeCredentialsFile := filepath.Join(t.TempDir(), "fakeCredentialsFile")
 	err = os.WriteFile(fakeCredentialsFile, []byte("fakeCredentials"), credFilePerm)

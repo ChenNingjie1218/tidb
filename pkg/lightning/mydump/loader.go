@@ -40,6 +40,8 @@ const (
 	sampleCompressedFileSize = 4 * 1024
 	maxSampleParquetDataSize = 8 * 1024
 	maxSampleParquetRowCount = 500
+	// defaultEmpiricalCompressRatio is 0 so that the process will calculate the compression ratio for sample files.
+	defaultEmpiricalCompressRatio = 0
 )
 
 // MDDatabaseMeta contains some parsed metadata for a database in the source by MyDumper Loader.
@@ -85,7 +87,8 @@ type MDTableMeta struct {
 	TotalSize  int64
 	IndexRatio float64
 	// default to true, and if we do precheck, this var is updated using data sampling result, so it's not accurate.
-	IsRowOrdered bool
+	IsRowOrdered  bool
+	CreatedByFile bool
 }
 
 // SourceFileMeta contains some analyzed metadata for a source file by MyDumper Loader.
@@ -153,6 +156,9 @@ type MDLoaderSetupConfig struct {
 	ReturnPartialResultOnError bool
 	// FileIter controls the file iteration policy when constructing a MDLoader.
 	FileIter FileIterator
+	// empiricalCompressRatio is the empirical value of compress ratio for data files. If empiricalCompressRatio is set,
+	// the process will skip calculating the compression ratio for sample files and use the provided empirical value instead.
+	empiricalCompressRatio float64
 }
 
 // DefaultMDLoaderSetupConfig generates a default MDLoaderSetupConfig.
@@ -161,6 +167,7 @@ func DefaultMDLoaderSetupConfig() *MDLoaderSetupConfig {
 		MaxScanFiles:               0, // By default, the loader will scan all the files.
 		ReturnPartialResultOnError: false,
 		FileIter:                   nil,
+		empiricalCompressRatio:     defaultEmpiricalCompressRatio,
 	}
 }
 
@@ -223,20 +230,22 @@ type LoaderConfig struct {
 	// DefaultFileRules indicates whether to use the default file routing rules.
 	// If it's true, the default file routing rules will be appended to the FileRouters.
 	// a little confusing, but it's true only when FileRouters is empty.
-	DefaultFileRules bool
+	DefaultFileRules       bool
+	EmpiricalCompressRatio float64
 }
 
 // NewLoaderCfg creates loader config from lightning config.
 func NewLoaderCfg(cfg *config.Config) LoaderConfig {
 	return LoaderConfig{
-		SourceID:         cfg.Mydumper.SourceID,
-		SourceURL:        cfg.Mydumper.SourceDir,
-		Routes:           cfg.Routes,
-		CharacterSet:     cfg.Mydumper.CharacterSet,
-		Filter:           cfg.Mydumper.Filter,
-		FileRouters:      cfg.Mydumper.FileRouters,
-		CaseSensitive:    cfg.Mydumper.CaseSensitive,
-		DefaultFileRules: cfg.Mydumper.DefaultFileRules,
+		SourceID:               cfg.Mydumper.SourceID,
+		SourceURL:              cfg.Mydumper.SourceDir,
+		Routes:                 cfg.Routes,
+		CharacterSet:           cfg.Mydumper.CharacterSet,
+		Filter:                 cfg.Mydumper.Filter,
+		FileRouters:            cfg.Mydumper.FileRouters,
+		CaseSensitive:          cfg.Mydumper.CaseSensitive,
+		DefaultFileRules:       cfg.Mydumper.DefaultFileRules,
+		EmpiricalCompressRatio: cfg.Mydumper.EmpiricalCompressRatio,
 	}
 }
 
@@ -300,6 +309,10 @@ func NewLoaderWithStore(ctx context.Context, cfg LoaderConfig,
 			store:        store,
 			maxScanFiles: mdLoaderSetupCfg.MaxScanFiles,
 		}
+	}
+
+	if cfg.EmpiricalCompressRatio > 0 {
+		mdLoaderSetupCfg.empiricalCompressRatio = cfg.EmpiricalCompressRatio
 	}
 
 	if len(cfg.Routes) > 0 && len(cfg.FileRouters) > 0 {
@@ -621,7 +634,7 @@ func (s *mdLoaderSetup) constructFileInfo(ctx context.Context, f RawFile) (*File
 
 	switch res.Type {
 	case SourceTypeSQL, SourceTypeCSV:
-		info.FileMeta.RealSize = EstimateRealSizeForFile(ctx, info.FileMeta, s.loader.GetStore())
+		info.FileMeta.RealSize = EstimateRealSizeForFile(ctx, info.FileMeta, s.loader.GetStore(), s.setupCfg.empiricalCompressRatio)
 	case SourceTypeParquet:
 		var (
 			totalRowCount int64
@@ -904,9 +917,12 @@ func calculateFileBytes(ctx context.Context,
 // EstimateRealSizeForFile estimate the real size for the file.
 // If the file is not compressed, the real size is the same as the file size.
 // If the file is compressed, the real size is the estimated uncompressed size.
-func EstimateRealSizeForFile(ctx context.Context, fileMeta SourceFileMeta, store storage.ExternalStorage) int64 {
+func EstimateRealSizeForFile(ctx context.Context, fileMeta SourceFileMeta, store storage.ExternalStorage, ratio float64) int64 {
 	if fileMeta.Compression == CompressionNone {
 		return fileMeta.FileSize
+	}
+	if ratio > 0 {
+		return int64(ratio * float64(fileMeta.FileSize))
 	}
 	compressRatio, err := SampleFileCompressRatio(ctx, fileMeta, store)
 	if err != nil {

@@ -139,3 +139,8 @@ func (*HDFSStorage) Rename(_ context.Context, _, _ string) error {
 
 // Close implements ExternalStorage interface.
 func (*HDFSStorage) Close() {}
+
+// UseLocalDisk implements the ExternalStorage interface.
+func (*HDFSStorage) UseLocalDisk(context.Context) (bool, error) {
+	return false, nil
+}

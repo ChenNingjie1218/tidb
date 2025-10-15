@@ -18,15 +18,18 @@ import (
 	"context"
 	"io"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"testing"
 	"time"
 
 	"github.com/pingcap/tidb/br/pkg/storage"
+	"github.com/pingcap/tidb/pkg/lightning/log"
 	"github.com/pingcap/tidb/pkg/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/xitongsys/parquet-go-source/local"
+	"github.com/xitongsys/parquet-go/parquet"
 	writer2 "github.com/xitongsys/parquet-go/writer"
 )
 
@@ -340,4 +343,125 @@ func TestNsecOutSideRange(t *testing.T) {
 	// For nano sec out of 999999999, time will automatically execute a
 	// carry operation. i.e. 1000000000 nsec => 1 sec
 	require.Equal(t, a.Add(1*time.Second), b)
+}
+
+// Original low-level tests for setDatumValue vector handling (kept as requested)
+func TestSetDatumValue_VectorFloat32Slice(t *testing.T) {
+	logger, _ := log.MakeTestLogger()
+	var d types.Datum
+	vals := []float32{1.0, 2.5, 3.25}
+	v := reflect.ValueOf(vals)
+	require.NoError(t, setDatumValue(&d, v, &parquet.SchemaElement{}, logger))
+	require.Equal(t, types.KindVectorFloat32, d.Kind())
+	vec := d.GetVectorFloat32()
+	require.Equal(t, len(vals), vec.Len())
+	for i, e := range vec.Elements() {
+		require.Equal(t, vals[i], e)
+	}
+}
+
+func TestSetDatumValue_VectorPointerFloat32Slice(t *testing.T) {
+	logger, _ := log.MakeTestLogger()
+	var d types.Datum
+	v1 := float32(1.0)
+	v3 := float32(3.5)
+	vals := []*float32{&v1, nil, &v3}
+	v := reflect.ValueOf(vals)
+	require.NoError(t, setDatumValue(&d, v, &parquet.SchemaElement{}, logger))
+	require.Equal(t, types.KindVectorFloat32, d.Kind())
+	vec := d.GetVectorFloat32()
+	require.Equal(t, len(vals), vec.Len())
+	expected := []float32{1.0, 0.0, 3.5}
+	for i, e := range vec.Elements() {
+		require.Equal(t, expected[i], e)
+	}
+}
+
+func TestSetDatumValue_VectorUnknownSlice(t *testing.T) {
+	logger, buf := log.MakeTestLogger()
+	var d types.Datum
+	vals := []int{1, 2, 3}
+	v := reflect.ValueOf(vals)
+	err := setDatumValue(&d, v, &parquet.SchemaElement{}, logger)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown value")
+	assert.Contains(t, buf.String(), "unknown value")
+}
+
+func TestParquetVectorFloat32Slices(t *testing.T) {
+	type VecTest struct {
+		ID   int32      `parquet:"name=id, type=INT32"`
+		Vec1 []float32  `parquet:"name=vec1, type=LIST, repetitiontype=REQUIRED, valuetype=FLOAT, valuerepetitiontype=REQUIRED"`
+		Vec2 []*float32 `parquet:"name=vec2, type=LIST, repetitiontype=REQUIRED, valuetype=FLOAT, valuerepetitiontype=REQUIRED"`
+	}
+
+	dir := t.TempDir()
+	name := "vec.parquet"
+	path := filepath.Join(dir, name)
+	pf, err := local.NewLocalFileWriter(path)
+	require.NoError(t, err)
+	w, err := writer2.NewParquetWriter(pf, new(VecTest), 1)
+	require.NoError(t, err)
+	f1 := float32(1.5)
+	f2 := float32(2.0)
+	f3 := float32(3.25)
+	row := &VecTest{ID: 1, Vec1: []float32{1.0, 2.5, 3.25}, Vec2: []*float32{&f1, &f2, &f3}}
+	require.NoError(t, w.Write(row))
+	require.NoError(t, w.WriteStop())
+	require.NoError(t, pf.Close())
+
+	store, err := storage.NewLocalStorage(dir)
+	require.NoError(t, err)
+	r, err := store.Open(context.TODO(), name, nil)
+	require.NoError(t, err)
+	parser, err := NewParquetParser(context.TODO(), store, r, name)
+	require.NoError(t, err)
+	defer parser.Close()
+
+	require.NoError(t, parser.ReadRow())
+	rowDatums := parser.LastRow().Row
+	require.Len(t, rowDatums, 3)
+	require.Equal(t, int64(1), rowDatums[0].GetInt64())
+	require.Equal(t, types.KindVectorFloat32, rowDatums[1].Kind())
+	vec1 := rowDatums[1].GetVectorFloat32()
+	require.Equal(t, 3, vec1.Len())
+	require.Equal(t, float32(1.0), vec1.Elements()[0])
+	require.Equal(t, float32(2.5), vec1.Elements()[1])
+	require.Equal(t, float32(3.25), vec1.Elements()[2])
+	require.Equal(t, types.KindVectorFloat32, rowDatums[2].Kind())
+	vec2 := rowDatums[2].GetVectorFloat32()
+	require.Equal(t, 3, vec2.Len())
+	require.Equal(t, float32(1.5), vec2.Elements()[0])
+	require.Equal(t, float32(2.0), vec2.Elements()[1])
+	require.Equal(t, float32(3.25), vec2.Elements()[2])
+}
+
+func TestParquetVectorFloat32UnsupportedSlice(t *testing.T) {
+	// Unsupported slice type (int32) should trigger error path in setDatumValue
+	type BadVec struct {
+		Vals []int32 `parquet:"name=vec, type=LIST, repetitiontype=REQUIRED, valuetype=INT32, valuerepetitiontype=REQUIRED"`
+	}
+	dir := t.TempDir()
+	name := "vec_bad.parquet"
+	path := filepath.Join(dir, name)
+	pf, err := local.NewLocalFileWriter(path)
+	require.NoError(t, err)
+	w, err := writer2.NewParquetWriter(pf, new(BadVec), 1)
+	require.NoError(t, err)
+	row := &BadVec{Vals: []int32{1, 2, 3}}
+	require.NoError(t, w.Write(row))
+	require.NoError(t, w.WriteStop())
+	require.NoError(t, pf.Close())
+
+	store, err := storage.NewLocalStorage(dir)
+	require.NoError(t, err)
+	r, err := store.Open(context.TODO(), name, nil)
+	require.NoError(t, err)
+	parser, err := NewParquetParser(context.TODO(), store, r, name)
+	require.NoError(t, err)
+	defer parser.Close()
+
+	err = parser.ReadRow()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown value")
 }

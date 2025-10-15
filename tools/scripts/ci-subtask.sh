@@ -32,6 +32,12 @@ for t in ${tasks[@]}; do
   if [[ $t == "./tests"* ]]; then
     continue
   fi
+  if [[ $t == "./pkg/lightning"* ]]; then
+    continue
+  fi
+  if [[ $t == "./lightning"* ]]; then
+    continue
+  fi
   pkg_index=$((pkg_index+1))
   [[ $((pkg_index % bundled_parts)) -eq $((target_part - 1)) ]] && res+=($t)
 done

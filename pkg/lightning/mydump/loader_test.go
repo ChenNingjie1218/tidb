@@ -1119,12 +1119,12 @@ func TestEstimateFileSize(t *testing.T) {
 		_ = failpoint.Disable("github.com/pingcap/tidb/pkg/lightning/mydump/SampleFileCompressPercentage")
 	}()
 	fileMeta := md.SourceFileMeta{Compression: md.CompressionNone, FileSize: 100}
-	require.Equal(t, int64(100), md.EstimateRealSizeForFile(context.Background(), fileMeta, nil))
+	require.Equal(t, int64(100), md.EstimateRealSizeForFile(context.Background(), fileMeta, nil, 0))
 	fileMeta.Compression = md.CompressionGZ
-	require.Equal(t, int64(250), md.EstimateRealSizeForFile(context.Background(), fileMeta, nil))
+	require.Equal(t, int64(250), md.EstimateRealSizeForFile(context.Background(), fileMeta, nil, 0))
 	err = failpoint.Enable("github.com/pingcap/tidb/pkg/lightning/mydump/SampleFileCompressPercentage", `return("test err")`)
 	require.NoError(t, err)
-	require.Equal(t, int64(100), md.EstimateRealSizeForFile(context.Background(), fileMeta, nil))
+	require.Equal(t, int64(100), md.EstimateRealSizeForFile(context.Background(), fileMeta, nil, 0))
 }
 
 func testSampleParquetDataSize(t *testing.T, count int) {

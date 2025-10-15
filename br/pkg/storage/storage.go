@@ -135,6 +135,9 @@ type ExternalStorage interface {
 	Rename(ctx context.Context, oldFileName, newFileName string) error
 	// Close release the resources of the storage.
 	Close()
+
+	// UseLocalDisk returns whether the storage is using local disk.
+	UseLocalDisk(ctx context.Context) (bool, error)
 }
 
 // ExternalFileReader represents the streaming external file reader.

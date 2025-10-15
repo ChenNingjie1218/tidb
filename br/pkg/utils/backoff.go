@@ -47,9 +47,9 @@ const (
 	FlashbackWaitInterval    = 3 * time.Second
 	FlashbackMaxWaitInterval = 15 * time.Second
 
-	ChecksumRetryTime       = 8
+	ChecksumRetryTime       = 10
 	ChecksumWaitInterval    = 1 * time.Second
-	ChecksumMaxWaitInterval = 30 * time.Second
+	ChecksumMaxWaitInterval = 60 * time.Second
 
 	gRPC_Cancel = "the client connection is closing"
 

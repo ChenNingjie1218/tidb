@@ -26,6 +26,7 @@ import (
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
 	"github.com/pingcap/tidb/br/pkg/checksum"
+	"github.com/pingcap/tidb/pkg/keyspace"
 	"github.com/pingcap/tidb/pkg/kv"
 	"github.com/pingcap/tidb/pkg/lightning/checkpoints"
 	"github.com/pingcap/tidb/pkg/lightning/common"
@@ -283,10 +284,10 @@ type TiKVChecksumManager struct {
 var _ ChecksumManager = &TiKVChecksumManager{}
 
 // NewTiKVChecksumManager return a new tikv checksum manager
-func NewTiKVChecksumManager(client kv.Client, pdClient pd.Client, distSQLScanConcurrency uint, backoffWeight int, resourceGroupName, explicitRequestSourceType string) *TiKVChecksumManager {
+func NewTiKVChecksumManager(client kv.Client, kvStore kv.Storage, pdClient pd.Client, distSQLScanConcurrency uint, backoffWeight int, resourceGroupName, explicitRequestSourceType string) *TiKVChecksumManager {
 	return &TiKVChecksumManager{
 		client:                    client,
-		manager:                   newGCTTLManager(pdClient),
+		manager:                   newGCTTLManager(pdClient, kvStore),
 		distSQLScanConcurrency:    distSQLScanConcurrency,
 		backoffWeight:             backoffWeight,
 		resourceGroupName:         resourceGroupName,
@@ -407,6 +408,7 @@ func (m *gcTTLManager) Pop() any {
 
 type gcTTLManager struct {
 	lock     sync.Mutex
+	kvStore  kv.Storage
 	pdClient pd.Client
 	// tableGCSafeTS is a binary heap that stored active checksum jobs GC safe point ts
 	tableGCSafeTS []*tableChecksumTS
@@ -416,8 +418,9 @@ type gcTTLManager struct {
 	started atomic.Bool
 }
 
-func newGCTTLManager(pdClient pd.Client) gcTTLManager {
+func newGCTTLManager(pdClient pd.Client, kvStore kv.Storage) gcTTLManager {
 	return gcTTLManager{
+		kvStore:   kvStore,
 		pdClient:  pdClient,
 		serviceID: fmt.Sprintf("lightning-%s", uuid.New()),
 	}
@@ -482,8 +485,12 @@ func (m *gcTTLManager) doUpdateGCTTL(ctx context.Context, ts uint64) error {
 		zap.Uint64("currnet_ts", ts))
 	var err error
 	if ts > 0 {
-		_, err = m.pdClient.UpdateServiceGCSafePoint(ctx,
-			m.serviceID, serviceSafePointTTL, ts)
+		if m.kvStore != nil && keyspace.IsKeyspaceUseKeyspaceLevelGC(m.kvStore.GetCodec().GetKeyspaceMeta()) {
+			keyspaceID := uint32(m.kvStore.GetCodec().GetKeyspaceID())
+			_, err = m.pdClient.UpdateServiceSafePointV2(ctx, keyspaceID, m.serviceID, serviceSafePointTTL, ts)
+		} else {
+			_, err = m.pdClient.UpdateServiceGCSafePoint(ctx, m.serviceID, serviceSafePointTTL, ts)
+		}
 	}
 	return err
 }

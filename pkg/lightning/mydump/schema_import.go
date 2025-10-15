@@ -197,6 +197,7 @@ func (si *SchemaImporter) importTables(ctx context.Context, dbMetas []*MDDatabas
 				} else if tblMeta.SchemaFile.FileMeta.Path == "" {
 					return common.ErrSchemaNotExists.GenWithStackByArgs(dbMeta.Name, tblMeta.Name)
 				}
+				tblMeta.CreatedByFile = true
 
 				select {
 				case ch <- tblMeta:

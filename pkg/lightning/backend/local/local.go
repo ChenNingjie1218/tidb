@@ -96,11 +96,12 @@ const (
 
 var (
 	// Local backend is compatible with TiDB [4.0.0, NextMajorVersion).
-	localMinTiDBVersion    = *semver.New("4.0.0")
-	localMinTiKVVersion    = *semver.New("4.0.0")
-	localMinPDVersion      = *semver.New("4.0.0")
-	localMaxTiDBVersion    = version.NextMajorVersion()
-	localMaxTiKVVersion    = version.NextMajorVersion()
+	localMinTiDBVersion = *semver.New("4.0.0")
+	localMinTiKVVersion = *semver.New("4.0.0")
+	localMinPDVersion   = *semver.New("4.0.0")
+	localMaxTiDBVersion = version.NextMajorVersion()
+	// Hard code TiKV version for serverless(using TiFlash v8.5.0)
+	localMaxTiKVVersion    = *semver.New("10.0.0")
 	localMaxPDVersion      = version.NextMajorVersion()
 	tiFlashMinVersion      = *semver.New("4.0.5")
 	tikvSideFreeSpaceCheck = *semver.New("8.0.0")

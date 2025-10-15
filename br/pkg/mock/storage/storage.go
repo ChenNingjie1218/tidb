@@ -173,6 +173,21 @@ func (mr *MockExternalStorageMockRecorder) URI() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "URI", reflect.TypeOf((*MockExternalStorage)(nil).URI))
 }
 
+// UseLocalDisk mocks base method.
+func (m *MockExternalStorage) UseLocalDisk(arg0 context.Context) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UseLocalDisk", arg0)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UseLocalDisk indicates an expected call of UseLocalDisk.
+func (mr *MockExternalStorageMockRecorder) UseLocalDisk(arg0 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UseLocalDisk", reflect.TypeOf((*MockExternalStorage)(nil).UseLocalDisk), arg0)
+}
+
 // WalkDir mocks base method.
 func (m *MockExternalStorage) WalkDir(arg0 context.Context, arg1 *storage.WalkOption, arg2 func(string, int64) error) error {
 	m.ctrl.T.Helper()

@@ -84,6 +84,16 @@ func openParser(
 	tblInfo *model.TableInfo,
 ) (mydump.Parser, error) {
 	blockBufSize := int64(cfg.Mydumper.ReadBlockSize)
+
+	// if storage doesn't use local disk, we can skip ioWorkers to avoid bottleneck.
+	useLocalDisk, err := store.UseLocalDisk(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if !useLocalDisk {
+		ioWorkers = nil
+	}
+
 	reader, err := mydump.OpenReader(ctx, &chunk.FileMeta, store, storage.DecompressConfig{
 		ZStdDecodeConcurrency: 1,
 	})

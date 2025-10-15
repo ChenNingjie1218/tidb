@@ -36,7 +36,7 @@ import (
 )
 
 const (
-	batchReadRowSize = 32
+	batchReadRowSize = 1
 
 	// if a parquet if small than this threshold, parquet will load the whole file in a byte slice to
 	// optimize the read performance
@@ -467,6 +467,13 @@ func setDatumValue(d *types.Datum, v reflect.Value, meta *parquet.SchemaElement,
 			return setDatumValue(d, v.Elem(), meta, logger)
 		}
 		d.SetNull()
+	case reflect.Slice:
+		if v.Type().String() == "[]*float32" || v.Type().String() == "[]float32" {
+			return setDatumVectorFloat32(d, v, logger)
+		}
+		logger.Error("unknown value", zap.Stringer("kind", v.Kind()),
+			zap.String("type", v.Type().String()), zap.Reflect("value", v.Interface()))
+		return errors.Errorf("unknown value: %v", v)
 	default:
 		logger.Error("unknown value", zap.Stringer("kind", v.Kind()),
 			zap.String("type", v.Type().Name()), zap.Reflect("value", v.Interface()))
@@ -633,4 +640,45 @@ func int96ToTime(parquetDate []byte) time.Time {
 	nano := binary.LittleEndian.Uint64(parquetDate[:8])
 	dt := binary.LittleEndian.Uint32(parquetDate[8:])
 	return jdToTime(int32(dt), int64(nano))
+}
+
+// setDatumVectorFloat32 handles compatibility for cases where some parquet files use list of floats to store vector data.
+// This function converts such slices to types.VectorFloat32 to ensure correct downstream processing.
+// It supports both []*float32 and []float32 for compatibility with parquet files storing vectors as either type.
+func setDatumVectorFloat32(d *types.Datum, v reflect.Value, logger log.Logger) error {
+	var values []float32
+	switch v.Type().String() {
+	case "[]*float32":
+		f, success := v.Interface().([]*float32)
+		if !success {
+			logger.Error("failed to convert value to []*float32", zap.Stringer("kind", v.Kind()),
+				zap.String("type", v.Type().String()), zap.Reflect("value", v.Interface()))
+			return errors.Errorf("failed to convert value to []*float32: %v", v)
+		}
+		dim := len(f)
+		values = make([]float32, dim)
+		for i := 0; i < dim; i++ {
+			if f[i] == nil {
+				values[i] = 0
+			} else {
+				values[i] = *f[i]
+			}
+		}
+	case "[]float32":
+		f, success := v.Interface().([]float32)
+		if !success {
+			logger.Error("failed to convert value to []float32", zap.Stringer("kind", v.Kind()),
+				zap.String("type", v.Type().String()), zap.Reflect("value", v.Interface()))
+			return errors.Errorf("failed to convert value to []float32: %v", v)
+		}
+		values = f
+	default:
+		logger.Error("unsupported vector type", zap.Stringer("kind", v.Kind()),
+			zap.String("type", v.Type().String()), zap.Reflect("value", v.Interface()))
+		return errors.Errorf("unsupported vector type: %v", v)
+	}
+	vec := types.InitVectorFloat32(len(values))
+	copy(vec.Elements(), values)
+	d.SetVectorFloat32(vec)
+	return nil
 }

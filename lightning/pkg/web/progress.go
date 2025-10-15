@@ -80,7 +80,7 @@ func (cpm *checkpointsMap) update(diffs map[string]*checkpoints.TableCheckpointD
 				if engine.Status >= checkpoints.CheckpointStatusAllWritten {
 					tw += chunk.TotalSize()
 				} else {
-					tw += chunk.Chunk.Offset - chunk.Key.Offset
+					tw += chunk.FinishedSize()
 				}
 			}
 		}
@@ -120,10 +120,11 @@ type tableProgress struct {
 }
 
 type taskProgress struct {
-	mu      sync.RWMutex
-	Tables  map[string]*tableInfo `json:"t"`
-	Status  taskStatus            `json:"s"`
-	Message string                `json:"m,omitempty"`
+	mu            sync.RWMutex
+	Tables        map[string]*tableInfo `json:"t"`
+	Status        taskStatus            `json:"s"`
+	Message       string                `json:"m,omitempty"`
+	SizeWithIndex int64                 `json:"si"`
 
 	// The contents have their own mutex for protection
 	checkpoints checkpointsMap
@@ -185,6 +186,17 @@ func BroadcastInitProgress(databases []*mydump.MDDatabaseMeta) {
 
 	currentProgress.mu.Lock()
 	currentProgress.Tables = tables
+	currentProgress.mu.Unlock()
+}
+
+// BroadcastSizeWithIndex sets the size with index.
+func BroadcastSizeWithIndex(size int64) {
+	if !progressEnabled.Load() {
+		return
+	}
+
+	currentProgress.mu.Lock()
+	currentProgress.SizeWithIndex = size
 	currentProgress.mu.Unlock()
 }
 

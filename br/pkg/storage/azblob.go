@@ -583,6 +583,11 @@ func (s *AzureBlobStorage) Rename(ctx context.Context, oldFileName, newFileName 
 // Close implements the ExternalStorage interface.
 func (*AzureBlobStorage) Close() {}
 
+// UseLocalDisk implements the ExternalStorage interface.
+func (*AzureBlobStorage) UseLocalDisk(context.Context) (bool, error) {
+	return false, nil
+}
+
 type azblobObjectReader struct {
 	blobClient *blockblob.Client
 

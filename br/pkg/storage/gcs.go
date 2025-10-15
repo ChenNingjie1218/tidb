@@ -5,6 +5,7 @@ package storage
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	goerrors "errors"
 	"fmt"
 	"io"
@@ -46,6 +47,9 @@ type GCSBackendOptions struct {
 	StorageClass    string `json:"storage-class" toml:"storage-class"`
 	PredefinedACL   string `json:"predefined-acl" toml:"predefined-acl"`
 	CredentialsFile string `json:"credentials-file" toml:"credentials-file"`
+	// Credentials represents a string that needs to be Base64 URL encoded.
+	// For more details, refer to RFC 4648, section 5: https://www.rfc-editor.org/rfc/rfc4648.html#section-5
+	Credentials string `json:"credentials" toml:"credentials"`
 }
 
 func (options *GCSBackendOptions) apply(gcs *backuppb.GCS) error {
@@ -59,8 +63,27 @@ func (options *GCSBackendOptions) apply(gcs *backuppb.GCS) error {
 			return errors.Trace(err)
 		}
 		gcs.CredentialsBlob = string(b)
+	} else if options.Credentials != "" {
+		decodeBytes, err := decodeBase64URL(options.Credentials)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		gcs.CredentialsBlob = string(decodeBytes)
 	}
 	return nil
+}
+
+// decodeBase64URL decodes a Base64 URL encoded string.
+// If the input string's length is a multiple of 4, it uses the standard Base64 URL decoding
+// with padding. Otherwise, it uses the raw Base64 URL decoding without padding.
+func decodeBase64URL(blob string) ([]byte, error) {
+	if len(blob)%4 == 0 {
+		// decode with padding
+		return base64.URLEncoding.DecodeString(blob)
+	} else {
+		// decode without padding
+		return base64.RawURLEncoding.DecodeString(blob)
+	}
 }
 
 func defineGCSFlags(flags *pflag.FlagSet) {
@@ -342,6 +365,11 @@ func (s *GCSStorage) Close() {
 			log.Warn("failed to close gcs client", zap.Error(err))
 		}
 	}
+}
+
+// UseLocalDisk implements the ExternalStorage interface.
+func (*GCSStorage) UseLocalDisk(context.Context) (bool, error) {
+	return false, nil
 }
 
 // used in tests

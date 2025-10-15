@@ -606,3 +606,24 @@ func TestGCSShouldRetry(t *testing.T) {
 	require.True(t, shouldRetry(&url.Error{Err: goerrors.New("http2: client connection lost"), Op: "Get", URL: "https://storage.googleapis.com/storage/v1/"}))
 	require.True(t, shouldRetry(&url.Error{Err: io.EOF, Op: "Get", URL: "https://storage.googleapis.com/storage/v1/"}))
 }
+
+func TestDecodeBase64URL(t *testing.T) {
+	// padding
+	url, err := decodeBase64URL("aGVsbG8gd29ybGQ=")
+	require.NoError(t, err)
+	require.Equal(t, string(url), "hello world")
+
+	// no padding
+	url, err = decodeBase64URL("aGVsbG8gd29ybGQ")
+	require.NoError(t, err)
+	require.Equal(t, string(url), "hello world")
+
+	// URL specific encoding
+	url, err = decodeBase64URL("Pz8_fn5-fg==")
+	require.NoError(t, err)
+	require.Equal(t, string(url), "???~~~~")
+
+	// std encoding
+	url, err = decodeBase64URL("Pz8/fn5+fg==")
+	require.Error(t, err)
+}

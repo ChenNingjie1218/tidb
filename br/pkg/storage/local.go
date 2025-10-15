@@ -258,6 +258,11 @@ func (l *LocalStorage) Rename(_ context.Context, oldFileName, newFileName string
 // Close implements ExternalStorage interface.
 func (*LocalStorage) Close() {}
 
+// UseLocalDisk implements ExternalStorage interface.
+func (l *LocalStorage) UseLocalDisk(context.Context) (bool, error) {
+	return true, nil
+}
+
 func pathExists(_path string) (bool, error) {
 	_, err := os.Stat(_path)
 	if err != nil {

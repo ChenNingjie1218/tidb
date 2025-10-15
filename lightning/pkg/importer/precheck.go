@@ -140,6 +140,8 @@ func (b *PrecheckItemBuilder) BuildPrecheckItem(checkID precheck.CheckItemID) (p
 		return NewTableEmptyCheckItem(b.cfg, b.preInfoGetter, b.dbMetas, b.checkpointsDB), nil
 	case precheck.CheckSourceSchemaValid:
 		return NewSchemaCheckItem(b.cfg, b.preInfoGetter, b.dbMetas, b.checkpointsDB), nil
+	case precheck.CheckSourceDataSize:
+		return NewSourceDataSizeCheckItem(b.cfg, b.preInfoGetter), nil
 	case precheck.CheckCheckpoints:
 		return NewCheckpointCheckItem(b.cfg, b.preInfoGetter, b.dbMetas, b.checkpointsDB), nil
 	case precheck.CheckCSVHeader:

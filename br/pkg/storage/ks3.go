@@ -741,3 +741,8 @@ func (rs *KS3Storage) Rename(ctx context.Context, oldFileName, newFileName strin
 
 // Close implements ExternalStorage interface.
 func (*KS3Storage) Close() {}
+
+// UseLocalDisk implements ExternalStorage interface.
+func (rs *KS3Storage) UseLocalDisk(context.Context) (bool, error) {
+	return false, nil
+}

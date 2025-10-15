@@ -36,6 +36,7 @@ const (
 	CheckSourcePermission         CheckItemID = "CHECK_SOURCE_PERMISSION"
 	CheckTargetTableEmpty         CheckItemID = "CHECK_TARGET_TABLE_EMPTY"
 	CheckSourceSchemaValid        CheckItemID = "CHECK_SOURCE_SCHEMA_VALID"
+	CheckSourceDataSize           CheckItemID = "CHECK_SOURCE_DATA_SIZE"
 	CheckCheckpoints              CheckItemID = "CHECK_CHECKPOINTS"
 	CheckCSVHeader                CheckItemID = "CHECK_CSV_HEADER"
 	CheckTargetClusterSize        CheckItemID = "CHECK_TARGET_CLUSTER_SIZE"

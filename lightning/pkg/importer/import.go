@@ -35,8 +35,8 @@ import (
 	"github.com/pingcap/tidb/br/pkg/pdutil"
 	"github.com/pingcap/tidb/br/pkg/storage"
 	"github.com/pingcap/tidb/br/pkg/utils"
-	"github.com/pingcap/tidb/br/pkg/version"
 	"github.com/pingcap/tidb/br/pkg/version/build"
+	"github.com/pingcap/tidb/lightning/pkg/importer/opts"
 	"github.com/pingcap/tidb/lightning/pkg/web"
 	tidbconfig "github.com/pingcap/tidb/pkg/config"
 	"github.com/pingcap/tidb/pkg/distsql"
@@ -45,6 +45,7 @@ import (
 	"github.com/pingcap/tidb/pkg/lightning/backend"
 	"github.com/pingcap/tidb/pkg/lightning/backend/encode"
 	"github.com/pingcap/tidb/pkg/lightning/backend/local"
+	"github.com/pingcap/tidb/pkg/lightning/backend/remote"
 	"github.com/pingcap/tidb/pkg/lightning/backend/tidb"
 	"github.com/pingcap/tidb/pkg/lightning/checkpoints"
 	"github.com/pingcap/tidb/pkg/lightning/common"
@@ -125,7 +126,8 @@ const (
 
 var (
 	minTiKVVersionForConflictStrategy = *semver.New("5.2.0")
-	maxTiKVVersionForConflictStrategy = version.NextMajorVersion()
+	// Hard code TiKV version for serverless(using TiFlash v8.5.0)
+	maxTiKVVersionForConflictStrategy = *semver.New("10.0.0")
 )
 
 // DeliverPauser is a shared pauser to pause progress to (*chunkProcessor).encodeLoop
@@ -424,11 +426,31 @@ func NewImportControllerWithPauser(
 		backendConfig := local.NewBackendConfig(cfg, maxOpenFiles, p.KeyspaceName, p.ResourceGroupName, p.TaskType, raftKV2SwitchModeDuration)
 		backendObj, err = local.NewBackend(ctx, tls, backendConfig, pdCli.GetServiceDiscovery())
 		if err != nil {
+			log.L().Error("fail to create remote backend", zap.Error(err))
 			return nil, common.NormalizeOrWrapErr(common.ErrUnknown, err)
 		}
 		err = verifyLocalFile(ctx, cpdb, cfg.TikvImporter.SortedKVDir)
 		if err != nil {
 			return nil, err
+		}
+	case config.BackendRemote:
+		pdCli, err = pd.NewClientWithContext(ctx, []string{cfg.TiDB.PdAddr}, tls.ToPDSecurityOption())
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		pdHTTPCli = pdhttp.NewClientWithServiceDiscovery(
+			"lightning",
+			pdCli.GetServiceDiscovery(),
+			pdhttp.WithTLSConfig(tls.TLSConfig()),
+		).WithBackoffer(retry.InitialBackoffer(time.Second, time.Second, pdutil.PDRequestRetryTime*time.Second))
+
+		encodingBuilder = local.NewEncodingBuilder(ctx)
+
+		initGlobalConfig(tls.ToTiKVSecurityConfig())
+
+		backendObj, err = remote.NewRemoteBackend(ctx, tls, cfg, p.KeyspaceName)
+		if err != nil {
+			return nil, common.NormalizeOrWrapErr(common.ErrUnknown, err)
 		}
 	default:
 		return nil, common.ErrUnknownBackend.GenWithStackByArgs(cfg.TikvImporter.Backend)
@@ -436,7 +458,7 @@ func NewImportControllerWithPauser(
 	p.Status.backend = cfg.TikvImporter.Backend
 
 	var metaBuilder metaMgrBuilder
-	isSSTImport := cfg.TikvImporter.Backend == config.BackendLocal
+	isSSTImport := isPhysicalBackend(cfg)
 	switch {
 	case isSSTImport && cfg.TikvImporter.ParallelImport:
 		metaBuilder = &dbMetaMgrBuilder{
@@ -454,7 +476,7 @@ func NewImportControllerWithPauser(
 	}
 
 	var wrapper backend.TargetInfoGetter
-	if cfg.TikvImporter.Backend == config.BackendLocal {
+	if isPhysicalBackend(cfg) {
 		wrapper = local.NewTargetInfoGetter(tls, db, pdHTTPCli)
 	} else {
 		wrapper = tidb.NewTargetInfoGetter(db)
@@ -607,12 +629,12 @@ func (rc *Controller) restoreSchema(ctx context.Context) error {
 		return err
 	}
 
-	dbInfos, err := rc.preInfoGetter.GetAllTableStructures(ctx)
+	dbInfos, err := rc.preInfoGetter.GetAllTableStructures(ctx, opts.ForceReloadCache(true))
 	if err != nil {
 		return errors.Trace(err)
 	}
-	// For local backend, we need DBInfo.ID to operate the global autoid allocator.
-	if isLocalBackend(rc.cfg) {
+	// For physical backend, we need DBInfo.ID to operate the global autoid allocator.
+	if isPhysicalBackend(rc.cfg) {
 		dbs, err := tikv.FetchRemoteDBModelsFromTLS(ctx, rc.tls)
 		if err != nil {
 			return errors.Trace(err)
@@ -1349,7 +1371,7 @@ func (rc *Controller) importTables(ctx context.Context) (finalErr error) {
 	var kvStore tidbkv.Storage
 	var etcdCli *clientv3.Client
 
-	if isLocalBackend(rc.cfg) {
+	if isPhysicalBackend(rc.cfg) {
 		var (
 			restoreFn pdutil.UndoFunc
 			err       error
@@ -1843,6 +1865,14 @@ func (rc *Controller) cleanCheckpoints(ctx context.Context) error {
 	return nil
 }
 
+func isRemoteBackend(cfg *config.Config) bool {
+	return cfg.TikvImporter.Backend == config.BackendRemote
+}
+
+func isPhysicalBackend(cfg *config.Config) bool {
+	return cfg.TikvImporter.Backend == config.BackendLocal || cfg.TikvImporter.Backend == config.BackendRemote
+}
+
 func isLocalBackend(cfg *config.Config) bool {
 	return cfg.TikvImporter.Backend == config.BackendLocal
 }
@@ -1897,12 +1927,13 @@ func (rc *Controller) preCheckRequirements(ctx context.Context) error {
 	if rc.status != nil {
 		rc.status.TotalFileSize.Store(estimatedSizeResult.SizeWithoutIndex)
 	}
-	if isLocalBackend(rc.cfg) {
+	if isPhysicalBackend(rc.cfg) {
 		pdAddrs := rc.pdCli.GetServiceDiscovery().GetServiceURLs()
 		pdController, err := pdutil.NewPdController(
 			ctx, pdAddrs, rc.tls.TLSConfig(), rc.tls.ToPDSecurityOption(),
 		)
 		if err != nil {
+			log.L().Error("fail to create PD controller", zap.Error(err))
 			return common.NormalizeOrWrapErr(common.ErrCreatePDClient, err)
 		}
 
@@ -1933,9 +1964,11 @@ func (rc *Controller) preCheckRequirements(ctx context.Context) error {
 				needCheck = taskCheckpoints == nil
 			}
 			if needCheck {
-				err = rc.localResource(ctx)
-				if err != nil {
-					return common.ErrCheckLocalResource.Wrap(err).GenWithStackByArgs()
+				if isLocalBackend(rc.cfg) {
+					err = rc.localResource(ctx)
+					if err != nil {
+						return common.ErrCheckLocalResource.Wrap(err).GenWithStackByArgs()
+					}
 				}
 				if err := rc.clusterResource(ctx); err != nil {
 					if err1 := rc.taskMgr.CleanupTask(ctx); err1 != nil {
@@ -1966,7 +1999,8 @@ func (rc *Controller) preCheckRequirements(ctx context.Context) error {
 		}
 		return common.ErrPreCheckFailed.GenWithStackByArgs(rc.checkTemplate.FailedMsg())
 	}
-	return nil
+
+	return rc.TruncateTable(ctx)
 }
 
 // DataCheck checks the data schema which needs #rc.restoreSchema finished.
@@ -1975,6 +2009,10 @@ func (rc *Controller) DataCheck(ctx context.Context) error {
 		if err := rc.HasLargeCSV(ctx); err != nil {
 			return errors.Trace(err)
 		}
+	}
+
+	if err := rc.checkSoureDataSize(ctx); err != nil {
+		return errors.Trace(err)
 	}
 
 	if err := rc.checkCheckpoints(ctx); err != nil {
@@ -2037,6 +2075,7 @@ func saveCheckpoint(rc *Controller, t *TableImporter, engineID int32, chunk *che
 			Key:               chunk.Key,
 			Checksum:          chunk.Checksum,
 			Pos:               chunk.Chunk.Offset,
+			RealPos:           chunk.Chunk.RealOffset,
 			RowID:             chunk.Chunk.PrevRowIDMax,
 			ColumnPermutation: chunk.ColumnPermutation,
 			EndOffset:         chunk.Chunk.EndOffset,

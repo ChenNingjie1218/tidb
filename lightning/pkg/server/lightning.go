@@ -465,6 +465,8 @@ func (l *Lightning) run(taskCtx context.Context, taskCfg *config.Config, o *opti
 		l.cancelLock.Lock()
 		l.cancel = nil
 		l.cancelLock.Unlock()
+		// normalize the error to have a consistent error string format
+		err = common.NormalizeError(err)
 		web.BroadcastEndTask(err)
 	}()
 
@@ -570,7 +572,7 @@ func (l *Lightning) run(taskCtx context.Context, taskCfg *config.Config, o *opti
 	}
 
 	var keyspaceName string
-	if taskCfg.TikvImporter.Backend == config.BackendLocal {
+	if taskCfg.TikvImporter.Backend == config.BackendLocal || taskCfg.TikvImporter.Backend == config.BackendRemote {
 		keyspaceName = taskCfg.TikvImporter.KeyspaceName
 		if keyspaceName == "" {
 			keyspaceName, err = getKeyspaceName(db)
@@ -606,7 +608,7 @@ func (l *Lightning) run(taskCtx context.Context, taskCfg *config.Config, o *opti
 	var procedure *importer.Controller
 	procedure, err = importer.NewImportController(ctx, taskCfg, param)
 	if err != nil {
-		o.logger.Error("restore failed", log.ShortError(err))
+		o.logger.Error("restore failed", zap.Error(err))
 		return errors.Trace(err)
 	}
 

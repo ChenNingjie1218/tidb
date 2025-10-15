@@ -92,3 +92,8 @@ func (NoopWriter) Write(_ context.Context, p []byte) (int, error) {
 func (NoopWriter) Close(_ context.Context) error {
 	return nil
 }
+
+// UseLocalDisk implements ExternalStorage interface.
+func (*noopStorage) UseLocalDisk(context.Context) (bool, error) {
+	return false, nil
+}

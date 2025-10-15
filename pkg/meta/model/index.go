@@ -27,6 +27,7 @@ type DistanceMetric string
 
 // Note: tipb.VectorDistanceMetric's enum names must be aligned with these constant values.
 const (
+	// DistanceMetricL2 is L2 distance.
 	DistanceMetricL2 DistanceMetric = "L2"
 	// DistanceMetricCosine is cosine distance.
 	DistanceMetricCosine DistanceMetric = "COSINE"
@@ -35,6 +36,14 @@ const (
 	// reminding what's the desired naming convension (UPPER_UNDER_SCORE) if this
 	// is going to be implemented.
 	DistanceMetricInnerProduct DistanceMetric = "INNER_PRODUCT"
+)
+
+// VectorIndexKind is the kind of vector index.
+type VectorIndexKind string
+
+const (
+	// VectorIndexKindHNSW is HNSW index.
+	VectorIndexKindHNSW VectorIndexKind = "HNSW"
 )
 
 // IndexableFnNameToDistanceMetric maps a distance function name to the distance metric.
@@ -52,6 +61,8 @@ var IndexableDistanceMetricToFnName = map[DistanceMetric]string{
 
 // VectorIndexInfo is the information of vector index of a column.
 type VectorIndexInfo struct {
+	// Kind is the kind of vector index. Currently only HNSW is supported.
+	Kind VectorIndexKind `json:"kind"`
 	// Dimension is the dimension of the vector.
 	Dimension uint64 `json:"dimension"`
 	// DistanceMetric is the distance metric used by the index.

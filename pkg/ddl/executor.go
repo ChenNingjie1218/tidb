@@ -4743,7 +4743,7 @@ func (e *executor) createVectorIndex(ctx sessionctx.Context, ti ast.Ident, index
 	if err != nil {
 		return errors.Trace(err)
 	}
-	_, funcExpr, err := buildVectorInfoWithCheck(indexPartSpecifications, tblInfo)
+	_, funcExpr, err := buildVectorInfoWithCheck(indexPartSpecifications, indexOption, tblInfo)
 	if err != nil {
 		return errors.Trace(err)
 	}

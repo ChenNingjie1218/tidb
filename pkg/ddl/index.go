@@ -347,7 +347,7 @@ func BuildIndexInfo(
 	}
 
 	if isVector {
-		vectorInfo, _, err := buildVectorInfoWithCheck(indexPartSpecifications, tblInfo)
+		vectorInfo, _, err := buildVectorInfoWithCheck(indexPartSpecifications, indexOption, tblInfo)
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
@@ -383,7 +383,7 @@ func BuildIndexInfo(
 	return idxInfo, nil
 }
 
-func buildVectorInfoWithCheck(indexPartSpecifications []*ast.IndexPartSpecification,
+func buildVectorInfoWithCheck(indexPartSpecifications []*ast.IndexPartSpecification, indexOption *ast.IndexOption,
 	tblInfo *model.TableInfo) (*model.VectorIndexInfo, string, error) {
 	if len(indexPartSpecifications) != 1 {
 		return nil, "", dbterror.ErrUnsupportedAddVectorIndex.FastGenByArgs("unsupported no function")
@@ -435,6 +435,7 @@ func buildVectorInfoWithCheck(indexPartSpecifications []*ast.IndexPartSpecificat
 	idxPart.Length = types.UnspecifiedLength
 
 	return &model.VectorIndexInfo{
+		Kind:           model.VectorIndexKind(indexOption.Tp.String()),
 		Dimension:      uint64(colInfo.FieldType.GetFlen()),
 		DistanceMetric: distanceMetric,
 	}, exprStr, nil

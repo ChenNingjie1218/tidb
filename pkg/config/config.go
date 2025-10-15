@@ -1242,6 +1242,7 @@ var defaultConf = Config{
 	InMemSlowQueryRecentNum:              500,
 
 	// Serverless only configs.
+	AuditLog: defaultAuditLog(),
 
 	BootstrapControl: defaultBootstrapControl(),
 

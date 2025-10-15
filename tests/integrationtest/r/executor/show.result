@@ -601,6 +601,12 @@ ascii
 asin
 atan
 atan2
+audit_log_create_filter
+audit_log_create_rule
+audit_log_disable_rule
+audit_log_enable_rule
+audit_log_remove_filter
+audit_log_remove_rule
 benchmark
 bin
 bin_to_uuid

@@ -241,6 +241,10 @@ func (e *stmtEventInfo) GetError() error {
 	return e.err
 }
 
+func (e *stmtEventInfo) GetSessionVars() *variable.SessionVars {
+	return e.sessVars
+}
+
 func (e *stmtEventInfo) ensureExecutePreparedCache() *core.PlanCacheStmt {
 	if e.executeStmt == nil {
 		return nil

@@ -40,6 +40,7 @@ import (
 	"github.com/pingcap/tidb/pkg/executor/mppcoordmanager"
 	"github.com/pingcap/tidb/pkg/extension"
 	_ "github.com/pingcap/tidb/pkg/extension/_import"
+	"github.com/pingcap/tidb/pkg/extension/serverless/audit"
 	"github.com/pingcap/tidb/pkg/keyspace"
 	"github.com/pingcap/tidb/pkg/kv"
 	"github.com/pingcap/tidb/pkg/metrics"
@@ -428,6 +429,7 @@ func main() {
 	}
 	setupLog(keyspaceMeta.GetId())
 	memory.InitMemoryHook()
+	setupAuditLog()
 	setupExtensions()
 	setupStmtSummary()
 
@@ -1213,6 +1215,12 @@ func setupLog(keyspaceID uint32) {
 
 	// trigger internal http(s) client init.
 	util.InternalHTTPClient()
+}
+
+func setupAuditLog() {
+	auditLogCfg := config.GetGlobalConfig().AuditLog
+	err := audit.RegisterForServerless(&auditLogCfg)
+	terror.MustNil(err)
 }
 
 func setupExtensions() *extension.Extensions {

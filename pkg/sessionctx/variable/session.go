@@ -2067,6 +2067,7 @@ func (s *LazyStmtText) String() string {
 // ConnectionInfo presents the connection information, which is mainly used by audit logs.
 type ConnectionInfo struct {
 	ConnectionID      uint64
+	GwConnID          string
 	ConnectionType    string
 	Host              string
 	ClientIP          string

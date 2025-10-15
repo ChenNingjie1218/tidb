@@ -877,6 +877,7 @@ func (cc *clientConn) connectInfo() *variable.ConnectionInfo {
 	}
 	connInfo := &variable.ConnectionInfo{
 		ConnectionID:      cc.connectionID,
+		GwConnID:          cc.gwConnID,
 		ConnectionType:    connType,
 		Host:              cc.peerHost,
 		ClientIP:          cc.peerHost,

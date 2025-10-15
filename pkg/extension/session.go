@@ -93,6 +93,8 @@ type StmtEventInfo interface {
 	RelatedTables() []stmtctx.TableEntry
 	// GetError will return the error when the current statement is failed
 	GetError() error
+	// GetSessionVars will return variables of current session
+	GetSessionVars() *variable.SessionVars
 }
 
 // SessionHandler is used to listen session events

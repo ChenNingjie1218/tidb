@@ -283,7 +283,7 @@ jobs:
         "test-part-1",
         "test-part-2",
         "unit-test",
-        # "lightning-ut",
+        "lightning-ut",
         "cluster-integration-test-1",
         "cluster-integration-test-2",
       ]
@@ -295,8 +295,7 @@ jobs:
           lightning_ut_result="${{ needs.lightning-ut.result }}"
           cluster_it1_result="${{ needs.cluster-integration-test-1.result }}"
           cluster_it2_result="${{ needs.cluster-integration-test-2.result }}"
-          declare -a results=($part_1_result $part_2_result $unit_test_result $cluster_it1_result $cluster_it2_result)
-          declare -a results=($part_1_result $part_2_result $unit_test_result $lightning_ut_result)
+          declare -a results=($part_1_result $part_2_result $unit_test_result $cluster_it1_result $cluster_it2_result $lightning_ut_result)
           for result in "${results[@]}"; do
             if [[ "$result" != "success" ]]; then
               exit 1

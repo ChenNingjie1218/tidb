@@ -41,6 +41,7 @@ import (
 	"github.com/pingcap/tidb/pkg/parser/ast"
 	"github.com/pingcap/tidb/pkg/parser/mysql"
 	"github.com/pingcap/tidb/pkg/util"
+	"github.com/pingcap/tidb/pkg/util/intest"
 	filter "github.com/pingcap/tidb/pkg/util/table-filter"
 	router "github.com/pingcap/tidb/pkg/util/table-router"
 	"github.com/tikv/client-go/v2/oracle"
@@ -1655,8 +1656,10 @@ iterateUnusedKeys:
 func (cfg *Config) Adjust(ctx context.Context) error {
 	// note that the argument of `adjust` should be `adjust`ed before using it.
 
-	if err := cfg.AdjustTaskID(); err != nil {
-		return err
+	if !intest.InTest {
+		if err := cfg.AdjustTaskID(); err != nil {
+			return err
+		}
 	}
 
 	if err := cfg.TikvImporter.adjust(); err != nil {

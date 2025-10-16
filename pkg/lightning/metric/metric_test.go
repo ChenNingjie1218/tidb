@@ -81,7 +81,7 @@ func TestMetricsRegister(t *testing.T) {
 	m := metric.NewMetrics(promutil.NewDefaultFactory())
 	r = prometheus.NewRegistry()
 	m.RegisterTo(r)
-	require.Equal(t, 22, getMetricCount(r))
+	require.Equal(t, 23, getMetricCount(r))
 	assert.True(t, r.Unregister(m.ImporterEngineCounter))
 	assert.True(t, r.Unregister(m.IdleWorkersGauge))
 	assert.True(t, r.Unregister(m.KvEncoderCounter))
@@ -104,6 +104,7 @@ func TestMetricsRegister(t *testing.T) {
 	assert.True(t, r.Unregister(m.SSTSecondsHistogram))
 	assert.True(t, r.Unregister(m.LocalStorageUsageBytesGauge))
 	assert.True(t, r.Unregister(m.ProgressGauge))
+	assert.True(t, r.Unregister(m.RemoteClientRetryCounter))
 	require.Zero(t, getMetricCount(r))
 }
 

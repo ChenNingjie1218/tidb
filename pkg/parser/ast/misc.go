@@ -2470,6 +2470,8 @@ const (
 	AdminShowBDRRole
 	AdminUnsetBDRRole
 	AdminAlterDDLJob
+	AdminShowBatchTasks
+	AdminCancelBatchTasks
 )
 
 // HandleRange represents a range where handle value >= Begin and < End.
@@ -2769,6 +2771,18 @@ func (n *AdminStmt) Restore(ctx *format.RestoreCtx) error {
 			if err := option.Restore(ctx); err != nil {
 				return errors.Annotatef(err, "An error occurred while restore AdminStmt.AlterJobOptions[%d]", i)
 			}
+		}
+	case AdminShowBatchTasks:
+		ctx.WriteKeyWord("SHOW BATCHTASK")
+	case AdminCancelBatchTasks:
+		ctx.WriteKeyWord("CANCEL BATCHTASK")
+		for i, v := range n.JobIDs {
+			if i == 0 {
+				ctx.WritePlain(" ")
+			} else {
+				ctx.WritePlain(", ")
+			}
+			ctx.WritePlainf("%d", v)
 		}
 	default:
 		return errors.New("Unsupported AdminStmt type")

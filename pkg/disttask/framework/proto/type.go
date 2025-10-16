@@ -34,6 +34,8 @@ func Type2Int(t TaskType) int {
 		return 2
 	case Backfill:
 		return 3
+	case Batch:
+		return 4
 	default:
 		return 0
 	}
@@ -48,6 +50,8 @@ func Int2Type(i int) TaskType {
 		return ImportInto
 	case 3:
 		return Backfill
+	case 4:
+		return Batch
 	default:
 		return ""
 	}

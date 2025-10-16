@@ -1595,6 +1595,14 @@ func (b *PlanBuilder) buildAdmin(ctx context.Context, as *ast.AdminStmt) (base.P
 		if err != nil {
 			return nil, err
 		}
+	case ast.AdminShowBatchTasks:
+		p := &AdminShowBatchTask{}
+		p.setSchemaAndNames(buildShowBatchTaskSchema())
+		ret = p
+	case ast.AdminCancelBatchTasks:
+		return &AdminCancelBatchTask{
+			TaskIDs: as.JobIDs,
+		}, nil
 	default:
 		return nil, plannererrors.ErrUnsupportedType.GenWithStack("Unsupported ast.AdminStmt(%T) for buildAdmin", as)
 	}
@@ -3341,6 +3349,19 @@ func buildAddQueryWatchSchema() (*expression.Schema, types.NameSlice) {
 	cols.Append(buildColumnWithName("", "WATCH_ID", mysql.TypeLonglong, longlongSize))
 
 	return cols.col2Schema(), cols.names
+}
+
+func buildShowBatchTaskSchema() (*expression.Schema, types.NameSlice) {
+	schema := newColumnsWithNames(1)
+	longlongSize, _ := mysql.GetDefaultFieldLengthAndDecimal(mysql.TypeLonglong)
+	datetimeSize, _ := mysql.GetDefaultFieldLengthAndDecimal(mysql.TypeDatetime)
+	// id,task_key,state,start_time,state_update_time
+	schema.Append(buildColumnWithName("", "ID", mysql.TypeLonglong, longlongSize))
+	schema.Append(buildColumnWithName("", "TASK_KEY", mysql.TypeVarchar, 256))
+	schema.Append(buildColumnWithName("", "STATE", mysql.TypeVarchar, 64))
+	schema.Append(buildColumnWithName("", "START_TIME", mysql.TypeDatetime, datetimeSize))
+	schema.Append(buildColumnWithName("", "STATE_UPDATE_TIME", mysql.TypeDatetime, datetimeSize))
+	return schema.col2Schema(), schema.names
 }
 
 func buildColumnWithName(tableName, name string, tp byte, size int) (*expression.Column, *types.FieldName) {

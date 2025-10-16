@@ -703,6 +703,9 @@ func createStoreDDLOwnerMgrAndDomain(driverOpenOption *kv.DriverOpenOption) (kv.
 	var err error
 	storage, err := kvstore.New(fullPath, driverOpenOption)
 	terror.MustNil(err)
+
+	session.RegisterBatchDisttask(storage) // need register before disttask manager init
+
 	copr.GlobalMPPFailedStoreProber.Run()
 	mppcoordmanager.InstanceMPPCoordinatorManager.Run()
 	// Bootstrap a session to load information schema.

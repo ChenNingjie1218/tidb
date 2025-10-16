@@ -319,6 +319,10 @@ func (b *executorBuilder) build(p base.Plan) exec.Executor {
 		return b.buildExpand(v)
 	case *plannercore.RecommendIndexPlan:
 		return b.buildRecommendIndex(v)
+	case *plannercore.AdminShowBatchTask:
+		return b.buildAdminShowBatchTask(v)
+	case *plannercore.AdminCancelBatchTask:
+		return b.buildAdminCancelBatchTask(v)
 	default:
 		if mp, ok := p.(testutil.MockPhysicalPlan); ok {
 			return mp.GetExecutor()
@@ -5862,5 +5866,16 @@ func (b *executorBuilder) buildRecommendIndex(v *plannercore.RecommendIndexPlan)
 		SQL:          v.SQL,
 		AdviseID:     v.AdviseID,
 		Options:      v.Options,
+	}
+}
+
+func (b *executorBuilder) buildAdminShowBatchTask(v *plannercore.AdminShowBatchTask) exec.Executor {
+	return &AdminShowBatchTaskExec{BaseExecutor: exec.NewBaseExecutor(b.ctx, v.Schema(), v.ID())}
+}
+
+func (b *executorBuilder) buildAdminCancelBatchTask(v *plannercore.AdminCancelBatchTask) exec.Executor {
+	return &AdminCancelBatchTaskExec{
+		taskIDs:      v.TaskIDs,
+		BaseExecutor: exec.NewBaseExecutor(b.ctx, v.Schema(), v.ID()),
 	}
 }

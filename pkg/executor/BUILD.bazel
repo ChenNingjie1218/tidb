@@ -5,6 +5,7 @@ go_library(
     srcs = [
         "adapter.go",
         "admin.go",
+        "admin_batchtask.go",
         "admin_plugins.go",
         "analyze.go",
         "analyze_col.go",

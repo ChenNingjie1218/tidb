@@ -16,14 +16,24 @@ package session
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"strings"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
+	"github.com/pingcap/tidb/pkg/config"
+	"github.com/pingcap/tidb/pkg/disttask/framework/proto"
+	"github.com/pingcap/tidb/pkg/disttask/framework/scheduler"
+	"github.com/pingcap/tidb/pkg/disttask/framework/storage"
+	"github.com/pingcap/tidb/pkg/disttask/framework/taskexecutor"
+	"github.com/pingcap/tidb/pkg/disttask/framework/taskexecutor/execute"
 	"github.com/pingcap/tidb/pkg/domain"
 	"github.com/pingcap/tidb/pkg/errno"
+	"github.com/pingcap/tidb/pkg/kv"
 	"github.com/pingcap/tidb/pkg/meta/model"
 	"github.com/pingcap/tidb/pkg/parser"
 	"github.com/pingcap/tidb/pkg/parser/ast"
@@ -37,11 +47,14 @@ import (
 	sessiontypes "github.com/pingcap/tidb/pkg/session/types"
 	"github.com/pingcap/tidb/pkg/sessionctx/variable"
 	"github.com/pingcap/tidb/pkg/table"
+	"github.com/pingcap/tidb/pkg/tidbworker"
 	"github.com/pingcap/tidb/pkg/types"
 	driver "github.com/pingcap/tidb/pkg/types/parser_driver"
 	"github.com/pingcap/tidb/pkg/util/chunk"
+	"github.com/pingcap/tidb/pkg/util/codec"
 	"github.com/pingcap/tidb/pkg/util/collate"
 	"github.com/pingcap/tidb/pkg/util/dbterror"
+	disttaskutil "github.com/pingcap/tidb/pkg/util/disttask"
 	"github.com/pingcap/tidb/pkg/util/logutil"
 	"github.com/pingcap/tidb/pkg/util/memory"
 	"github.com/pingcap/tidb/pkg/util/redact"
@@ -105,6 +118,10 @@ func HandleNonTransactionalDML(ctx context.Context, stmt *ast.NonTransactionalDM
 		return buildDryRunResults(stmt.DryRun, []string{selectSQL}, se.GetSessionVars().BatchSize.MaxChunkSize)
 	}
 
+	if stmt.Sync == ast.Async {
+		return registerGlobalJob(ctx, stmt, se)
+	}
+
 	// TODO: choose an appropriate quota.
 	// Use the mem-quota-query as a workaround. As a result, a NT-DML may consume 2x of the memory quota.
 	memTracker := memory.NewTracker(memory.LabelForNonTransactionalDML, -1)
@@ -125,6 +142,345 @@ func HandleNonTransactionalDML(ctx context.Context, stmt *ast.NonTransactionalDM
 		return buildDryRunResults(stmt.DryRun, splitStmts, se.GetSessionVars().BatchSize.MaxChunkSize)
 	}
 	return buildExecuteResults(ctx, jobs, se.GetSessionVars().BatchSize.MaxChunkSize, se.GetSessionVars().EnableRedactLog)
+}
+
+const batchJobConcurrency = 16
+
+type batchJobMeta struct {
+	DB            string        `json:"db"`
+	Stmt          string        `json:"stmt"`
+	ReadStaleness time.Duration `json:"read_staleness"`
+}
+
+func registerGlobalJob(ctx context.Context, stmt *ast.NonTransactionalDMLStmt, se sessiontypes.Session) (sqlexec.RecordSet, error) {
+	globalTaskManager, err := storage.GetTaskManager()
+	if err != nil {
+		return nil, err
+	}
+	taskKey := fmt.Sprintf("batch/%d", uuid.New().ID())
+	taskMeta := batchJobMeta{
+		DB:            se.GetSessionVars().CurrentDB,
+		Stmt:          stmt.Text(),
+		ReadStaleness: se.GetSessionVars().ReadStaleness,
+	}
+	metadata, err := json.Marshal(taskMeta)
+	if err != nil {
+		return nil, err
+	}
+	taskID, err := globalTaskManager.CreateTask(ctx, taskKey, proto.Batch, batchJobConcurrency, variable.ServiceScope.Load(), metadata)
+	if err != nil {
+		return nil, err
+	}
+	resultFields := []*resolve.ResultField{
+		{
+			Column: &model.ColumnInfo{
+				FieldType: *types.NewFieldType(mysql.TypeLonglong),
+			},
+			ColumnAsName: pmodel.NewCIStr("task_id"),
+		},
+		{
+			Column: &model.ColumnInfo{
+				FieldType: *types.NewFieldType(mysql.TypeString),
+			},
+			ColumnAsName: pmodel.NewCIStr("task_key"),
+		},
+	}
+	rows := [][]any{
+		{taskID, taskKey},
+	}
+	return &sqlexec.SimpleRecordSet{
+		ResultFields: resultFields,
+		Rows:         rows,
+		MaxChunkSize: se.GetSessionVars().BatchSize.MaxChunkSize,
+	}, nil
+}
+
+type batchJobSubtask struct {
+	DB            string        `json:"db"`
+	Stmt          string        `json:"stmt"`
+	ReadStaleness time.Duration `json:"read_staleness"`
+	JobID         int           `json:"job_id"`
+	Start         []byte        `json:"start"`
+	End           []byte        `json:"end"`
+}
+
+func (batchJobSubtask) IsMinimalTask() {}
+
+type batchExecutorExtension struct {
+	store kv.Storage
+}
+
+var _ taskexecutor.Extension = (*batchExecutorExtension)(nil)
+
+func (batchExecutorExtension) IsIdempotent(subtask *proto.Subtask) bool {
+	return true
+}
+
+func (b batchExecutorExtension) GetStepExecutor(task *proto.Task) (execute.StepExecutor, error) {
+	return &batchStepExecutor{store: b.store}, nil
+}
+
+func (batchExecutorExtension) IsRetryableError(err error) bool {
+	return true
+}
+
+type batchStepExecutor struct {
+	execute.StepExecFrameworkInfo
+	store kv.Storage
+}
+
+var _ execute.StepExecutor = (*batchStepExecutor)(nil)
+
+// Init is used to initialize the environment for the subtask executor.
+func (e *batchStepExecutor) Init(context.Context) error {
+	return nil
+}
+
+// RunSubtask is used to run the subtask.
+func (e *batchStepExecutor) RunSubtask(ctx context.Context, subtask *proto.Subtask) error {
+	batchTask := &batchJobSubtask{}
+	err := json.Unmarshal(subtask.Meta, batchTask)
+	if err != nil {
+		logutil.BgLogger().Error("unmarshal error",
+			zap.String("category", "ddl"),
+			zap.Error(err))
+		return err
+	}
+
+	se, err := createSession(e.store)
+	if err != nil {
+		return err
+	}
+	se.GetSessionVars().CurrentDB = batchTask.DB
+	se.GetSessionVars().ReadStaleness = batchTask.ReadStaleness
+	if config.DefaultResourceGroup != "" {
+		se.GetSessionVars().ResourceGroupName = config.DefaultResourceGroup
+	}
+
+	stmts, _, err := se.ParseSQL(ctx, batchTask.Stmt)
+	if err != nil {
+		return err
+	}
+
+	if len(stmts) != 1 {
+		return errors.New("Non-transactional DML, only one statement is allowed")
+	}
+
+	stmt, ok := stmts[0].(*ast.NonTransactionalDMLStmt)
+	if !ok {
+		return errors.New("Non-transactional DML, only non-transactional DML is allowed")
+	}
+
+	nodeW := resolve.NewNodeW(stmt)
+	err = core.Preprocess(ctx, se, nodeW)
+	if err != nil {
+		return err
+	}
+
+	tableName, _, _, _, err := buildSelectSQL(stmt, nodeW.GetResolveContext(), se)
+	if err != nil {
+		return err
+	}
+
+	_, start, err := codec.DecodeOne(batchTask.Start)
+	if err != nil {
+		return err
+	}
+	_, end, err := codec.DecodeOne(batchTask.End)
+	if err != nil {
+		return err
+	}
+
+	j := job{
+		jobID: batchTask.JobID,
+		start: start,
+		end:   end,
+	}
+
+	tnW := nodeW.GetResolveContext().GetTableName(tableName)
+	_, err = runJobs(ctx, []job{j}, stmt, tnW, se, stmt.DMLStmt.WhereExpr())
+	return err
+}
+
+func (e *batchStepExecutor) RealtimeSummary() *execute.SubtaskSummary {
+	return &execute.SubtaskSummary{}
+}
+
+func (e *batchStepExecutor) OnFinished(ctx context.Context, subtask *proto.Subtask) error {
+	if variable.EnableDistTask.Load() && tidbworker.IsBgTaskEnabled(ctx, string(subtask.Type)) {
+		return tidbworker.GlobalTiDBWorkerManager.RecycleBgTask(
+			ctx, tidbworker.TaskWorkerType(string(subtask.Type)),
+			"",
+			subtask.TaskID,
+			subtask.ID,
+		)
+	}
+	return nil
+}
+
+func (e *batchStepExecutor) Cleanup(context.Context) error {
+	return nil
+}
+
+// StepStr convert proto.Step to string.
+func StepStr(step proto.Step) string {
+	switch step {
+	case proto.StepInit:
+		return "init"
+	case proto.StepOne:
+		return "run"
+	case proto.StepDone:
+		return "done"
+	default:
+		return "unknown"
+	}
+}
+
+type batchSchedulerExtension struct {
+	store kv.Storage
+}
+
+var _ scheduler.Extension = (*batchSchedulerExtension)(nil)
+
+func (b batchSchedulerExtension) OnTick(_ context.Context, _ *proto.Task) {
+}
+
+func (b batchSchedulerExtension) OnNextSubtasksBatch(ctx context.Context, h storage.TaskHandle, task *proto.Task, execIDs []string, step proto.Step) (subtaskMetas [][]byte, err error) {
+	logger := logutil.BgLogger().With(
+		zap.Stringer("type", task.Type),
+		zap.Int64("task-id", task.ID),
+		zap.String("curr-step", StepStr(task.Step)),
+		zap.String("next-step", StepStr(step)),
+	)
+
+	var taskMeta batchJobMeta
+	if err = json.Unmarshal(task.Meta, &taskMeta); err != nil {
+		return nil, err
+	}
+	logger.Info("on next subtasks batch")
+	if step == proto.StepDone {
+		return nil, nil
+	}
+
+	se, err := createSession(b.store)
+	if err != nil {
+		return nil, err
+	}
+	se.GetSessionVars().CurrentDB = taskMeta.DB
+	se.GetSessionVars().ReadStaleness = taskMeta.ReadStaleness
+	if config.DefaultResourceGroup != "" {
+		se.GetSessionVars().ResourceGroupName = config.DefaultResourceGroup
+	}
+
+	stmts, _, err := se.ParseSQL(ctx, taskMeta.Stmt)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(stmts) != 1 {
+		return nil, errors.New("Non-transactional DML, only one statement is allowed")
+	}
+
+	stmt, ok := stmts[0].(*ast.NonTransactionalDMLStmt)
+	if !ok {
+		return nil, errors.New("Non-transactional DML, only non-transactional DML is allowed")
+	}
+
+	nodeW := resolve.NewNodeW(stmt)
+	err = core.Preprocess(ctx, se, nodeW)
+	if err != nil {
+		return nil, err
+	}
+
+	_, selectSQL, shardColumnInfo, _, err := buildSelectSQL(stmt, nodeW.GetResolveContext(), se)
+	if err != nil {
+		return nil, err
+	}
+
+	memTracker := memory.NewTracker(memory.LabelForNonTransactionalDML, -1)
+	memTracker.AttachTo(se.GetSessionVars().MemTracker)
+	se.GetSessionVars().MemTracker.SetBytesLimit(se.GetSessionVars().MemQuotaQuery)
+	defer memTracker.Detach()
+
+	jobs, err := buildShardJobs(ctx, stmt, se, selectSQL, shardColumnInfo, memTracker)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, job := range jobs {
+		start, err := codec.EncodeKey(se.GetSessionVars().StmtCtx.TimeZone(), nil, job.start)
+		if err != nil {
+			return nil, err
+		}
+		end, err := codec.EncodeKey(se.GetSessionVars().StmtCtx.TimeZone(), nil, job.end)
+		if err != nil {
+			return nil, err
+		}
+		subtask := batchJobSubtask{
+			DB:            taskMeta.DB,
+			Stmt:          taskMeta.Stmt,
+			ReadStaleness: taskMeta.ReadStaleness,
+			JobID:         job.jobID,
+			Start:         start,
+			End:           end,
+		}
+		meta, err := json.Marshal(subtask)
+		if err != nil {
+			return nil, err
+		}
+		subtaskMetas = append(subtaskMetas, meta)
+	}
+	return
+}
+
+func (b batchSchedulerExtension) OnDone(_ context.Context, _ storage.TaskHandle, _ *proto.Task) error {
+	return nil
+}
+
+func (b batchSchedulerExtension) GetEligibleInstances(ctx context.Context, task *proto.Task) ([]string, error) {
+	if variable.EnableDistTask.Load() && task != nil && tidbworker.IsBgTaskEnabled(ctx, string(task.Type)) {
+		serverInfos := tidbworker.SchedulerNodes(ctx, string(task.Type), task.ID)
+		execIDs := make([]string, 0, len(serverInfos))
+		for _, info := range serverInfos {
+			execIDs = append(execIDs, disttaskutil.GenerateExecID(info))
+		}
+		return execIDs, nil
+	}
+	return nil, nil
+}
+
+func (b batchSchedulerExtension) IsRetryableErr(err error) bool {
+	return true
+}
+
+func (b batchSchedulerExtension) GetNextStep(task *proto.TaskBase) proto.Step {
+	switch task.Step {
+	case proto.StepInit:
+		return proto.StepOne
+	case proto.StepOne:
+		return proto.StepDone
+	default:
+		return proto.StepDone
+	}
+}
+
+// RegisterBatchDisttask registers handlers for async batch non-transactional DML.
+func RegisterBatchDisttask(store kv.Storage) {
+	scheduler.RegisterSchedulerFactory(proto.Batch,
+		func(ctx context.Context, task *proto.Task, param scheduler.Param) scheduler.Scheduler {
+			s := scheduler.NewBaseScheduler(ctx, task, param)
+			s.Extension = &batchSchedulerExtension{store}
+			return s
+		},
+	)
+
+	taskexecutor.RegisterTaskType(proto.Batch,
+		func(ctx context.Context, id string, task *proto.Task, taskTable taskexecutor.TaskTable) taskexecutor.TaskExecutor {
+			executor := taskexecutor.NewBaseTaskExecutor(ctx, id, task, taskTable)
+			executor.Extension = &batchExecutorExtension{store}
+			return executor
+		},
+	)
 }
 
 // we require:

@@ -60,7 +60,7 @@ func IsReadOnly(node Node) bool {
 		switch node.(*AdminStmt).Tp {
 		case AdminShowDDL, AdminShowDDLJobs, AdminShowSlow,
 			AdminCaptureBindings, AdminShowNextRowID, AdminShowDDLJobQueries,
-			AdminShowDDLJobQueriesWithRange:
+			AdminShowDDLJobQueriesWithRange, AdminShowBatchTasks:
 			return true
 		default:
 			return false

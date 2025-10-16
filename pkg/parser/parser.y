@@ -85,6 +85,7 @@ import (
 	array             "ARRAY"
 	as                "AS"
 	asc               "ASC"
+	async             "ASYNC"
 	between           "BETWEEN"
 	bigIntType        "BIGINT"
 	binaryType        "BINARY"
@@ -821,6 +822,7 @@ import (
 	/* The following tokens belong to TiDBKeyword. Notice: make sure these tokens are contained in TiDBKeyword. */
 	admin                      "ADMIN"
 	batch                      "BATCH"
+	batchTask                  "BATCHTASK"
 	buckets                    "BUCKETS"
 	builtinApproxCountDistinct
 	builtinApproxPercentile
@@ -1508,6 +1510,7 @@ import (
 	AttributesOpt                          "Attributes options"
 	AllColumnsOrPredicateColumnsOpt        "all columns or predicate columns option"
 	StatsOptionsOpt                        "Stats options"
+	SyncOptions                            "Sync Options"
 	DryRunOptions                          "Dry run options"
 	OptionalShardColumn                    "Optional shard column"
 	SpOptInout                             "Optional procedure param type"
@@ -7118,6 +7121,7 @@ UnReservedKeyword:
 TiDBKeyword:
 	"ADMIN"
 |	"BATCH"
+|	"BATCHTASK"
 |	"BUCKETS"
 |	"BUILTINS"
 |	"CANCEL"
@@ -11381,6 +11385,20 @@ AdminStmt:
 			AlterJobOptions: $6.([]*ast.AlterJobOption),
 		}
 	}
+|	"ADMIN" "SHOW" "BATCHTASK"
+	{
+		stmt := &ast.AdminStmt{
+			Tp: ast.AdminShowBatchTasks,
+		}
+		$$ = stmt
+	}
+|	"ADMIN" "CANCEL" "BATCHTASK" NumList
+	{
+		$$ = &ast.AdminStmt{
+			Tp:     ast.AdminCancelBatchTasks,
+			JobIDs: $4.([]int64),
+		}
+	}
 
 AlterJobOptionList:
 	AlterJobOption
@@ -15148,13 +15166,14 @@ TableLockList:
  * Split a SQL on a column. Used for bulk delete that doesn't need ACID.
  *******************************************************************/
 NonTransactionalDMLStmt:
-	"BATCH" OptionalShardColumn "LIMIT" NUM DryRunOptions ShardableStmt
+	"BATCH" OptionalShardColumn "LIMIT" NUM SyncOptions DryRunOptions ShardableStmt
 	{
 		$$ = &ast.NonTransactionalDMLStmt{
-			DryRun:      $5.(int),
+			Sync:        $5.(int),
+			DryRun:      $6.(int),
 			ShardColumn: $2.(*ast.ColumnName),
 			Limit:       getUint64FromNUM($4),
-			DMLStmt:     $6.(ast.ShardableDMLStmt),
+			DMLStmt:     $7.(ast.ShardableDMLStmt),
 		}
 	}
 
@@ -15163,6 +15182,15 @@ ShardableStmt:
 |	UpdateStmt
 |	InsertIntoStmt
 |	ReplaceIntoStmt
+
+SyncOptions:
+	{
+		$$ = ast.Sync
+	}
+|	"ASYNC"
+	{
+		$$ = ast.Async
+	}
 
 DryRunOptions:
 	{

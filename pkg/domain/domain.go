@@ -1735,6 +1735,15 @@ func (do *Domain) InitDistTaskLoop() error {
 	} else {
 		serverID = disttaskutil.GenerateSubtaskExecID(ctx, do.ddl.GetID())
 	}
+	// Overwrite scheduler id for DDL worker.
+	// Use config to check since tidb worker manager may get initialized after.
+	workerConfig := config.GetGlobalConfig().TiDBWorker
+	if workerConfig.Enable &&
+		(workerConfig.Role == config.RoleDDLWorker ||
+			workerConfig.Role == config.RoleBatchWorker ||
+			workerConfig.Role == config.RoleSharedWorker) {
+		serverID = config.GetGlobalConfig().TiDBWorker.ExecID
+	}
 
 	if serverID == "" {
 		errMsg := fmt.Sprintf("TiDB node ID( = %s ) not found in available TiDB nodes list", do.ddl.GetID())

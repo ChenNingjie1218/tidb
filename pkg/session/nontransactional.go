@@ -65,6 +65,8 @@ import (
 // ErrNonTransactionalJobFailure is the error when a non-transactional job fails. The error is returned and following jobs are canceled.
 var ErrNonTransactionalJobFailure = dbterror.ClassSession.NewStd(errno.ErrNonTransactionalJobFailure)
 
+const maxJobCount = 1000
+
 // job: handle keys in [start, end]
 type job struct {
 	start   types.Datum
@@ -835,6 +837,10 @@ func buildShardJobs(ctx context.Context, stmt *ast.NonTransactionalDMLStmt, se s
 			return nil, err
 		}
 
+		if len(jobs) > maxJobCount {
+			break
+		}
+
 		// last chunk
 		if chk.NumRows() == 0 {
 			if currentSize > 0 {
@@ -876,6 +882,10 @@ func buildShardJobs(ctx context.Context, stmt *ast.NonTransactionalDMLStmt, se s
 		}
 		currentEnd = *currentEnd.Clone()
 		currentStart = *currentStart.Clone()
+	}
+
+	if len(jobs) > maxJobCount {
+		return nil, errors.Errorf("too many jobs (>%d), try to increase batch limit", maxJobCount)
 	}
 
 	return jobs, nil

@@ -42,7 +42,7 @@ func (e *AdminShowBatchTaskExec) Next(ctx context.Context, req *chunk.Chunk) err
 	ctx = kv.WithInternalSourceType(ctx, kv.InternalTxnMeta)
 	exec := e.Ctx().(sqlexec.RestrictedSQLExecutor)
 
-	rows, _, err := exec.ExecRestrictedSQL(ctx, nil, `SELECT id,task_key,state,start_time,state_update_time FROM mysql.tidb_global_task WHERE type="batch"`)
+	rows, _, err := exec.ExecRestrictedSQL(ctx, nil, `SELECT id,task_key,state,start_time,state_update_time,error FROM mysql.tidb_global_task WHERE type="batch"`)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -77,7 +77,7 @@ func (e *AdminCancelBatchTaskExec) Next(ctx context.Context, req *chunk.Chunk) e
 	sqlExecutor := restrictedCtx.(sqlexec.SQLExecutor)
 
 	var sb strings.Builder
-	sb.WriteString(`UPDATE mysql.tidb_global_task SET state="cancelling" WHERE state="running" and id IN (`)
+	sb.WriteString(`UPDATE mysql.tidb_global_task SET state="cancelling" WHERE state IN ("waiting","pending","running") and id IN (`)
 	for i, id := range e.taskIDs {
 		if i != 0 {
 			sb.WriteString(",")

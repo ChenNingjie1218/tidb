@@ -3355,12 +3355,13 @@ func buildShowBatchTaskSchema() (*expression.Schema, types.NameSlice) {
 	schema := newColumnsWithNames(1)
 	longlongSize, _ := mysql.GetDefaultFieldLengthAndDecimal(mysql.TypeLonglong)
 	datetimeSize, _ := mysql.GetDefaultFieldLengthAndDecimal(mysql.TypeDatetime)
-	// id,task_key,state,start_time,state_update_time
+	// id,task_key,state,start_time,state_update_time,error
 	schema.Append(buildColumnWithName("", "ID", mysql.TypeLonglong, longlongSize))
 	schema.Append(buildColumnWithName("", "TASK_KEY", mysql.TypeVarchar, 256))
 	schema.Append(buildColumnWithName("", "STATE", mysql.TypeVarchar, 64))
 	schema.Append(buildColumnWithName("", "START_TIME", mysql.TypeDatetime, datetimeSize))
 	schema.Append(buildColumnWithName("", "STATE_UPDATE_TIME", mysql.TypeDatetime, datetimeSize))
+	schema.Append(buildColumnWithName("", "ERROR", mysql.TypeBlob, -1))
 	return schema.col2Schema(), schema.names
 }
 

@@ -34,7 +34,9 @@ import (
 	lightningmetric "github.com/pingcap/tidb/pkg/lightning/metric"
 	"github.com/pingcap/tidb/pkg/meta/model"
 	"github.com/pingcap/tidb/pkg/metrics"
+	"github.com/pingcap/tidb/pkg/sessionctx/variable"
 	"github.com/pingcap/tidb/pkg/table"
+	"github.com/pingcap/tidb/pkg/tidbworker"
 	tidblogutil "github.com/pingcap/tidb/pkg/util/logutil"
 	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
@@ -192,6 +194,14 @@ func (r *readIndexExecutor) OnFinished(ctx context.Context, subtask *proto.Subta
 		return err
 	}
 	subtask.Meta = meta
+	if variable.EnableDistTask.Load() && tidbworker.IsBgTaskEnabled(ctx, string(subtask.Type)) {
+		return tidbworker.GlobalTiDBWorkerManager.RecycleBgTask(
+			ctx, tidbworker.TaskWorkerType(string(subtask.Type)),
+			"",
+			subtask.TaskID,
+			subtask.ID,
+		)
+	}
 	return nil
 }
 

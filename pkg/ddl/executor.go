@@ -863,6 +863,58 @@ func checkTooLongForeignKey(fk pmodel.CIStr) error {
 	return nil
 }
 
+type checkIndexType int
+
+const (
+	checkIndexTypeNormal checkIndexType = iota
+	checkIndexTypeVector
+	checkIndexTypeFullText
+)
+
+func checkIndexTypeFromConstraintType(constraint ast.ConstraintType) checkIndexType {
+	switch constraint {
+	case ast.ConstraintVector:
+		return checkIndexTypeVector
+	case ast.ConstraintFulltext:
+		return checkIndexTypeFullText
+	default:
+		return checkIndexTypeNormal
+	}
+}
+
+func checkIndexTypeFromIndexKeyType(indexKeyType ast.IndexKeyType) checkIndexType {
+	switch indexKeyType {
+	case ast.IndexKeyTypeVector:
+		return checkIndexTypeVector
+	case ast.IndexKeyTypeFullText:
+		return checkIndexTypeFullText
+	default:
+		return checkIndexTypeNormal
+	}
+}
+
+func checkIndexOptions(indexType checkIndexType, indexOption *ast.IndexOption) error {
+	if indexOption == nil {
+		return nil
+	}
+	if indexType == checkIndexTypeFullText {
+		return dbterror.ErrUnsupportedIndexType.GenWithStackByArgs("FULLTEXT")
+	}
+	if indexOption.AddColumnarReplicaOnDemand > 0 && indexType != checkIndexTypeVector {
+		return dbterror.ErrUnsupportedIndexType.FastGen("Unsupported index option: ADD_COLUMNAR_REPLICA_ON_DEMAND can be only used in vector index")
+	}
+	if indexOption.Tp == pmodel.IndexTypeHNSW && indexType != checkIndexTypeVector {
+		return dbterror.ErrUnsupportedIndexType.FastGen("Unsupported index option: HNSW can be only used in vector index")
+	}
+	if indexOption.Tp != pmodel.IndexTypeHNSW && indexType == checkIndexTypeVector {
+		return dbterror.ErrUnsupportedIndexType.FastGen("Unsupported index option: %s cannot be used in vector index", indexOption.Tp.String())
+	}
+	if indexOption.Visibility == ast.IndexVisibilityInvisible && indexType == checkIndexTypeVector {
+		return dbterror.ErrUnsupportedIndexType.FastGen("Unsupported index option: INVISIBLE can not be used in vector index")
+	}
+	return nil
+}
+
 func getDefaultCollationForUTF8MB4(cs string, defaultUTF8MB4Coll string) string {
 	if cs == charset.CharsetUTF8MB4 {
 		return defaultUTF8MB4Coll
@@ -1220,7 +1272,20 @@ func (e *executor) CreateTableWithInfo(
 		err = e.createTableWithInfoPost(ctx, tbInfo, jobW.SchemaID, scatterScope)
 	}
 
-	return errors.Trace(err)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	if tbInfo.TiFlashReplica != nil {
+		// Additional wait: wait TiFlash replica to be ready.
+		// We cannot wait replica in the DDL process, because it will block other DDLs on the same table
+		// and SetAvailable=1 is one of the DDL being blocked.
+		// So we first let the DDL finish, then wait the replica to be ready.
+		err = e.waitColumnarReplicaAvailable(ctx, jobW.Job.SchemaID, tbInfo.ID, ast.Ident{Schema: dbName, Name: tbInfo.Name})
+		return errors.Trace(err)
+	}
+
+	return nil
 }
 
 func (e *executor) BatchCreateTableWithInfo(ctx sessionctx.Context,
@@ -1796,6 +1861,12 @@ func (e *executor) AlterTable(ctx context.Context, sctx sessionctx.Context, stmt
 			err = e.ExchangeTablePartition(sctx, ident, spec)
 		case ast.AlterTableAddConstraint:
 			constr := spec.Constraint
+
+			err = checkIndexOptions(checkIndexTypeFromConstraintType(constr.Tp), constr.Option)
+			if err != nil {
+				return
+			}
+
 			switch spec.Constraint.Tp {
 			case ast.ConstraintKey, ast.ConstraintIndex:
 				err = e.createIndex(sctx, ident, ast.IndexKeyTypeNone, pmodel.NewCIStr(constr.Name),
@@ -4711,22 +4782,18 @@ func checkIndexNameAndColumns(ctx *metabuild.Context, t table.Table, indexName p
 
 func checkTableTypeForVectorIndex(tblInfo *model.TableInfo) error {
 	if tblInfo.TableCacheStatusType != model.TableCacheStatusDisable {
-		return dbterror.ErrOptOnCacheTable.GenWithStackByArgs("Create Vector Index")
+		return dbterror.ErrUnsupportedAddVectorIndex.FastGenByArgs("cache table is not supported")
 	}
 	if tblInfo.TempTableType != model.TempTableNone {
-		return dbterror.ErrOptOnTemporaryTable.FastGenByArgs("vector index")
+		return dbterror.ErrUnsupportedAddVectorIndex.FastGenByArgs("temporary table is not supported")
 	}
 	if tblInfo.GetPartitionInfo() != nil {
-		return dbterror.ErrUnsupportedAddVectorIndex.FastGenByArgs("unsupported partition table")
+		return dbterror.ErrUnsupportedAddVectorIndex.FastGenByArgs("partition table is currently not supported")
 	}
-	if tblInfo.TiFlashReplica == nil || tblInfo.TiFlashReplica.Count == 0 {
-		return dbterror.ErrUnsupportedAddVectorIndex.FastGenByArgs("unsupported empty TiFlash replica, the replica is nil")
-	}
-
 	return nil
 }
 
-func (e *executor) createVectorIndex(ctx sessionctx.Context, ti ast.Ident, indexName pmodel.CIStr,
+func (e *executor) createVectorIndex(sctx sessionctx.Context, ti ast.Ident, indexName pmodel.CIStr,
 	indexPartSpecifications []*ast.IndexPartSpecification, indexOption *ast.IndexOption, ifNotExists bool) error {
 	schema, t, err := e.getSchemaAndTableByIdent(ti)
 	if err != nil {
@@ -4738,7 +4805,13 @@ func (e *executor) createVectorIndex(ctx sessionctx.Context, ti ast.Ident, index
 		return errors.Trace(err)
 	}
 
-	metaBuildCtx := NewMetaBuildContextWithSctx(ctx)
+	if indexOption.AddColumnarReplicaOnDemand == 0 {
+		if tblInfo.TiFlashReplica == nil || tblInfo.TiFlashReplica.Count == 0 {
+			return dbterror.ErrUnsupportedAddVectorIndex.FastGenByArgs("columnar replica must exist to create vector index. Try explicitly specify ADD_COLUMNAR_REPLICA_ON_DEMAND like: `ALTER TABLE <TABLE> ADD VECTOR INDEX (...) ADD_COLUMNAR_REPLICA_ON_DEMAND;`, or add a columnar replica first like: `ALTER TABLE <TABLE> SET TIFLASH REPLICA 1;`")
+		}
+	}
+
+	metaBuildCtx := NewMetaBuildContextWithSctx(sctx)
 	indexName, _, err = checkIndexNameAndColumns(metaBuildCtx, t, indexName, indexPartSpecifications, true, ifNotExists)
 	if err != nil {
 		return errors.Trace(err)
@@ -4760,12 +4833,12 @@ func (e *executor) createVectorIndex(ctx sessionctx.Context, ti ast.Ident, index
 	}
 
 	// May be truncate comment here, when index comment too long and sql_mode it's strict.
-	sessionVars := ctx.GetSessionVars()
+	sessionVars := sctx.GetSessionVars()
 	if _, err = validateCommentLength(sessionVars.StmtCtx.ErrCtx(), sessionVars.SQLMode, indexName.String(), &indexOption.Comment, dbterror.ErrTooLongTableComment); err != nil {
 		return errors.Trace(err)
 	}
 
-	job := buildAddIndexJobWithoutTypeAndArgs(ctx, schema, t)
+	job := buildAddIndexJobWithoutTypeAndArgs(sctx, schema, t)
 	job.Version = model.GetJobVerInUse()
 	job.Type = model.ActionAddVectorIndex
 	indexPartSpecifications[0].Expr = nil
@@ -4783,12 +4856,23 @@ func (e *executor) createVectorIndex(ctx sessionctx.Context, ti ast.Ident, index
 		OpType: model.OpAddIndex,
 	}
 
-	err = e.doDDLJob2(ctx, job, args)
+	err = e.doDDLJob2(sctx, job, args)
 	// key exists, but if_not_exists flags is true, so we ignore this error.
 	if dbterror.ErrDupKeyName.Equal(err) && ifNotExists {
-		ctx.GetSessionVars().StmtCtx.AppendNote(err)
+		sctx.GetSessionVars().StmtCtx.AppendNote(err)
 		return nil
 	}
+
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	// Additional wait: wait TiFlash replica to be ready.
+	// We cannot wait replica in the DDL process, because it will block other DDLs on the same table
+	// and SetAvailable=1 is one of the DDL being blocked.
+	// So we first let the DDL finish, then wait the replica to be ready.
+	err = e.waitColumnarReplicaAvailable(sctx, schema.ID, tblInfo.ID, ti)
+
 	return errors.Trace(err)
 }
 
@@ -4810,6 +4894,10 @@ func buildAddIndexJobWithoutTypeAndArgs(ctx sessionctx.Context, schema *model.DB
 
 func (e *executor) CreateIndex(ctx sessionctx.Context, stmt *ast.CreateIndexStmt) error {
 	ident := ast.Ident{Schema: stmt.Table.Schema, Name: stmt.Table.Name}
+	err := checkIndexOptions(checkIndexTypeFromIndexKeyType(stmt.KeyType), stmt.IndexOption)
+	if err != nil {
+		return errors.Trace(err)
+	}
 	return e.createIndex(ctx, ident, stmt.KeyType, pmodel.NewCIStr(stmt.IndexName),
 		stmt.IndexPartSpecifications, stmt.IndexOption, stmt.IfNotExists)
 }

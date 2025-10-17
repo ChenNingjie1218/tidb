@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/pingcap/errors"
+	"github.com/pingcap/failpoint"
 	"github.com/pingcap/tidb/pkg/ddl"
 	testddlutil "github.com/pingcap/tidb/pkg/ddl/testutil"
 	"github.com/pingcap/tidb/pkg/domain/infosync"
@@ -1090,6 +1091,12 @@ func getJobsBySQL(se sessiontypes.Session, tbl, condition string) ([]*model.Job,
 }
 
 func TestCreateTableWithVectorIndex(t *testing.T) {
+	require.NoError(t, failpoint.Enable("github.com/pingcap/tidb/pkg/ddl/MockCheckColumnarReplicaAvailability", `return(1)`))
+	defer func() {
+		err := failpoint.Disable("github.com/pingcap/tidb/pkg/ddl/MockCheckColumnarReplicaAvailability")
+		require.NoError(t, err)
+	}()
+
 	store, dom := testkit.CreateMockStoreAndDomain(t)
 	tk := testkit.NewTestKit(t, store)
 	tk.MustExec("use test")
@@ -1117,11 +1124,10 @@ func TestCreateTableWithVectorIndex(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(0), replicas)
 	tk.MustContainErrMsg("create table t(a int, b vector(3), vector index((VEC_COSINE_DISTANCE(b))) USING HNSW);",
-		"Unsupported add vector index: unsupported TiFlash store count is 0")
+		"columnar store (TiFlash) must be deployed in the cluster in order to use vector index")
 
 	// test TiFlash store count is 2
-	mockTiflashStoreCnt := uint64(2)
-	store, dom = testkit.CreateMockStoreAndDomainWithSchemaLease(t, tiflashReplicaLease, mockstore.WithMockTiFlash(int(mockTiflashStoreCnt)), mockstore.WithDDLChecker())
+	store, dom = testkit.CreateMockStoreAndDomainWithSchemaLease(t, tiflashReplicaLease, mockstore.WithMockTiFlash(2))
 	tk = testkit.NewTestKit(t, store)
 	tk.MustExec("use test")
 	checkCreateTableWithVectorIdx(1)
@@ -1134,7 +1140,7 @@ func TestCreateTableWithVectorIndex(t *testing.T) {
 		"`set TiFlash replica` is unsupported on temporary tables.")
 	tk.MustContainErrMsg("create table pt(id bigint, b vector(3), vector index((VEC_COSINE_DISTANCE(b))) USING HNSW) "+
 		"partition by range(id) (partition p0 values less than (20), partition p1 values less than (100));",
-		"Unsupported add vector index: unsupported partition table")
+		"Unsupported add vector index: partition table is currently not supported")
 	tk.MustContainErrMsg("create table t(a int, b vector(3), c char(210) CHARACTER SET gbk COLLATE gbk_bin, vector index((VEC_COSINE_DISTANCE(b))));",
 		"Unsupported `set TiFlash replica` settings for table contains gbk charset")
 	tk.MustContainErrMsg("create table mysql.t(a int, b vector(3), vector index((VEC_COSINE_DISTANCE(b))));",
@@ -1144,7 +1150,30 @@ func TestCreateTableWithVectorIndex(t *testing.T) {
 
 	// a vector index with invisible
 	tk.MustContainErrMsg("create table t(a int, b vector(3), vector index((VEC_COSINE_DISTANCE(b))) USING HNSW INVISIBLE)",
-		"Unsupported set vector index invisible")
+		"Unsupported index option: INVISIBLE can not be used in vector index")
+}
+
+func TestVectorColumnWithIndex(t *testing.T) {
+	require.NoError(t, failpoint.Enable("github.com/pingcap/tidb/pkg/ddl/MockCheckColumnarReplicaAvailability", `return(1)`))
+	defer func() {
+		err := failpoint.Disable("github.com/pingcap/tidb/pkg/ddl/MockCheckColumnarReplicaAvailability")
+		require.NoError(t, err)
+	}()
+
+	store, _ := testkit.CreateMockStoreAndDomainWithSchemaLease(t, tiflashReplicaLease, mockstore.WithMockTiFlash(2))
+	tk := testkit.NewTestKit(t, store)
+	tk.MustExec("use test")
+
+	tk.MustExec(`CREATE TABLE t(c INT)`)
+	tk.MustGetErrMsg(`ALTER TABLE t ADD INDEX idx (c) USING HNSW`, "[ddl:8200]Unsupported index option: HNSW can be only used in vector index")
+	tk.MustGetErrMsg(`CREATE INDEX idx USING HNSW ON t (c)`, "[ddl:8200]Unsupported index option: HNSW can be only used in vector index")
+	tk.MustExec(`DROP TABLE t`)
+
+	tk.MustExec(`CREATE TABLE t(c VECTOR(5))`)
+	tk.MustGetErrMsg(`CREATE INDEX idx ON t (c)`, "[ddl:8200]Unsupported add vector index: unsupported adding a general index on a vector column")
+	tk.MustGetErrMsg(`ALTER TABLE t ADD VECTOR INDEX idx ((VEC_COSINE_DISTANCE(c))) USING BTREE`, "[ddl:8200]Unsupported index option: BTREE cannot be used in vector index")
+	tk.MustGetErrMsg(`CREATE VECTOR INDEX idx USING BTREE ON t ((VEC_COSINE_DISTANCE(c)))`, "[ddl:8200]Unsupported index option: BTREE cannot be used in vector index")
+	tk.MustExec(`DROP TABLE t`)
 }
 
 func TestAddVectorIndexSimple(t *testing.T) {
@@ -1173,16 +1202,21 @@ func TestAddVectorIndexSimple(t *testing.T) {
 		PARTITION p2 VALUES LESS THAN (21)
 	 );`)
 	tk.MustContainErrMsg("alter table pt add vector index idx((vec_cosine_distance(b))) USING HNSW;",
-		"Unsupported add vector index: unsupported partition table")
+		"Unsupported add vector index: partition table is currently not supported")
 	// for TiFlash replica
 	tk.MustExec("create table t (a int, b vector, c vector(3), d vector(4));")
 	tk.MustContainErrMsg("alter table t add vector index idx((VEC_COSINE_DISTANCE(b))) USING HNSW COMMENT 'b comment';",
-		"unsupported empty TiFlash replica, the replica is nil")
+		"Unsupported add vector index: columnar replica must exist to create vector index.")
+	tk.MustContainErrMsg("create vector index idx USING HNSW on t ((vec_cosine_distance(b))) COMMENT 'b comment';",
+		"Unsupported add vector index: columnar replica must exist to create vector index")
 	tk.MustExec("alter table t set tiflash replica 2 location labels 'a','b';")
 	tk.MustContainErrMsg("alter table t add key idx(a) USING HNSW;",
-		"Only support vector index with HNSW type, but it's non-vector index")
+		"HNSW can be only used in vector index")
+	tk.MustContainErrMsg("create index idx USING HNSW on t (a);",
+		"HNSW can be only used in vector index")
 	// for a wrong column
 	tk.MustContainErrMsg("alter table t add vector index ((vec_cosine_distance(n))) USING HNSW;", "[schema:1054]Unknown column 'n' in 't'")
+	tk.MustContainErrMsg("create vector index idx USING HNSW on t ((vec_cosine_distance(n)));", "[schema:1054]Unknown column 'n' in 't'")
 	// for wrong functions
 	tk.MustGetErrCode("alter table t add vector index ((vec_cosine_distance(a))) USING HNSW;", errno.ErrUnsupportedDDLOperation)
 	tk.MustContainErrMsg("alter table t add vector index ((vec_cosine_distance(a,'[1,2.1,3.3]'))) USING HNSW;",
@@ -1190,18 +1224,28 @@ func TestAddVectorIndexSimple(t *testing.T) {
 	tk.MustGetErrCode("alter table t add vector index ((vec_l1_distance(b))) USING HNSW;", errno.ErrUnsupportedDDLOperation)
 	tk.MustGetErrCode("alter table t add vector index ((vec_negative_inner_product(b))) USING HNSW;", errno.ErrUnsupportedDDLOperation)
 	tk.MustGetErrCode("alter table t add vector index ((lower(b))) USING HNSW;", errno.ErrUnsupportedDDLOperation)
+	tk.MustGetErrCode("create vector index vector_index USING HNSW on t ((vec_cosine_distance(a)));", errno.ErrUnsupportedDDLOperation)
+	tk.MustGetErrCode("create vector index vector_index USING HNSW on t ((vec_cosine_distance(a,'[1,2.1,3.3]')));", errno.ErrUnsupportedDDLOperation)
+	tk.MustGetErrCode("create vector index vector_index USING HNSW on t ((vec_l1_distance(b)));", errno.ErrUnsupportedDDLOperation)
+	tk.MustGetErrCode("create vector index vector_index USING HNSW on t ((vec_negative_inner_product(b)));", errno.ErrUnsupportedDDLOperation)
+	tk.MustGetErrCode("create vector index vector_index USING HNSW on t ((lower(b)));", errno.ErrUnsupportedDDLOperation)
 
 	// for duplicated index name
 	tk.MustExec("alter table t add key idx(a);")
 	tk.MustGetErrCode("alter table t add vector index idx((vec_cosine_distance(c))) USING HNSW;", errno.ErrDupKeyName)
+	tk.MustGetErrCode("create vector index idx USING HNSW on t ((vec_cosine_distance(b)));", errno.ErrDupKeyName)
 	// for duplicated function
 	testfailpoint.Enable(t, "github.com/pingcap/tidb/pkg/ddl/MockCheckVectorIndexProcess", `return(1)`)
 	tk.MustContainErrMsg("alter table t add vector index vecIdx((vec_cosine_distance(b))) USING HNSW;",
-		"add vector index can only be defined on fixed-dimension vector columns")
+		"Unsupported add vector index: vector index can only be defined on fixed-dimension vector columns")
+	tk.MustContainErrMsg("create vector index vecIdx USING HNSW on t ((vec_cosine_distance(b)));",
+		"Unsupported add vector index: vector index can only be defined on fixed-dimension vector columns")
 	tk.MustExec("alter table t add vector index vecIdx((vec_cosine_distance(c))) USING HNSW;")
 	tk.MustGetErrCode("alter table t add vector index vecIdx1((vec_cosine_distance(c))) USING HNSW;", errno.ErrDupKeyName)
+	tk.MustGetErrCode("create vector index vecIdx1 USING HNSW on t ((vec_cosine_distance(c)));", errno.ErrDupKeyName)
 	tk.MustExec("alter table t add vector index vecIdx1((vec_cosine_distance(d))) USING HNSW;")
 	tk.MustExec("alter table t add vector index vecIdx2((vec_l2_distance(c))) USING HNSW;")
+	tk.MustQuery("show create table t").Check(testkit.Rows("t CREATE TABLE `t` (\n  `a` int(11) DEFAULT NULL,\n  `b` vector DEFAULT NULL,\n  `c` vector(3) DEFAULT NULL,\n  `d` vector(4) DEFAULT NULL,\n  KEY `idx` (`a`),\n  VECTOR INDEX `vecIdx`((VEC_COSINE_DISTANCE(`c`))),\n  VECTOR INDEX `vecIdx1`((VEC_COSINE_DISTANCE(`d`))),\n  VECTOR INDEX `vecIdx2`((VEC_L2_DISTANCE(`c`)))\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin"))
 	// for "if not exists"
 	tk.MustExec("alter table t drop index vecIdx2")
 	tk.MustExec("alter table t add vector index if not exists idx((vec_l2_distance(c))) USING HNSW;")
@@ -1211,7 +1255,7 @@ func TestAddVectorIndexSimple(t *testing.T) {
 	require.Truef(t, terror.ErrorEqual(dbterror.ErrDupKeyName, lastWarn.Err), "err %v", lastWarn.Err)
 	require.Equal(t, contextutil.WarnLevelNote, lastWarn.Level)
 	tk.MustContainErrMsg("alter table t add vector index if not exists idx((vec_cosine_distance(c))) USING HNSW;",
-		"[ddl:1061]vector index vecIdx function vec_cosine_distance already exist on column c")
+		"[ddl:1061]vector index 'vecIdx' with vec_cosine_distance already exist on column c")
 
 	// normal test cases
 	tk.MustExec("drop table if exists t;")
@@ -1255,7 +1299,7 @@ func TestAddVectorIndexSimple(t *testing.T) {
 		"Unsupported multi schema change for add vector index")
 
 	// test alter index visibility
-	tk.MustContainErrMsg("alter table t alter index idx invisible", "Unsupported set vector index invisible")
+	tk.MustContainErrMsg("alter table t alter index idx invisible", "Unsupported set vector index as invisible")
 	query := "select distinct index_name, is_visible from information_schema.statistics where table_schema = 'test' and table_name = 't' order by index_name"
 	tk.MustQuery(query).Check(testkit.Rows("idx YES"))
 	tk.MustExec("alter table t alter index idx visible")

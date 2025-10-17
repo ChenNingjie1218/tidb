@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pingcap/failpoint"
 	"github.com/pingcap/tidb/pkg/domain"
 	"github.com/pingcap/tidb/pkg/domain/infosync"
 	"github.com/pingcap/tidb/pkg/meta/model"
@@ -51,6 +52,12 @@ func TestVectorIndexProtobufMatch(t *testing.T) {
 }
 
 func TestTiFlashANNIndex(t *testing.T) {
+	require.NoError(t, failpoint.Enable("github.com/pingcap/tidb/pkg/ddl/MockCheckVectorIndexProcess", `return(1)`))
+	defer func() {
+		err := failpoint.Disable("github.com/pingcap/tidb/pkg/ddl/MockCheckVectorIndexProcess")
+		require.NoError(t, err)
+	}()
+
 	store := testkit.CreateMockStoreWithSchemaLease(t, 1*time.Second, mockstore.WithMockTiFlash(2))
 
 	tk := testkit.NewTestKit(t, store)
@@ -62,8 +69,6 @@ func TestTiFlashANNIndex(t *testing.T) {
 		tiflash.StatusServer.Close()
 		tiflash.Unlock()
 	}()
-
-	testfailpoint.Enable(t, "github.com/pingcap/tidb/pkg/ddl/MockCheckVectorIndexProcess", `return(1)`)
 
 	tk.MustExec("use test")
 	tk.MustExec("drop table if exists t1")
@@ -116,6 +121,12 @@ func TestTiFlashANNIndex(t *testing.T) {
 }
 
 func TestANNIndexNormalizedPlan(t *testing.T) {
+	require.NoError(t, failpoint.Enable("github.com/pingcap/tidb/pkg/ddl/MockCheckVectorIndexProcess", `return(1)`))
+	defer func() {
+		err := failpoint.Disable("github.com/pingcap/tidb/pkg/ddl/MockCheckVectorIndexProcess")
+		require.NoError(t, err)
+	}()
+
 	store := testkit.CreateMockStoreWithSchemaLease(t, 1*time.Second, mockstore.WithMockTiFlash(2))
 
 	tk := testkit.NewTestKit(t, store)
@@ -127,8 +138,6 @@ func TestANNIndexNormalizedPlan(t *testing.T) {
 		tiflash.StatusServer.Close()
 		tiflash.Unlock()
 	}()
-
-	testfailpoint.Enable(t, "github.com/pingcap/tidb/pkg/ddl/MockCheckVectorIndexProcess", `return(1)`)
 
 	getNormalizedPlan := func() ([]string, string) {
 		info := tk.Session().ShowProcess()
@@ -218,6 +227,12 @@ func TestANNIndexNormalizedPlan(t *testing.T) {
 }
 
 func TestANNInexWithSimpleCBO(t *testing.T) {
+	require.NoError(t, failpoint.Enable("github.com/pingcap/tidb/pkg/ddl/MockCheckColumnarReplicaAvailability", `return(1)`))
+	defer func() {
+		err := failpoint.Disable("github.com/pingcap/tidb/pkg/ddl/MockCheckColumnarReplicaAvailability")
+		require.NoError(t, err)
+	}()
+
 	store := testkit.CreateMockStoreWithSchemaLease(t, 1*time.Second, mockstore.WithMockTiFlash(2))
 
 	tk := testkit.NewTestKit(t, store)
@@ -230,7 +245,7 @@ func TestANNInexWithSimpleCBO(t *testing.T) {
 		tiflash.Unlock()
 	}()
 
-	testfailpoint.Enable(t, "github.com/pingcap/tidb/pkg/ddl/MockCheckVectorIndexProcess", `return(1)`)
+	failpoint.Enable("github.com/pingcap/tidb/pkg/ddl/MockCheckVectorIndexProcess", `return(1)`)
 
 	tk.MustExec("use test")
 	tk.MustExec("drop table if exists t1")
@@ -251,6 +266,12 @@ func TestANNInexWithSimpleCBO(t *testing.T) {
 }
 
 func TestANNIndexWithNonIntClusteredPk(t *testing.T) {
+	require.NoError(t, failpoint.Enable("github.com/pingcap/tidb/pkg/ddl/MockCheckColumnarReplicaAvailability", `return(1)`))
+	defer func() {
+		err := failpoint.Disable("github.com/pingcap/tidb/pkg/ddl/MockCheckColumnarReplicaAvailability")
+		require.NoError(t, err)
+	}()
+
 	store := testkit.CreateMockStoreWithSchemaLease(t, 1*time.Second, mockstore.WithMockTiFlash(2))
 
 	tk := testkit.NewTestKit(t, store)
@@ -314,7 +335,65 @@ func TestANNIndexWithNonIntClusteredPk(t *testing.T) {
 	require.Equal(t, types.KindMaxValue, tableScan.Ranges[0].HighVal[0].Kind())
 }
 
+func TestTiFlashANNIndexForPartition(t *testing.T) {
+	require.NoError(t, failpoint.Enable("github.com/pingcap/tidb/pkg/ddl/MockCheckColumnarReplicaAvailability", `return(1)`))
+	defer func() {
+		err := failpoint.Disable("github.com/pingcap/tidb/pkg/ddl/MockCheckColumnarReplicaAvailability")
+		require.NoError(t, err)
+	}()
+
+	store, dom := testkit.CreateMockStoreAndDomainWithSchemaLease(t, 200*time.Millisecond, mockstore.WithMockTiFlash(2))
+	tk := testkit.NewTestKit(t, store)
+
+	tk.MustExec("use test")
+	tk.MustExec("drop table if exists t1")
+	tk.MustExec(`
+		create table t1 (
+			vec vector(3) comment 'hnsw(distance=cosine)',
+			a int, b int,
+			store_id int
+		) PARTITION BY RANGE COLUMNS(store_id) (
+			PARTITION p0 VALUES LESS THAN (100),
+			PARTITION p1 VALUES LESS THAN (200),
+			PARTITION p2 VALUES LESS THAN (MAXVALUE)
+		);
+	`)
+	tk.MustExec("insert into t1 values('[1,1,1]', 1, 1, 50), ('[2,2,2]', 2, 2, 150), ('[3,3,3]', 3, 3, 250)")
+	for i := 0; i < 14; i++ {
+		tk.MustExec("insert into t1(vec, a, b, store_id) select vec, a, b, store_id from t1")
+	}
+	tk.MustExec("analyze table t1")
+	testkit.SetTiFlashReplica(t, dom, "test", "t1")
+
+	tk.MustExec("set @@tidb_isolation_read_engines = 'tiflash'")
+
+	var input []string
+	var output []struct {
+		SQL  string
+		Plan []string
+		Warn []string
+	}
+
+	integrationSuiteData := GetANNIndexSuiteData()
+	integrationSuiteData.LoadTestCases(t, &input, &output)
+	for i, tt := range input {
+		testdata.OnRecord(func() {
+			output[i].SQL = tt
+			output[i].Plan = testdata.ConvertRowsToStrings(tk.MustQuery(tt).Rows())
+			output[i].Warn = testdata.ConvertSQLWarnToStrings(tk.Session().GetSessionVars().StmtCtx.GetWarnings())
+		})
+		tk.MustQuery(tt).Check(testkit.Rows(output[i].Plan...))
+		require.Equal(t, output[i].Warn, testdata.ConvertSQLWarnToStrings(tk.Session().GetSessionVars().StmtCtx.GetWarnings()))
+	}
+}
+
 func prepareVectorSearchWithPK(t *testing.T) *testkit.TestKit {
+	require.NoError(t, failpoint.Enable("github.com/pingcap/tidb/pkg/ddl/MockCheckColumnarReplicaAvailability", `return(1)`))
+	defer func() {
+		err := failpoint.Disable("github.com/pingcap/tidb/pkg/ddl/MockCheckColumnarReplicaAvailability")
+		require.NoError(t, err)
+	}()
+
 	store, dom := testkit.CreateMockStoreAndDomainWithSchemaLease(t, 200*time.Millisecond, mockstore.WithMockTiFlash(2))
 	tk := testkit.NewTestKit(t, store)
 

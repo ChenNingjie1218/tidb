@@ -728,13 +728,14 @@ const (
 type IndexOption struct {
 	node
 
-	KeyBlockSize uint64
-	Tp           model.IndexType
-	Comment      string
-	ParserName   model.CIStr
-	Visibility   IndexVisibility
-	PrimaryKeyTp model.PrimaryKeyType
-	Global       bool
+	KeyBlockSize               uint64
+	Tp                         model.IndexType
+	Comment                    string
+	ParserName                 model.CIStr
+	Visibility                 IndexVisibility
+	PrimaryKeyTp               model.PrimaryKeyType
+	Global                     bool
+	AddColumnarReplicaOnDemand int
 }
 
 // IsEmpty is true if only default options are given
@@ -755,7 +756,14 @@ func (n *IndexOption) IsEmpty() bool {
 // Restore implements Node interface.
 func (n *IndexOption) Restore(ctx *format.RestoreCtx) error {
 	hasPrevOption := false
+	if n.AddColumnarReplicaOnDemand > 0 {
+		ctx.WriteKeyWord("ADD_COLUMNAR_REPLICA_ON_DEMAND")
+		hasPrevOption = true
+	}
 	if n.PrimaryKeyTp != model.PrimaryKeyTypeDefault {
+		if hasPrevOption {
+			ctx.WritePlain(" ")
+		}
 		_ = ctx.WriteWithSpecialComments(tidb.FeatureIDClusteredIndex, func() error {
 			ctx.WriteKeyWord(n.PrimaryKeyTp.String())
 			return nil

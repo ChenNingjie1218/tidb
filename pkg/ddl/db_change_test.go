@@ -1182,8 +1182,7 @@ func TestParallelAlterAddVectorIndex(t *testing.T) {
 	sql2 := "alter table tt add vector index vecIdx1((vec_cosine_distance(c))) USING HNSW;"
 	f := func(err1, err2 error) {
 		require.NoError(t, err1)
-		require.EqualError(t, err2,
-			"[ddl:1061]DDL job rollback, error msg: vector index vecIdx function vec_cosine_distance already exist on column c")
+		require.EqualError(t, err2, "[ddl:1061]DDL job rollback, error msg: vector index 'vecIdx' with vec_cosine_distance already exist on column c")
 	}
 	testControlParallelExecSQL(t, tk, store, dom, "", sql1, sql2, f)
 }

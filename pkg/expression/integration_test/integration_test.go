@@ -509,9 +509,10 @@ func TestVectorIndexExplain(t *testing.T) {
 		tiflash.Unlock()
 	}()
 
-	failpoint.Enable("github.com/pingcap/tidb/pkg/ddl/MockCheckVectorIndexProcess", `return(1)`)
+	require.NoError(t, failpoint.Enable("github.com/pingcap/tidb/pkg/ddl/MockCheckVectorIndexProcess", `return(1)`))
 	defer func() {
-		require.NoError(t, failpoint.Disable("github.com/pingcap/tidb/pkg/ddl/MockCheckVectorIndexProcess"))
+		err := failpoint.Disable("github.com/pingcap/tidb/pkg/ddl/MockCheckVectorIndexProcess")
+		require.NoError(t, err)
 	}()
 
 	tk.MustExec("use test")
@@ -1199,6 +1200,12 @@ func testVectorSearchInternal(tk *testkit.TestKit) {
 }
 
 func TestVectorSearchExtractProj(t *testing.T) {
+	require.NoError(t, failpoint.Enable("github.com/pingcap/tidb/pkg/ddl/MockCheckColumnarReplicaAvailability", `return(1)`))
+	defer func() {
+		err := failpoint.Disable("github.com/pingcap/tidb/pkg/ddl/MockCheckColumnarReplicaAvailability")
+		require.NoError(t, err)
+	}()
+
 	{
 		store, _ := testkit.CreateMockStoreAndDomainWithSchemaLease(t, 200*time.Millisecond, mockstore.WithMockTiFlash(1))
 		tk := testkit.NewTestKit(t, store)
@@ -1215,6 +1222,12 @@ func TestVectorSearchExtractProj(t *testing.T) {
 }
 
 func TestVectorSearchPreparedStatement(t *testing.T) {
+	require.NoError(t, failpoint.Enable("github.com/pingcap/tidb/pkg/ddl/MockCheckColumnarReplicaAvailability", `return(1)`))
+	defer func() {
+		err := failpoint.Disable("github.com/pingcap/tidb/pkg/ddl/MockCheckColumnarReplicaAvailability")
+		require.NoError(t, err)
+	}()
+
 	store, _ := testkit.CreateMockStoreAndDomainWithSchemaLease(t, 200*time.Millisecond, mockstore.WithMockTiFlash(1))
 	tk := testkit.NewTestKit(t, store)
 	tk.MustExec("USE test;")

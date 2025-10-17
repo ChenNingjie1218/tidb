@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Copyright 2024 PingCAP, Inc.
+# Copyright 2025 PingCAP, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,13 +18,18 @@
 
 set -euo pipefail
 
+CURRENT_DIR="$(dirname "$0")"
+source $CURRENT_DIR/_include.sh
+
+print_versions
+
 # Start minio in background
 /root/minio server /root/minio-data &
-
 sleep 5
 
-/root/.tiup/bin/tiup playground v7.3.0 --host 0.0.0.0 --mode=tidb-cse --tag serverless --without-monitor \
-    --db.binpath /root/tidb-server \
-    --kv.binpath /root/tikv-server \
-    --tiflash.binpath /root/tiflash/tiflash \
-    --tiflash.compute 1
+start_tidb_in_bg
+wait_for_tidb
+wait_for_tiflash
+
+echo "+ Running /root/mysql-tester"
+/root/mysql-tester

@@ -369,8 +369,6 @@ func BuildIndexInfo(
 		if indexOption.Tp == pmodel.IndexTypeInvalid {
 			// Use btree as default index type.
 			idxInfo.Tp = pmodel.IndexTypeBtree
-		} else if !isVector && indexOption.Tp == pmodel.IndexTypeHNSW {
-			return nil, dbterror.ErrUnsupportedAddVectorIndex.FastGenByArgs("Only support vector index with HNSW type, but it's non-vector index")
 		} else {
 			idxInfo.Tp = indexOption.Tp
 		}
@@ -386,21 +384,21 @@ func BuildIndexInfo(
 func buildVectorInfoWithCheck(indexPartSpecifications []*ast.IndexPartSpecification, indexOption *ast.IndexOption,
 	tblInfo *model.TableInfo) (*model.VectorIndexInfo, string, error) {
 	if len(indexPartSpecifications) != 1 {
-		return nil, "", dbterror.ErrUnsupportedAddVectorIndex.FastGenByArgs("unsupported no function")
+		return nil, "", dbterror.ErrUnsupportedAddVectorIndex.FastGenByArgs("a vector distance function must be specified")
 	}
 
 	idxPart := indexPartSpecifications[0]
 	f, ok := idxPart.Expr.(*ast.FuncCallExpr)
 	if !ok {
-		return nil, "", dbterror.ErrUnsupportedAddVectorIndex.FastGenByArgs(fmt.Sprintf("unsupported function: %v", idxPart.Expr))
+		return nil, "", dbterror.ErrUnsupportedAddVectorIndex.FastGenByArgs("a vector distance function must be specified")
 	}
 	distanceMetric, ok := model.IndexableFnNameToDistanceMetric[f.FnName.L]
 	if !ok {
-		return nil, "", dbterror.ErrUnsupportedAddVectorIndex.FastGenByArgs("currently only L2 and Cosine distance is indexable")
+		return nil, "", dbterror.ErrUnsupportedAddVectorIndex.FastGenByArgs("currently only VEC_L2_DISTANCE and VEC_COSINE_DISTANCE is supported in vector index")
 	}
 	colExpr, ok := f.Args[0].(*ast.ColumnNameExpr)
 	if !ok {
-		return nil, "", dbterror.ErrUnsupportedAddVectorIndex.FastGenByArgs(fmt.Sprintf("unsupported function args: %v", f.Args[0]))
+		return nil, "", dbterror.ErrUnsupportedAddVectorIndex.FastGenByArgs(fmt.Sprintf("vector column must be specified as the args, but got %v", f.Args[0]))
 	}
 	colInfo := findColumnByName(colExpr.Name.Name.L, tblInfo)
 	if colInfo == nil {
@@ -417,12 +415,12 @@ func buildVectorInfoWithCheck(indexPartSpecifications []*ast.IndexPartSpecificat
 		}
 		if idx.VectorInfo.DistanceMetric == distanceMetric {
 			return nil, "", dbterror.ErrDupKeyName.GenWithStack(
-				fmt.Sprintf("vector index %s function %s already exist on column %s",
+				fmt.Sprintf("vector index '%s' with %s already exist on column %s",
 					idx.Name, f.FnName, colInfo.Name))
 		}
 	}
 	if colInfo.FieldType.GetFlen() <= 0 {
-		return nil, "", errors.Errorf("add vector index can only be defined on fixed-dimension vector columns")
+		return nil, "", dbterror.ErrUnsupportedAddVectorIndex.FastGenByArgs("vector index can only be defined on fixed-dimension vector columns")
 	}
 
 	exprStr, err := restoreFuncCall(f)
@@ -541,7 +539,7 @@ func validateAlterIndexVisibility(ctx sessionctx.Context, indexName pmodel.CIStr
 		}
 	}
 	if idx.VectorInfo != nil {
-		return false, dbterror.ErrGeneralUnsupportedDDL.GenWithStackByArgs("set vector index invisible")
+		return false, dbterror.ErrGeneralUnsupportedDDL.GenWithStackByArgs("set vector index as invisible")
 	}
 	return false, nil
 }
@@ -744,6 +742,14 @@ func (w *worker) onCreateVectorIndex(jobCtx *jobContext, job *model.Job) (ver in
 		return ver, errors.Trace(err)
 	}
 	a := args.IndexArgs[0]
+
+	if a.IndexOption.AddColumnarReplicaOnDemand == 0 {
+		if tblInfo.TiFlashReplica == nil || tblInfo.TiFlashReplica.Count == 0 {
+			job.State = model.JobStateCancelled
+			return ver, dbterror.ErrUnsupportedAddVectorIndex.FastGenByArgs("columnar replica must exist to create vector index. Try explicitly specify ADD_COLUMNAR_REPLICA_ON_DEMAND like: `ALTER TABLE <TABLE> ADD VECTOR INDEX (...) ADD_COLUMNAR_REPLICA_ON_DEMAND;`, or add a columnar replica first like: `ALTER TABLE <TABLE> SET TIFLASH REPLICA 1;`")
+		}
+	}
+
 	a.IndexPartSpecifications[0].Expr, err = generatedexpr.ParseExpression(a.FuncExpr)
 	if err != nil {
 		job.State = model.JobStateCancelled
@@ -761,6 +767,22 @@ func (w *worker) onCreateVectorIndex(jobCtx *jobContext, job *model.Job) (ver in
 	switch indexInfo.State {
 	case model.StateNone:
 		// none -> delete only
+		// Handle with AddColumnarReplicaOnDemand
+		// When adding index, add a replica by default as well, if there is no replica.
+		if tblInfo.TiFlashReplica == nil {
+			sctx, err := w.sessPool.Get()
+			if err != nil {
+				job.State = model.JobStateCancelled
+				return ver, errors.Trace(err)
+			}
+			defer w.sessPool.Put(sctx)
+
+			err = setTableDefaultReplicaNumForLocalIndex(sctx.GetStore(), tblInfo)
+			if err != nil {
+				job.State = model.JobStateCancelled
+				return ver, errors.Trace(err)
+			}
+		}
 		indexInfo.State = model.StateDeleteOnly
 		ver, err = updateVersionAndTableInfoWithCheck(jobCtx, job, tblInfo, originalState != indexInfo.State)
 		if err != nil {
@@ -918,6 +940,7 @@ func (w *worker) checkVectorIndexProcessOnce(jobCtx *jobContext, tbl table.Table
 		}
 	})
 
+	// TODO: Support partition table
 	sql := fmt.Sprintf("select rows_stable_not_indexed, rows_stable_indexed, error_message from information_schema.tiflash_indexes where table_id = %d and index_id = %d;",
 		tbl.Meta().ID, indexID)
 	rows, err := w.sess.Execute(jobCtx.stepCtx, sql, "add_vector_index_check_result")

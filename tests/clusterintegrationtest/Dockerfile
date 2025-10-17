@@ -24,7 +24,4 @@ COPY ./tidb-server /root/tidb-server
 COPY ./r /root/r
 COPY ./t /root/t
 COPY ./python_testers /root/python_testers
-
-COPY --chmod=755 ./docker-run1.sh /root/docker-run1.sh
-COPY --chmod=755 ./docker-run2.sh /root/docker-run2.sh
-COPY --chmod=755 ./docker-cluster.sh /root/docker-cluster.sh
+COPY --chmod=755 ./docker_scripts /root/docker_scripts

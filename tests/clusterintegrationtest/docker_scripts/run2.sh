@@ -14,9 +14,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Note: This file is supposed to run inside the docker (built by Dockerfile). Do not run it directly.
+
 set -euo pipefail
 
-source $(dirname "$0")/_include.sh
+CURRENT_DIR="$(dirname "$0")"
+source $CURRENT_DIR/_include.sh
 
-build_new_image
-run_in_container "/root/docker_scripts/cluster.sh"
+print_versions
+
+# Start minio in background
+/root/minio server /root/minio-data &
+sleep 5
+
+start_tidb_in_bg
+wait_for_tidb
+wait_for_tiflash
+
+echo "+ Running /root/python_testers/vector_recall.py"
+python3 /root/python_testers/vector_recall.py

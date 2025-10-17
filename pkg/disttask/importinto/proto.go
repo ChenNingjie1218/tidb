@@ -43,8 +43,9 @@ type TaskMeta struct {
 	// the file chunks to import, when import from server file, we need to pass those
 	// files to the framework scheduler which might run on another instance.
 	// we use a map from engine ID to chunks since we need support split_file for CSV,
-	// so need to split them into engines before passing to scheduler.
-	ChunkMap map[int32][]Chunk
+	// so need to split them into engines before passing to dispatcher.
+	ChunkMap      map[int32][]Chunk
+	TotalRealSize int64
 }
 
 // ImportStepMeta is the meta of import step.
@@ -69,7 +70,10 @@ type ImportStepMeta struct {
 const (
 	// dataKVGroup is the group name of the sorted kv for data.
 	// index kv will be stored in a group named as index-id.
-	dataKVGroup = "data"
+	// For local backend, index kv will be stored in a group named as index-id.
+	// For remote backend, indexKVGroup is the group name of the sorted kv for index.
+	dataKVGroup  = "data"
+	indexKVGroup = "index"
 )
 
 // MergeSortStepMeta is the meta of merge sort step.

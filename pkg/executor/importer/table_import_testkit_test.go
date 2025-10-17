@@ -123,6 +123,6 @@ func TestImportFromSelectCleanup(t *testing.T) {
 	_, err = ti.ImportSelectedRows(ctx, tk.Session())
 	require.ErrorContains(t, err, "mock import from select error")
 	wg.Wait()
-	ti.Backend().CloseEngineMgr()
+	ti.Backend().(*local.Backend).CloseEngineMgr()
 	checkImportDirEmpty(t)
 }

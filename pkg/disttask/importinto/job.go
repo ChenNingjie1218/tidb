@@ -135,7 +135,7 @@ func GetTaskImportedRows(ctx context.Context, jobID int64) (uint64, error) {
 		return 0, errors.Trace(err)
 	}
 	var importedRows uint64
-	if taskMeta.Plan.CloudStorageURI == "" {
+	if taskMeta.Plan.CloudStorageURI == "" && taskMeta.Plan.TiKVAPIServiceAddr == "" {
 		subtasks, err := taskManager.GetSubtasksWithHistory(ctx, task.ID, proto.ImportStepImport)
 		if err != nil {
 			return 0, err

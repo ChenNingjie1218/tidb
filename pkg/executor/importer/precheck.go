@@ -19,9 +19,11 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/docker/go-units"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/tidb/br/pkg/storage"
 	"github.com/pingcap/tidb/br/pkg/streamhelper"
+	"github.com/pingcap/tidb/pkg/config"
 	"github.com/pingcap/tidb/pkg/lightning/common"
 	"github.com/pingcap/tidb/pkg/parser/terror"
 	"github.com/pingcap/tidb/pkg/util"
@@ -30,7 +32,6 @@ import (
 	"github.com/pingcap/tidb/pkg/util/etcd"
 	"github.com/pingcap/tidb/pkg/util/intest"
 	"github.com/pingcap/tidb/pkg/util/sqlexec"
-	"github.com/tikv/client-go/v2/config"
 	"github.com/tikv/client-go/v2/tikv"
 )
 
@@ -90,6 +91,11 @@ func (e *LoadDataController) checkTotalFileSize() error {
 		// 1. no file matched when using wildcard
 		// 2. all matched file is empty(with or without wildcard)
 		return exeerrors.ErrLoadDataPreCheckFailed.FastGenByArgs("No file matched, or the file is empty. Please provide a valid file location.")
+	}
+
+	maxImportDataSize := config.GetGlobalConfig().MaxImportDataSize
+	if maxImportDataSize != 0 && e.TotalRealSize > maxImportDataSize {
+		return exeerrors.ErrLoadDataPreCheckFailed.FastGenByArgs(fmt.Sprintf("%s exceeds the maximum import limit of %s", units.HumanSize(float64(e.TotalRealSize)), units.HumanSize(float64(maxImportDataSize))))
 	}
 	return nil
 }

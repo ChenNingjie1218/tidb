@@ -111,7 +111,7 @@ func (p *LogicalPlan) ToPhysicalPlan(planCtx planner.PlanCtx) (*planner.Physical
 	// However, our current implementation requires generating it for each step.
 	// we only generate needed plans for the next step.
 	switch planCtx.NextTaskStep {
-	case proto.ImportStepImport, proto.ImportStepEncodeAndSort:
+	case proto.ImportStepImport, proto.ImportStepEncodeAndWrite, proto.ImportStepEncodeAndSort:
 		specs, err := generateImportSpecs(planCtx, p)
 		if err != nil {
 			return nil, err
@@ -198,7 +198,7 @@ type PostProcessSpec struct {
 
 // ToSubtaskMeta converts the post process spec to subtask meta.
 func (*PostProcessSpec) ToSubtaskMeta(planCtx planner.PlanCtx) ([]byte, error) {
-	encodeStep := getStepOfEncode(planCtx.GlobalSort)
+	encodeStep := getStepOfEncode(planCtx.GlobalSort, planCtx.RemoteSort)
 	subtaskMetas := make([]*ImportStepMeta, 0, len(planCtx.PreviousSubtaskMetas))
 	for _, bs := range planCtx.PreviousSubtaskMetas[encodeStep] {
 		var subtaskMeta ImportStepMeta
@@ -335,6 +335,21 @@ func generateMergeSortSpecs(planCtx planner.PlanCtx, p *LogicalPlan) ([]planner.
 
 func generateWriteIngestSpecs(planCtx planner.PlanCtx, p *LogicalPlan) ([]planner.PipelineSpec, error) {
 	ctx := planCtx.Ctx
+	if planCtx.RemoteSort {
+		return []planner.PipelineSpec{
+			&WriteIngestSpec{
+				WriteIngestStepMeta: &WriteIngestStepMeta{
+					KVGroup: dataKVGroup,
+				},
+			},
+			&WriteIngestSpec{
+				WriteIngestStepMeta: &WriteIngestStepMeta{
+					KVGroup: indexKVGroup,
+				},
+			},
+		}, nil
+	}
+
 	controller, err2 := buildControllerForPlan(p)
 	if err2 != nil {
 		return nil, err2

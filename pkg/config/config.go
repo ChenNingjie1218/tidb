@@ -419,6 +419,9 @@ type Config struct {
 	// EnableUnredactLogger is used to control whether to print unredact log to a another file which has keyspace prefix.
 	// It's a temporary solution for index advisor and may be removed in the future.
 	EnableUnredactLogger bool `toml:"enable-unredact-logger" json:"enable-unredact-logger"`
+
+	// MaxImportDataSize is used to limit the max data size of the import into.
+	MaxImportDataSize int64 `toml:"max-import-data-size" json:"max-import-data-size"`
 }
 
 // UpdateTempStoragePath is to update the `TempStoragePath` if port/statusPort was changed
@@ -1907,4 +1910,9 @@ func ContainHiddenConfig(s string) bool {
 // from config file or command line.
 func GetGlobalKeyspaceName() string {
 	return GetGlobalConfig().KeyspaceName
+}
+
+// EnableRemoteBackend return true when `TiKVAPIServiceAddr` is configured
+func EnableRemoteBackend() bool {
+	return GetGlobalConfig().TiKVAPIServiceAddr != ""
 }

@@ -38,6 +38,7 @@ import (
 	"github.com/pingcap/tidb/pkg/lightning/backend/encode"
 	"github.com/pingcap/tidb/pkg/lightning/backend/kv"
 	"github.com/pingcap/tidb/pkg/lightning/backend/local"
+	"github.com/pingcap/tidb/pkg/lightning/backend/remote"
 	"github.com/pingcap/tidb/pkg/lightning/checkpoints"
 	"github.com/pingcap/tidb/pkg/lightning/common"
 	"github.com/pingcap/tidb/pkg/lightning/config"
@@ -66,6 +67,8 @@ import (
 	"go.uber.org/zap"
 )
 
+const maxSubtaskCount = 4096
+
 // NewTiKVModeSwitcher make it a var, so we can mock it in tests.
 var NewTiKVModeSwitcher = local.NewTiKVModeSwitcher
 
@@ -84,6 +87,8 @@ var (
 	//
 	// it might not be the optimal value for other cases.
 	defaultMaxEngineSize = int64(5 * config.DefaultBatchSize)
+
+	defaultMaxEngineSizeForRemoteBackend = int64(2 * units.GiB)
 )
 
 // prepareSortDir creates a new directory for import, remove previous sort directory if exists.
@@ -179,9 +184,15 @@ func NewTableImporter(
 		return nil, err
 	}
 
-	backendConfig := e.getLocalBackendCfg(tidbCfg.Path, dir)
-	d := kvStore.(tidbkv.StorageWithPD).GetPDClient().GetServiceDiscovery()
-	localBackend, err := local.NewBackend(ctx, tls, backendConfig, d)
+	var backend backend.Backend
+	if e.Plan.CloudStorageURI == "" && e.Plan.TiKVAPIServiceAddr != "" {
+		backendConfig := e.getRemoteBackendCfg(tidbCfg.Path, dir, e.Plan.TiKVAPIServiceAddr)
+		backend, err = remote.NewBackend(ctx, tls, &backendConfig)
+	} else {
+		backendConfig := e.getLocalBackendCfg(tidbCfg.Path, dir)
+		d := kvStore.(tidbkv.StorageWithPD).GetPDClient().GetServiceDiscovery()
+		backend, err = local.NewBackend(ctx, tls, backendConfig, d)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -189,7 +200,7 @@ func NewTableImporter(
 	return &TableImporter{
 		LoadDataController: e,
 		id:                 id,
-		backend:            localBackend,
+		backend:            backend,
 		tableInfo: &checkpoints.TidbTableInfo{
 			ID:   e.Table.Meta().ID,
 			Name: e.Table.Meta().Name.O,
@@ -216,7 +227,7 @@ type TableImporter struct {
 	// it's the task id if we are running in distributed framework, else it's an
 	// uuid. we use this id to create a unique directory for this importer.
 	id        string
-	backend   *local.Backend
+	backend   backend.Backend
 	tableInfo *checkpoints.TidbTableInfo
 	// this table has a separate id allocator used to record the max row id allocated.
 	encTable table.Table
@@ -351,7 +362,8 @@ func (e *LoadDataController) calculateSubtaskCnt() int {
 	if e.IsGlobalSort() && e.ExecuteNodesCnt > 0 {
 		subtaskCount = math.Ceil(subtaskCount/float64(e.ExecuteNodesCnt)) * float64(e.ExecuteNodesCnt)
 	}
-	return int(subtaskCount)
+
+	return min(int(subtaskCount), maxSubtaskCount)
 }
 
 func (e *LoadDataController) getAdjustedMaxEngineSize() int64 {
@@ -454,35 +466,48 @@ func (ti *TableImporter) getTotalRawFileSize(indexCnt int64) int64 {
 }
 
 // OpenIndexEngine opens an index engine.
-func (ti *TableImporter) OpenIndexEngine(ctx context.Context, engineID int32) (*backend.OpenedEngine, error) {
-	idxEngineCfg := &backend.EngineConfig{
-		TableInfo: ti.tableInfo,
+func (ti *TableImporter) OpenIndexEngine(ctx context.Context, taskID int64, engineID int32) (*backend.OpenedEngine, error) {
+	if ti.IsRemoteSort() {
+		engineID = common.IndexEngineID
 	}
+
 	idxCnt := len(ti.tableInfo.Core.Indices)
 	if !common.TableHasAutoRowID(ti.tableInfo.Core) {
 		idxCnt--
 	}
+	estimatedDataSize := ti.getTotalRawFileSize(int64(idxCnt))
+	idxEngineCfg := &backend.EngineConfig{
+		TaskID:            taskID,
+		EngineID:          engineID,
+		TableInfo:         ti.tableInfo,
+		EstimatedDataSize: estimatedDataSize,
+	}
 	// todo: getTotalRawFileSize returns size of all data files, but in distributed framework,
 	// we create one index engine for each engine, should reflect this in the future.
-	threshold := local.EstimateCompactionThreshold2(ti.getTotalRawFileSize(int64(idxCnt)))
+	threshold := local.EstimateCompactionThreshold2(estimatedDataSize)
 	idxEngineCfg.Local = backend.LocalEngineConfig{
 		Compact:            threshold > 0,
 		CompactConcurrency: 4,
 		CompactThreshold:   threshold,
 		BlockSize:          16 * 1024,
 	}
-	fullTableName := ti.FullTableName()
 	// todo: cleanup all engine data on any error since we don't support checkpoint for now
 	// some return path, didn't make sure all data engine and index engine are cleaned up.
 	// maybe we can add this in upper level to clean the whole local-sort directory
 	mgr := backend.MakeEngineManager(ti.backend)
-	return mgr.OpenEngine(ctx, idxEngineCfg, fullTableName, engineID)
+	return mgr.OpenEngine(ctx, idxEngineCfg, ti.FullTableName(), engineID)
 }
 
 // OpenDataEngine opens a data engine.
-func (ti *TableImporter) OpenDataEngine(ctx context.Context, engineID int32) (*backend.OpenedEngine, error) {
+func (ti *TableImporter) OpenDataEngine(ctx context.Context, taskID int64, engineID int32) (*backend.OpenedEngine, error) {
+	if ti.IsRemoteSort() {
+		engineID = 0
+	}
 	dataEngineCfg := &backend.EngineConfig{
-		TableInfo: ti.tableInfo,
+		TaskID:            taskID,
+		EngineID:          engineID,
+		TableInfo:         ti.tableInfo,
+		EstimatedDataSize: ti.getTotalRawFileSize(int64(1)),
 	}
 	// todo: support checking IsRowOrdered later.
 	// also see test result here: https://github.com/pingcap/tidb/pull/47147
@@ -495,6 +520,17 @@ func (ti *TableImporter) OpenDataEngine(ctx context.Context, engineID int32) (*b
 	return mgr.OpenEngine(ctx, dataEngineCfg, ti.FullTableName(), engineID)
 }
 
+// GetClosedEngine return a closed engine
+func (ti *TableImporter) GetClosedEngine(ctx context.Context, taskID int64, engineID int32) (*backend.ClosedEngine, error) {
+	idxEngineCfg := &backend.EngineConfig{
+		TaskID:    taskID,
+		EngineID:  engineID,
+		TableInfo: ti.tableInfo,
+	}
+	mgr := backend.MakeEngineManager(ti.backend)
+	return mgr.UnsafeCloseEngine(ctx, idxEngineCfg, ti.FullTableName(), engineID)
+}
+
 // ImportAndCleanup imports the engine and cleanup the engine data.
 func (ti *TableImporter) ImportAndCleanup(ctx context.Context, closedEngine *backend.ClosedEngine) (int64, error) {
 	var kvCount int64
@@ -505,14 +541,26 @@ func (ti *TableImporter) ImportAndCleanup(ctx context.Context, closedEngine *bac
 	if closedEngine.GetID() != common.IndexEngineID {
 		// todo: change to a finer-grain progress later.
 		// each row is encoded into 1 data key
-		kvCount = ti.backend.GetImportedKVCount(closedEngine.GetUUID())
+		if local, ok := ti.backend.(*local.Backend); ok {
+			kvCount = local.GetImportedKVCount(closedEngine.GetUUID())
+		}
 	}
 	cleanupErr := closedEngine.Cleanup(ctx)
 	return kvCount, multierr.Combine(importErr, cleanupErr)
 }
 
+// Import imports the engine.
+func (ti *TableImporter) Import(ctx context.Context, closedEngine *backend.ClosedEngine) error {
+	return closedEngine.Import(ctx, ti.regionSplitSize, ti.regionSplitKeys)
+}
+
+// Cleanup cleanup the engine data.
+func (ti *TableImporter) Cleanup(ctx context.Context, closedEngine *backend.ClosedEngine) error {
+	return closedEngine.Cleanup(ctx)
+}
+
 // Backend returns the backend of the importer.
-func (ti *TableImporter) Backend() *local.Backend {
+func (ti *TableImporter) Backend() backend.Backend {
 	return ti.backend
 }
 
@@ -551,8 +599,9 @@ func (ti *TableImporter) CheckDiskQuota(ctx context.Context) {
 			return
 		case <-time.After(CheckDiskQuotaInterval):
 		}
+		backend := ti.backend.(*local.Backend)
 
-		largeEngines, inProgressLargeEngines, totalDiskSize, totalMemSize := local.CheckDiskQuota(ti.backend, ti.diskQuota)
+		largeEngines, inProgressLargeEngines, totalDiskSize, totalMemSize := local.CheckDiskQuota(backend, ti.diskQuota)
 		if len(largeEngines) == 0 && inProgressLargeEngines == 0 {
 			unlockDiskQuota()
 			continue
@@ -572,7 +621,7 @@ func (ti *TableImporter) CheckDiskQuota(ctx context.Context) {
 			continue
 		}
 
-		if err := ti.backend.FlushAllEngines(ctx); err != nil {
+		if err := backend.FlushAllEngines(ctx); err != nil {
 			ti.logger.Error("flush engine for disk quota failed, check again later", log.ShortError(err))
 			unlockDiskQuota()
 			continue
@@ -584,7 +633,7 @@ func (ti *TableImporter) CheckDiskQuota(ctx context.Context) {
 		var importErr error
 		for _, engine := range largeEngines {
 			// Use a larger split region size to avoid split the same region by many times.
-			if err := ti.backend.UnsafeImportAndReset(
+			if err := backend.UnsafeImportAndReset(
 				ctx,
 				engine,
 				int64(config.SplitRegionSize)*int64(config.MaxSplitRegionSizeRatio),
@@ -644,11 +693,12 @@ func (ti *TableImporter) ImportSelectedRows(ctx context.Context, se sessionctx.C
 		}
 	}()
 
-	dataEngine, err = ti.OpenDataEngine(ctx, 1)
+	// TODO(zzm): get taskID
+	dataEngine, err = ti.OpenDataEngine(ctx, 1, 1)
 	if err != nil {
 		return nil, err
 	}
-	indexEngine, err = ti.OpenIndexEngine(ctx, common.IndexEngineID)
+	indexEngine, err = ti.OpenIndexEngine(ctx, 1, common.IndexEngineID)
 	if err != nil {
 		return nil, err
 	}
@@ -687,7 +737,8 @@ func (ti *TableImporter) ImportSelectedRows(ctx context.Context, se sessionctx.C
 		}
 		return nil, err
 	}
-	dataKVCount := ti.backend.GetImportedKVCount(closedDataEngine.GetUUID())
+	// TODO(zzm): support remote backend
+	dataKVCount := ti.backend.(*local.Backend).GetImportedKVCount(closedDataEngine.GetUUID())
 
 	closedIndexEngine, err := indexEngine.Close(ctx)
 	if err != nil {

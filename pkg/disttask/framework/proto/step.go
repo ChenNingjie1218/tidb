@@ -85,6 +85,8 @@ const (
 	ImportStepMergeSort Step = 4
 	// ImportStepWriteAndIngest write sorted kv into TiKV and ingest it.
 	ImportStepWriteAndIngest Step = 5
+	// ImportStepEncodeAndWrite encode source data and write to remote worker.
+	ImportStepEncodeAndWrite Step = 6
 )
 
 func importIntoStep2Str(s Step) string {
@@ -99,6 +101,8 @@ func importIntoStep2Str(s Step) string {
 		return "merge-sort"
 	case ImportStepWriteAndIngest:
 		return "write&ingest"
+	case ImportStepEncodeAndWrite:
+		return "encode"
 	default:
 		return fmt.Sprintf("unknown step %d", s)
 	}

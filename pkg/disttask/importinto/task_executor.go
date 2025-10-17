@@ -35,13 +35,17 @@ import (
 	"github.com/pingcap/tidb/pkg/lightning/backend"
 	"github.com/pingcap/tidb/pkg/lightning/backend/external"
 	"github.com/pingcap/tidb/pkg/lightning/backend/kv"
+	"github.com/pingcap/tidb/pkg/lightning/backend/local"
+	"github.com/pingcap/tidb/pkg/lightning/backend/remote"
 	"github.com/pingcap/tidb/pkg/lightning/common"
 	"github.com/pingcap/tidb/pkg/lightning/config"
 	"github.com/pingcap/tidb/pkg/lightning/log"
 	"github.com/pingcap/tidb/pkg/lightning/metric"
 	"github.com/pingcap/tidb/pkg/lightning/verification"
 	"github.com/pingcap/tidb/pkg/meta/autoid"
+	"github.com/pingcap/tidb/pkg/sessionctx/variable"
 	"github.com/pingcap/tidb/pkg/table/tables"
+	"github.com/pingcap/tidb/pkg/tidbworker"
 	"github.com/pingcap/tidb/pkg/util/logutil"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -136,8 +140,8 @@ func (s *importStepExecutor) RunSubtask(ctx context.Context, subtask *proto.Subt
 	}
 
 	var dataEngine, indexEngine *backend.OpenedEngine
-	if s.tableImporter.IsLocalSort() {
-		dataEngine, err = s.tableImporter.OpenDataEngine(ctx, subtaskMeta.ID)
+	if s.tableImporter.IsLocalSort() || s.tableImporter.IsRemoteSort() {
+		dataEngine, err = s.tableImporter.OpenDataEngine(ctx, s.taskID, subtaskMeta.ID)
 		if err != nil {
 			return err
 		}
@@ -148,7 +152,7 @@ func (s *importStepExecutor) RunSubtask(ctx context.Context, subtask *proto.Subt
 		// Multiple index engines may suffer performance degradation due to range overlap.
 		// These issues will be alleviated after we integrate s3 sorter.
 		// engineID = -1, -2, -3, ...
-		indexEngine, err = s.tableImporter.OpenIndexEngine(ctx, common.IndexEngineID-subtaskMeta.ID)
+		indexEngine, err = s.tableImporter.OpenIndexEngine(ctx, s.taskID, common.IndexEngineID-subtaskMeta.ID)
 		if err != nil {
 			return err
 		}
@@ -221,21 +225,33 @@ func (s *importStepExecutor) OnFinished(ctx context.Context, subtask *proto.Subt
 	var dataKVCount uint64
 	if s.tableImporter.IsLocalSort() {
 		// TODO: we should close and cleanup engine in all case, since there's no checkpoint.
-		s.logger.Info("import data engine", zap.Int32("engine-id", subtaskMeta.ID))
 		closedDataEngine, err := sharedVars.DataEngine.Close(ctx)
 		if err != nil {
 			return err
 		}
+		closedIndexEngine, err := sharedVars.IndexEngine.Close(ctx)
+		if err != nil {
+			return err
+		}
+
+		s.logger.Info("import data engine", zap.Int32("engine-id", subtaskMeta.ID))
 		dataKVCount2, err := s.tableImporter.ImportAndCleanup(ctx, closedDataEngine)
 		if err != nil {
 			return err
 		}
-		dataKVCount = uint64(dataKVCount2)
-
 		s.logger.Info("import index engine", zap.Int32("engine-id", subtaskMeta.ID))
-		if closedEngine, err := sharedVars.IndexEngine.Close(ctx); err != nil {
+		_, err = s.tableImporter.ImportAndCleanup(ctx, closedIndexEngine)
+		if err != nil {
 			return err
-		} else if _, err := s.tableImporter.ImportAndCleanup(ctx, closedEngine); err != nil {
+		}
+		dataKVCount = uint64(dataKVCount2)
+	} else if s.tableImporter.IsRemoteSort() {
+		err := sharedVars.DataEngine.Flush(ctx)
+		if err != nil {
+			return err
+		}
+		err = sharedVars.IndexEngine.Flush(ctx)
+		if err != nil {
 			return err
 		}
 	}
@@ -268,6 +284,18 @@ func (s *importStepExecutor) OnFinished(ctx context.Context, subtask *proto.Subt
 		return errors.Trace(err)
 	}
 	subtask.Meta = newMeta
+
+	if variable.EnableDistTask.Load() && tidbworker.IsBgTaskEnabled(ctx, string(subtask.Type)) {
+		err = tidbworker.GlobalTiDBWorkerManager.RecycleBgTask(
+			ctx, tidbworker.TaskWorkerType(string(subtask.Type)),
+			"",
+			subtask.TaskID,
+			subtask.ID,
+		)
+		if err != nil {
+			s.logger.Error("tidb worker manager failed to recycle subtask", zap.Error(err))
+		}
+	}
 	return nil
 }
 
@@ -385,6 +413,7 @@ type writeAndIngestStepExecutor struct {
 	logger        *zap.Logger
 	tableImporter *importer.TableImporter
 	store         tidbkv.Storage
+	closedEngine  *backend.ClosedEngine
 }
 
 var _ execute.StepExecutor = &writeAndIngestStepExecutor{}
@@ -412,6 +441,13 @@ func (e *writeAndIngestStepExecutor) RunSubtask(ctx context.Context, subtask *pr
 		task.End(zapcore.ErrorLevel, err)
 	}()
 
+	if e.tableImporter.IsRemoteSort() {
+		return e.importRemoteEngine(ctx, sm)
+	}
+	return e.importExternalEngine(ctx, subtask, sm)
+}
+
+func (e *writeAndIngestStepExecutor) importExternalEngine(ctx context.Context, subtask *proto.Subtask, sm *WriteIngestStepMeta) (err error) {
 	_, engineUUID := backend.MakeUUID("", subtask.ID)
 	localBackend := e.tableImporter.Backend()
 	// compatible with old version task meta
@@ -441,6 +477,25 @@ func (e *writeAndIngestStepExecutor) RunSubtask(ctx context.Context, subtask *pr
 	return localBackend.ImportEngine(ctx, engineUUID, int64(config.SplitRegionSize), int64(config.SplitRegionKeys))
 }
 
+func (e *writeAndIngestStepExecutor) importRemoteEngine(ctx context.Context, sm *WriteIngestStepMeta) (err error) {
+	var engineID int32
+	if sm.KVGroup == dataKVGroup {
+		engineID = 0
+	} else {
+		engineID = common.IndexEngineID
+	}
+
+	e.closedEngine, err = e.tableImporter.GetClosedEngine(ctx, e.taskID, engineID)
+	if err != nil {
+		return err
+	}
+	err = e.tableImporter.Import(ctx, e.closedEngine)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func (*writeAndIngestStepExecutor) RealtimeSummary() *execute.SubtaskSummary {
 	return nil
 }
@@ -450,30 +505,52 @@ func (e *writeAndIngestStepExecutor) OnFinished(ctx context.Context, subtask *pr
 	if err := json.Unmarshal(subtask.Meta, &subtaskMeta); err != nil {
 		return errors.Trace(err)
 	}
-	if subtaskMeta.KVGroup != dataKVGroup {
-		return nil
+	if subtaskMeta.KVGroup != indexKVGroup {
+		var kvCount int64
+		if e.tableImporter.IsRemoteSort() {
+			kvCount = e.tableImporter.Backend().(*remote.Backend).GetImportedKVCount(e.closedEngine.GetUUID())
+		} else {
+			_, engineUUID := backend.MakeUUID("", subtask.ID)
+			_, kvCount = e.tableImporter.Backend().(*local.Backend).GetExternalEngineKVStatistics(engineUUID)
+		}
+		subtaskMeta.Result.LoadedRowCnt = uint64(kvCount)
+
+		newMeta, err := json.Marshal(subtaskMeta)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		subtask.Meta = newMeta
 	}
 
-	// only data kv group has loaded row count
-	_, engineUUID := backend.MakeUUID("", subtask.ID)
-	localBackend := e.tableImporter.Backend()
-	_, kvCount := localBackend.GetExternalEngineKVStatistics(engineUUID)
-	subtaskMeta.Result.LoadedRowCnt = uint64(kvCount)
-	err := localBackend.CleanupEngine(ctx, engineUUID)
-	if err != nil {
-		e.logger.Warn("failed to cleanup engine", zap.Error(err))
+	if variable.EnableDistTask.Load() && tidbworker.IsBgTaskEnabled(ctx, string(subtask.Type)) {
+		err := tidbworker.GlobalTiDBWorkerManager.RecycleBgTask(
+			ctx, tidbworker.TaskWorkerType(string(subtask.Type)),
+			"",
+			subtask.TaskID,
+			subtask.ID,
+		)
+		if err != nil {
+			e.logger.Error("tidb worker manager failed to recycle subtask", zap.Error(err))
+		}
 	}
-
-	newMeta, err := json.Marshal(subtaskMeta)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	subtask.Meta = newMeta
 	return nil
 }
 
-func (e *writeAndIngestStepExecutor) Cleanup(_ context.Context) (err error) {
+func (e *writeAndIngestStepExecutor) Cleanup(ctx context.Context) (err error) {
 	e.logger.Info("cleanup subtask env")
+	select {
+	case <-ctx.Done():
+		if context.Cause(ctx) != taskexecutor.ErrCancelSubtask {
+			return ctx.Err()
+		}
+	default:
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	err = e.tableImporter.Cleanup(ctx, e.closedEngine)
+	if err != nil {
+		e.logger.Error("failed to clean up remote backend engines", zap.Int32("engineID", e.closedEngine.GetID()), zap.Error(err))
+	}
+	cancel()
 	return e.tableImporter.Close()
 }
 
@@ -512,6 +589,21 @@ func (p *postProcessStepExecutor) RunSubtask(ctx context.Context, subtask *proto
 		time.Sleep(5 * time.Second)
 	})
 	return postProcess(ctx, p.store, p.taskMeta, &stepMeta, logger)
+}
+
+func (s *postProcessStepExecutor) OnFinished(ctx context.Context, subtask *proto.Subtask) error {
+	if variable.EnableDistTask.Load() && tidbworker.IsBgTaskEnabled(ctx, string(subtask.Type)) {
+		err := tidbworker.GlobalTiDBWorkerManager.RecycleBgTask(
+			ctx, tidbworker.TaskWorkerType(string(subtask.Type)),
+			"",
+			subtask.TaskID,
+			subtask.ID,
+		)
+		if err != nil {
+			s.logger.Error("tidb worker manager failed to recycle subtask", zap.Error(err))
+		}
+	}
+	return nil
 }
 
 type importExecutor struct {
@@ -559,7 +651,7 @@ func (e *importExecutor) GetStepExecutor(task *proto.Task) (execute.StepExecutor
 	)
 
 	switch task.Step {
-	case proto.ImportStepImport, proto.ImportStepEncodeAndSort:
+	case proto.ImportStepImport, proto.ImportStepEncodeAndWrite, proto.ImportStepEncodeAndSort:
 		return &importStepExecutor{
 			taskID:   task.ID,
 			taskMeta: &taskMeta,

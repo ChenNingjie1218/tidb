@@ -125,6 +125,7 @@ func (t *taskInfo) close(ctx context.Context) {
 // ImportSchedulerExt is an extension of ImportScheduler, exported for test.
 type ImportSchedulerExt struct {
 	GlobalSort bool
+	RemoteSort bool
 	mu         sync.RWMutex
 	// NOTE: there's no need to sync for below 2 fields actually, since we add a restriction that only one
 	// task can be running at a time. but we might support task queuing in the future, leave it for now.
@@ -231,7 +232,7 @@ func (sch *ImportSchedulerExt) OnNextSubtasksBatch(
 
 	previousSubtaskMetas := make(map[proto.Step][][]byte, 1)
 	switch nextStep {
-	case proto.ImportStepImport, proto.ImportStepEncodeAndSort:
+	case proto.ImportStepImport, proto.ImportStepEncodeAndWrite, proto.ImportStepEncodeAndSort:
 		if metrics, ok := metric.GetCommonMetric(ctx); ok {
 			metrics.BytesCounter.WithLabelValues(metric.StateTotalRestore).Add(float64(taskMeta.Plan.TotalFileSize))
 		}
@@ -279,10 +280,10 @@ func (sch *ImportSchedulerExt) OnNextSubtasksBatch(
 			failpoint.Return(nil, errors.New("injected error after ImportStepImport"))
 		})
 		// we need get metas where checksum is stored.
-		if err := updateResult(taskHandle, task, taskMeta, sch.GlobalSort); err != nil {
+		if err := updateResult(taskHandle, task, taskMeta, sch.GlobalSort, sch.RemoteSort); err != nil {
 			return nil, err
 		}
-		step := getStepOfEncode(sch.GlobalSort)
+		step := getStepOfEncode(sch.GlobalSort, sch.RemoteSort)
 		metas, err := taskHandle.GetPreviousSubtaskMetas(task.ID, step)
 		if err != nil {
 			return nil, err
@@ -300,6 +301,7 @@ func (sch *ImportSchedulerExt) OnNextSubtasksBatch(
 		TaskID:               task.ID,
 		PreviousSubtaskMetas: previousSubtaskMetas,
 		GlobalSort:           sch.GlobalSort,
+		RemoteSort:           sch.RemoteSort,
 		NextTaskStep:         nextStep,
 		ExecuteNodesCnt:      len(execIDs),
 		Store:                sch.storeWithPD,
@@ -367,11 +369,13 @@ func (sch *ImportSchedulerExt) GetNextStep(task *proto.TaskBase) proto.Step {
 	case proto.StepInit:
 		if sch.GlobalSort {
 			return proto.ImportStepEncodeAndSort
+		} else if sch.RemoteSort {
+			return proto.ImportStepEncodeAndWrite
 		}
 		return proto.ImportStepImport
 	case proto.ImportStepEncodeAndSort:
 		return proto.ImportStepMergeSort
-	case proto.ImportStepMergeSort:
+	case proto.ImportStepEncodeAndWrite, proto.ImportStepMergeSort:
 		return proto.ImportStepWriteAndIngest
 	case proto.ImportStepImport, proto.ImportStepWriteAndIngest:
 		return proto.ImportStepPostProcess
@@ -454,6 +458,7 @@ func (sch *importScheduler) Init() (err error) {
 
 	sch.BaseScheduler.Extension = &ImportSchedulerExt{
 		GlobalSort:  taskMeta.Plan.CloudStorageURI != "",
+		RemoteSort:  taskMeta.Plan.CloudStorageURI == "" && taskMeta.Plan.TiKVAPIServiceAddr != "",
 		storeWithPD: sch.storeWithPD,
 	}
 	return sch.BaseScheduler.Init()
@@ -553,16 +558,18 @@ func toChunkMap(engineCheckpoints map[int32]*checkpoints.EngineCheckpoint) map[i
 	return chunkMap
 }
 
-func getStepOfEncode(globalSort bool) proto.Step {
+func getStepOfEncode(globalSort, remoteSort bool) proto.Step {
 	if globalSort {
 		return proto.ImportStepEncodeAndSort
+	} else if remoteSort {
+		return proto.ImportStepEncodeAndWrite
 	}
 	return proto.ImportStepImport
 }
 
 // we will update taskMeta in place and make task.Meta point to the new taskMeta.
-func updateResult(handle storage.TaskHandle, task *proto.Task, taskMeta *TaskMeta, globalSort bool) error {
-	stepOfEncode := getStepOfEncode(globalSort)
+func updateResult(handle storage.TaskHandle, task *proto.Task, taskMeta *TaskMeta, globalSort, remoteSort bool) error {
+	stepOfEncode := getStepOfEncode(globalSort, remoteSort)
 	metas, err := handle.GetPreviousSubtaskMetas(task.ID, stepOfEncode)
 	if err != nil {
 		return err
@@ -580,7 +587,7 @@ func updateResult(handle storage.TaskHandle, task *proto.Task, taskMeta *TaskMet
 		taskMeta.Result.LoadedRowCnt += subtaskMeta.Result.LoadedRowCnt
 	}
 
-	if globalSort {
+	if globalSort || remoteSort {
 		taskMeta.Result.LoadedRowCnt, err = getLoadedRowCountOnGlobalSort(handle, task)
 		if err != nil {
 			return err

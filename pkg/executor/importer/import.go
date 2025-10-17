@@ -26,16 +26,18 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"unicode/utf8"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/br/pkg/storage"
-	tidb "github.com/pingcap/tidb/pkg/config"
+	tidbcfg "github.com/pingcap/tidb/pkg/config"
 	"github.com/pingcap/tidb/pkg/ddl/util"
 	"github.com/pingcap/tidb/pkg/disttask/framework/handle"
 	"github.com/pingcap/tidb/pkg/expression"
 	"github.com/pingcap/tidb/pkg/lightning/backend/local"
+	"github.com/pingcap/tidb/pkg/lightning/backend/remote"
 	"github.com/pingcap/tidb/pkg/lightning/common"
 	"github.com/pingcap/tidb/pkg/lightning/config"
 	litlog "github.com/pingcap/tidb/pkg/lightning/log"
@@ -59,6 +61,7 @@ import (
 	"github.com/pingcap/tidb/pkg/util/dbterror"
 	"github.com/pingcap/tidb/pkg/util/dbterror/exeerrors"
 	"github.com/pingcap/tidb/pkg/util/filter"
+	"github.com/pingcap/tidb/pkg/util/intest"
 	"github.com/pingcap/tidb/pkg/util/logutil"
 	"github.com/pingcap/tidb/pkg/util/stringutil"
 	pd "github.com/tikv/pd/client"
@@ -246,6 +249,7 @@ type Plan struct {
 	DisableTiKVImportMode bool
 	MaxEngineSize         config.ByteSize
 	CloudStorageURI       string
+	TiKVAPIServiceAddr    string
 	DisablePrecheck       bool
 
 	// used for checksum in physical mode
@@ -265,6 +269,8 @@ type Plan struct {
 	TotalFileSize int64
 	// used in tests to force enable merge-step when using global sort.
 	ForceMergeStep bool
+	// total real data size in bytes.
+	TotalRealSize int64
 }
 
 // ASTArgs is the arguments for ast.LoadDataStmt.
@@ -560,6 +566,15 @@ func (p *Plan) initDefaultOptions(targetNodeCPUCnt int) {
 	p.MaxEngineSize = config.ByteSize(defaultMaxEngineSize)
 	p.CloudStorageURI = variable.CloudStorageURI.Load()
 
+	// adjust config for remote backend/serverless
+	if tidbcfg.EnableRemoteBackend() {
+		p.ThreadCnt = 4
+		p.MaxEngineSize = config.ByteSize(defaultMaxEngineSizeForRemoteBackend)
+		// TODO(zeminzhou): support global sort
+		p.CloudStorageURI = ""
+		p.TiKVAPIServiceAddr = tidbcfg.GetGlobalConfig().TiKVAPIServiceAddr
+	}
+
 	v := "utf8mb4"
 	p.Charset = &v
 }
@@ -693,7 +708,10 @@ func (p *Plan) initOptions(ctx context.Context, seCtx sessionctx.Context, option
 		if err != nil || vInt <= 0 {
 			return exeerrors.ErrInvalidOptionVal.FastGenByArgs(opt.Name)
 		}
-		p.ThreadCnt = int(vInt)
+		if p.TiKVAPIServiceAddr == "" {
+			// skip user configured ThreadCnt for remote backend/serverless
+			p.ThreadCnt = int(vInt)
+		}
 	}
 	if opt, ok := specifiedOptions[maxWriteSpeedOption]; ok {
 		v, err := optAsString(opt)
@@ -743,7 +761,11 @@ func (p *Plan) initOptions(ctx context.Context, seCtx sessionctx.Context, option
 				return exeerrors.ErrInvalidOptionVal.FastGenByArgs(opt.Name)
 			}
 		}
-		p.CloudStorageURI = v
+		if p.TiKVAPIServiceAddr == "" {
+			// TODO(zeminzhou): support global sort
+			// skip user configured CloudStorageURI for remote backend/serverless
+			p.CloudStorageURI = v
+		}
 	}
 	if opt, ok := specifiedOptions[maxEngineSizeOption]; ok {
 		v, err := optAsString(opt)
@@ -787,7 +809,7 @@ func (p *Plan) adjustOptions(targetNodeCPUCnt int) {
 		limit *= 2
 	}
 	// max value is cpu-count
-	if p.ThreadCnt > limit {
+	if p.ThreadCnt > limit && p.TiKVAPIServiceAddr == "" {
 		log.L().Info("adjust IMPORT INTO thread count",
 			zap.Int("before", p.ThreadCnt), zap.Int("after", limit))
 		p.ThreadCnt = limit
@@ -996,6 +1018,7 @@ func (e *LoadDataController) InitDataStore(ctx context.Context) error {
 	} else {
 		u.Path = ""
 	}
+
 	s, err := e.initExternalStore(ctx, u, plannercore.ImportIntoDataSource)
 	if err != nil {
 		return err
@@ -1017,13 +1040,26 @@ func (e *LoadDataController) InitDataStore(ctx context.Context) error {
 	}
 	return nil
 }
-func (*LoadDataController) initExternalStore(ctx context.Context, u *url.URL, target string) (storage.ExternalStorage, error) {
+
+func (e *LoadDataController) initExternalStore(ctx context.Context, u *url.URL, target string) (storage.ExternalStorage, error) {
 	b, err2 := storage.ParseBackendFromURL(u, nil)
 	if err2 != nil {
 		return nil, exeerrors.ErrLoadDataInvalidURI.GenWithStackByArgs(target, GetMsgFromBRError(err2))
 	}
 
-	s, err := storage.NewWithDefaultOpt(ctx, b)
+	s3 := b.GetS3()
+	if !intest.InTest && s3 == nil {
+		return nil, exeerrors.ErrLoadDataInvalidURI.GenWithStackByArgs(plannercore.ImportIntoDataSource, "serverless only support to import into from s3")
+	}
+	if !intest.InTest && e.InImportInto && (len(s3.AccessKey) == 0 && len(s3.RoleArn) == 0) {
+		return nil, exeerrors.ErrLoadDataCantAccess.GenWithStackByArgs(target, "acesss key with secret access key or role arn with external id is required")
+	}
+
+	opt := &storage.ExternalStorageOptions{}
+	if intest.InTest {
+		opt.NoCredentials = true
+	}
+	s, err := storage.New(ctx, b, opt)
 	if err != nil {
 		return nil, exeerrors.ErrLoadDataCantAccess.GenWithStackByArgs(target, GetMsgFromBRError(err))
 	}
@@ -1080,7 +1116,10 @@ func (e *LoadDataController) InitDataFiles(ctx context.Context) error {
 	}
 
 	s := e.dataStore
-	var totalSize int64
+	var (
+		totalSize     int64
+		totalRealSize atomic.Int64
+	)
 	dataFiles := []*mydump.SourceFileMeta{}
 	// check glob pattern is present in filename.
 	idx := strings.IndexAny(fileNameKey, "*[")
@@ -1108,6 +1147,7 @@ func (e *LoadDataController) InitDataFiles(ctx context.Context) error {
 		fileMeta.RealSize = mydump.EstimateRealSizeForFile(ctx, fileMeta, s, 0)
 		dataFiles = append(dataFiles, &fileMeta)
 		totalSize = size
+		totalRealSize.Store(fileMeta.RealSize)
 	} else {
 		var commonPrefix string
 		if !storage.IsLocal(u) {
@@ -1148,6 +1188,7 @@ func (e *LoadDataController) InitDataFiles(ctx context.Context) error {
 					Type:        sourceType,
 				}
 				fileMeta.RealSize = mydump.EstimateRealSizeForFile(ctx, fileMeta, s, 0)
+				totalRealSize.Add(fileMeta.RealSize)
 				return &fileMeta, nil
 			}); err != nil {
 			return err
@@ -1156,6 +1197,7 @@ func (e *LoadDataController) InitDataFiles(ctx context.Context) error {
 
 	e.dataFiles = dataFiles
 	e.TotalFileSize = totalSize
+	e.TotalRealSize = totalRealSize.Load()
 	return nil
 }
 
@@ -1293,12 +1335,17 @@ func (e *LoadDataController) toMyDumpFiles() []mydump.FileInfo {
 
 // IsLocalSort returns true if we sort data on local disk.
 func (p *Plan) IsLocalSort() bool {
-	return p.CloudStorageURI == ""
+	return p.CloudStorageURI == "" && p.TiKVAPIServiceAddr == ""
+}
+
+// IsRemoteSort returns true if we sort data on remote worker.
+func (p *Plan) IsRemoteSort() bool {
+	return p.CloudStorageURI == "" && p.TiKVAPIServiceAddr != ""
 }
 
 // IsGlobalSort returns true if we sort data on global storage.
 func (p *Plan) IsGlobalSort() bool {
-	return !p.IsLocalSort()
+	return p.CloudStorageURI != ""
 }
 
 // CreateColAssignExprs creates the column assignment expressions using session context.
@@ -1373,7 +1420,7 @@ func (e *LoadDataController) getLocalBackendCfg(pdAddr, dataDir string) local.Ba
 		DuplicateDetectOpt:          common.DupDetectOpt{ReportErrOnDup: false},
 		StoreWriteBWLimit:           int(e.MaxWriteSpeed),
 		MaxOpenFiles:                int(tidbutil.GenRLimit("table_import")),
-		KeyspaceName:                tidb.GetGlobalKeyspaceName(),
+		KeyspaceName:                tidbcfg.GetGlobalKeyspaceName(),
 		PausePDSchedulerScope:       config.PausePDSchedulerScopeTable,
 		DisableAutomaticCompactions: true,
 		BlockSize:                   config.DefaultBlockSize,
@@ -1387,6 +1434,19 @@ func (e *LoadDataController) getLocalBackendCfg(pdAddr, dataDir string) local.Ba
 // FullTableName return FQDN of the table.
 func (e *LoadDataController) FullTableName() string {
 	return common.UniqueTable(e.DBName, e.Table.Meta().Name.O)
+}
+
+func (e *LoadDataController) getRemoteBackendCfg(pdAddr, dataDir, importerAddr string) remote.BackendConfig {
+	return remote.BackendConfig{
+		PdAddr:            pdAddr,
+		TikvImporterAddr:  importerAddr,
+		KeyspaceName:      tidbcfg.GetGlobalKeyspaceName(),
+		SortedKVDir:       dataDir,
+		CheckpointEnabled: false,
+		// import into currently does not support conflict detection,
+		// and remote backend behavior is aligned with the local backend.
+		DuplicateResolution: config.NoneOnDup,
+	}
 }
 
 func getDataSourceType(p *plannercore.ImportInto) DataSourceType {

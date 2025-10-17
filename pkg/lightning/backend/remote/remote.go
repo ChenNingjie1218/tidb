@@ -26,6 +26,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cockroachdb/pebble"
@@ -89,6 +90,7 @@ type LoadDataStates struct {
 	Error           string `json:"error"`
 	CreatedFiles    int    `json:"created-files"`
 	IngestedRegions int    `json:"ingested-regions"`
+	TotalKVs        int64  `json:"total-kvs"`
 
 	DuplicateEntries []duplicateEntry `json:"duplicated-entries"`
 }
@@ -102,17 +104,16 @@ func (s *LoadDataStates) hasDuplicateEntries() bool {
 	return len(s.DuplicateEntries) > 0
 }
 
-// NewRemoteBackend creates a new remote backend instance.
-func NewRemoteBackend(
+// NewBackend creates a new remote backend instance.
+func NewBackend(
 	ctx context.Context,
 	tls *common.TLS,
-	cfg *config.Config,
-	keyspaceName string,
+	cfg *BackendConfig,
 ) (backend.Backend, error) {
-	localFile := cfg.TikvImporter.SortedKVDir
+	localFile := cfg.SortedKVDir
 
 	shouldCreate := true
-	if cfg.Checkpoint.Enable {
+	if cfg.CheckpointEnabled {
 		if info, err := os.Stat(localFile); err != nil {
 			if !os.IsNotExist(err) {
 				return nil, err
@@ -132,7 +133,7 @@ func NewRemoteBackend(
 		err         error
 	)
 	keyAdapter := common.KeyAdapter(common.NoopKeyAdapter{})
-	duplicateDetection := cfg.TikvImporter.DuplicateResolution != config.NoneOnDup
+	duplicateDetection := cfg.DuplicateResolution != config.NoneOnDup
 	if duplicateDetection {
 		duplicateDB, err = local.OpenDuplicateDB(localFile)
 		if err != nil {
@@ -140,19 +141,19 @@ func NewRemoteBackend(
 		}
 		keyAdapter = common.DupDetectKeyAdapter{}
 	}
-	reportErrOnDup := cfg.Conflict.Strategy == config.ErrorOnDup
+	reportErrOnDup := cfg.DuplicateResolution == config.ErrorOnDup
 
-	pdCtl, err := pdutil.NewPdController(ctx, strings.Split(cfg.TiDB.PdAddr, ","), tls.TLSConfig(), tls.ToPDSecurityOption())
+	pdCtl, err := pdutil.NewPdController(ctx, strings.Split(cfg.PdAddr, ","), tls.TLSConfig(), tls.ToPDSecurityOption())
 	if err != nil {
 		log.L().Error("fail to create pd controller", zap.Error(err))
 		return nil, common.ErrCreatePDClient.Wrap(err).GenWithStackByArgs()
 	}
 
 	var pdCliForTiKV *tikvclient.CodecPDClient
-	if keyspaceName == "" {
+	if len(cfg.KeyspaceName) == 0 {
 		pdCliForTiKV = tikvclient.NewCodecPDClient(tikvclient.ModeTxn, pdCtl.GetPDClient())
 	} else {
-		pdCliForTiKV, err = tikvclient.NewCodecPDClientWithKeyspace(tikvclient.ModeTxn, pdCtl.GetPDClient(), keyspaceName)
+		pdCliForTiKV, err = tikvclient.NewCodecPDClientWithKeyspace(tikvclient.ModeTxn, pdCtl.GetPDClient(), cfg.KeyspaceName)
 		if err != nil {
 			log.L().Error("fail to create pd cli", zap.Error(err))
 			return nil, common.ErrCreatePDClient.Wrap(err).GenWithStackByArgs()
@@ -160,7 +161,7 @@ func NewRemoteBackend(
 	}
 
 	tikvCodec := pdCliForTiKV.GetCodec()
-	spkv, err := tikvclient.NewEtcdSafePointKV(strings.Split(cfg.TiDB.PdAddr, ","), tls.TLSConfig())
+	spkv, err := tikvclient.NewEtcdSafePointKV(strings.Split(cfg.PdAddr, ","), tls.TLSConfig())
 	if err != nil {
 		log.L().Error("fail to create etcd client", zap.Error(err))
 		return nil, common.ErrCreateKVClient.Wrap(err).GenWithStackByArgs()
@@ -184,10 +185,10 @@ func NewRemoteBackend(
 	ks := pdCliForTiKV.GetCodec().GetKeyspace()
 	ksID := pdCliForTiKV.GetCodec().GetKeyspaceID()
 	remote := &Backend{
-		workerAddr: cfg.TikvImporter.Addr,
+		workerAddr: cfg.TikvImporterAddr,
 		pdCtl:      pdCtl,
 		tls:        tls,
-		pdAddr:     cfg.TiDB.PdAddr,
+		pdAddr:     cfg.PdAddr,
 		keyspace:   ks,
 		keyspaceID: uint32(ksID),
 		logger:     log.FromContext(ctx),
@@ -197,13 +198,12 @@ func NewRemoteBackend(
 		tikvCli:            tikvCli,
 		duplicateDB:        duplicateDB,
 		keyAdapter:         keyAdapter,
-		dupeConcurrency:    cfg.TikvImporter.RangeConcurrency * 2,
 		duplicateDetection: duplicateDetection,
 		reportErrOnDup:     reportErrOnDup,
-		checkpointEnabled:  cfg.Checkpoint.Enable,
+		checkpointEnabled:  cfg.CheckpointEnabled,
 		localStoreDir:      localFile,
-		chunkCacheDir:      cfg.TikvImporter.ChunkCacheDir,
-		chunkCacheInMem:    cfg.TikvImporter.ChunkCacheInMemory,
+		chunkCacheDir:      cfg.ChunkCacheDir,
+		chunkCacheInMem:    cfg.ChunkCacheInMem,
 	}
 
 	if m, ok := metric.FromContext(ctx); ok {
@@ -211,6 +211,31 @@ func NewRemoteBackend(
 	}
 
 	return remote, nil
+}
+
+// BackendConfig is the config for remote backend.
+type BackendConfig struct {
+	PdAddr              string
+	TikvImporterAddr    string
+	KeyspaceName        string
+	SortedKVDir         string
+	ChunkCacheDir       string
+	ChunkCacheInMem     bool
+	CheckpointEnabled   bool
+	DuplicateResolution config.DuplicateResolutionAlgorithm
+}
+
+// NewBackendConfig creates a new BackendConfig.
+func NewBackendConfig(cfg *config.Config, keyspaceName string) *BackendConfig {
+	return &BackendConfig{
+		PdAddr:              cfg.TiDB.PdAddr,
+		TikvImporterAddr:    cfg.TikvImporter.Addr,
+		KeyspaceName:        keyspaceName,
+		SortedKVDir:         cfg.TikvImporter.SortedKVDir,
+		ChunkCacheDir:       cfg.TikvImporter.ChunkCacheDir,
+		CheckpointEnabled:   cfg.Checkpoint.Enable,
+		DuplicateResolution: cfg.Conflict.Strategy,
+	}
 }
 
 // Backend is a remote backend that sends KV pairs to remote worker.
@@ -230,7 +255,6 @@ type Backend struct {
 	duplicateDB        *pebble.DB
 	tikvCli            *tikvclient.KVStore
 	keyAdapter         common.KeyAdapter
-	dupeConcurrency    int
 	duplicateDetection bool
 	reportErrOnDup     bool
 	checkpointEnabled  bool
@@ -523,10 +547,12 @@ func (b *Backend) ImportEngine(ctx context.Context, engineUUID uuid.UUID, region
 						return err
 					}
 				}
+				engine.importedKVs.Store(states.TotalKVs)
 				b.logger.Info("loadData finished",
 					zap.String("db", engine.tbl.DB),
 					zap.String("table", engine.tbl.Name),
 					zap.String("loadDataTaskID", engine.loadDataTaskID),
+					zap.Int64("imported kvs", states.TotalKVs),
 					zap.Duration("elapsed", time.Since(start)))
 				return nil
 			} else {
@@ -535,11 +561,22 @@ func (b *Backend) ImportEngine(ctx context.Context, engineUUID uuid.UUID, region
 					zap.String("db", engine.tbl.DB),
 					zap.String("table", engine.tbl.Name),
 					zap.String("loadDataTaskID", engine.loadDataTaskID),
-					zap.Int("created_files", states.CreatedFiles),
-					zap.Int("ingested_regions", states.IngestedRegions))
+					zap.Int64("total kvs", states.TotalKVs),
+					zap.Int("created files", states.CreatedFiles),
+					zap.Int("ingested regions", states.IngestedRegions))
 			}
 		}
 	}
+}
+
+// GetImportedKVCount returns the number of imported KV pairs of some engine.
+func (b *Backend) GetImportedKVCount(engineUUID uuid.UUID) int64 {
+	v, ok := b.engines.Load(engineUUID)
+	if !ok {
+		return 0
+	}
+	e := v.(*engine)
+	return e.importedKVs.Load()
 }
 
 func (b *Backend) handleDuplicateEntries(_ context.Context, engine *engine, states *LoadDataStates) error {
@@ -737,6 +774,7 @@ type engine struct {
 	httpClient   *http.Client
 	backend      *Backend
 	retryCounter prometheus.Counter
+	importedKVs  atomic.Int64
 }
 
 func (e *engine) flush(ctx context.Context) error {

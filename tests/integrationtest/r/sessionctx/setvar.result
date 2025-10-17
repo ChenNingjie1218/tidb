@@ -1322,21 +1322,21 @@ select /*+ set_var(tidb_stats_load_sync_wait=0) */ @@tidb_stats_load_sync_wait;
 0
 select @@tidb_stats_load_sync_wait;
 @@tidb_stats_load_sync_wait
-100
+500
 set @@tidb_stats_load_sync_wait=default;
 select @@tidb_stats_load_sync_wait;
 @@tidb_stats_load_sync_wait
-100
+500
 select /*+ set_var(tidb_stats_load_sync_wait=1) */ @@tidb_stats_load_sync_wait;
 @@tidb_stats_load_sync_wait
 1
 select @@tidb_stats_load_sync_wait;
 @@tidb_stats_load_sync_wait
-100
+500
 set @@tidb_stats_load_sync_wait=default;
 select @@tidb_stats_load_sync_wait;
 @@tidb_stats_load_sync_wait
-100
+500
 select /*+ set_var(tidb_cost_model_version=1) */ @@tidb_cost_model_version;
 @@tidb_cost_model_version
 1

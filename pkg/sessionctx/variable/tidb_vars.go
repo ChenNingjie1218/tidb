@@ -1445,7 +1445,7 @@ const (
 	DefEnableLegacyInstanceScope                      = true
 	DefTiDBTableCacheLease                            = 3 // 3s
 	DefTiDBPersistAnalyzeOptions                      = true
-	DefTiDBStatsLoadSyncWait                          = 100
+	DefTiDBStatsLoadSyncWait                          = 500
 	DefTiDBStatsLoadPseudoTimeout                     = true
 	DefSysdateIsNow                                   = false
 	DefTiDBEnableParallelHashaggSpill                 = true

@@ -55,6 +55,7 @@ go_library(
         "//pkg/util/redact",
         "//pkg/util/sem",
         "//pkg/util/serverless",
+        "//pkg/util/serverless/remote-query",
         "//pkg/util/servicescope",
         "//pkg/util/signal",
         "//pkg/util/stmtsummary/v2:stmtsummary",

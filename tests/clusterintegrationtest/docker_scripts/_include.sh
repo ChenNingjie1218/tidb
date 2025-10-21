@@ -43,25 +43,34 @@ function wait_for_tidb() {
     fi
     sleep 3
   done
-  echo "* Fail to start TiDB"
+  echo "* Fail to start TiDB cluster in 900s"
+  exit 1
+}
+
+function stop_tiup() {
+  echo "+ Stopping TiUP"
+  TIUP_PID=$(pgrep -f "tiup-playground")
+  if [ -n "$TIUP_PID" ]; then
+    echo "  - Sending SIGTERM to PID=$TIUP_PID"
+    kill $TIUP_PID
+  fi
+
+  for i in {1..30}; do
+    if ! pgrep -f "tiup-playground" > /dev/null; then
+      echo "  - TiUP stopped successfully"
+      return
+    fi
+    sleep 1
+  done
+
+  echo "* Fail to stop TiUP in 30s"
   exit 1
 }
 
 function wait_for_tiflash() {
   echo
-  echo "+ Waiting TiFlash start up"
-
-  for i in {1..30}; do
-    if [ -f ~/.tiup/data/serverless/tiflash-0/tiflash.log ] && grep -q 'Start to wait for terminal signal' ~/.tiup/data/serverless/tiflash-0/tiflash.log && \
-      [ -f ~/.tiup/data/serverless/tiflash-1/tiflash.log  ] && grep -q 'Start to wait for terminal signal' ~/.tiup/data/serverless/tiflash-1/tiflash.log; then
-      sleep 10 # For some reason we still need to wait some additionl time so that tiflash is fully started
-      echo "  - TiFlash startup successfully"
-      return
-    fi
-    sleep 3
-  done
-  echo "* Fail to start TiFlash"
-  exit 1
+  echo "+ Waiting TiFlash start up (30s)"
+  sleep 30
 }
 
 function print_versions() {

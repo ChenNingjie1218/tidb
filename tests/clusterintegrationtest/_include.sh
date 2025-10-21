@@ -27,16 +27,17 @@ test -t 1 && USE_TTY="-it"
 IMAGE_ID=clusterintegrationtest:latest
 
 function build_new_image() {
+  DOCKERFILE_NAME=${1:-Dockerfile}
   echo "+ Building TiDB server with current source..."
   pushd ../.. > /dev/null
   export TIDB_BUILD_TIME="2024-01-01 00:00:00" # Use a fixed build time to keep cache valid
   make server
   popd > /dev/null
-  
+
   # Make an image with TiDB+TiKV+TiFlash
   cp ../../bin/tidb-server ./tidb-server
   echo "+ Building container with other components..."
-  docker build --rm -t $IMAGE_ID .
+  docker build --pull --rm -t $IMAGE_ID -f $DOCKERFILE_NAME .
   echo
   echo "+ Clean up previous builds..."
   docker builder prune --force
@@ -44,4 +45,8 @@ function build_new_image() {
 
 function run_in_container() {
   docker run -p 4000:4000 -v clusterintegrationtest_tiup_cache:/root/.tiup/components --rm $USE_TTY $IMAGE_ID /bin/bash -c $1
+}
+
+function run_in_container_with_port_forward() {
+  docker run -v clusterintegrationtest_tiup_cache:/root/.tiup/components --rm $USE_TTY -p 4000:4000 $IMAGE_ID /bin/bash -c $1
 }

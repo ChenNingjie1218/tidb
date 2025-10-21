@@ -18,5 +18,5 @@ set -euo pipefail
 
 source $(dirname "$0")/_include.sh
 
-build_new_image
-run_in_container_with_port_forward "/root/docker_scripts/cluster.sh"
+build_new_image "Dockerfile.forUpgradeTest"
+run_in_container "/root/docker_scripts/run3_upgradeTest.sh"

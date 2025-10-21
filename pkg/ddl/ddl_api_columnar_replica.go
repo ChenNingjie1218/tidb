@@ -45,7 +45,18 @@ func (e *executor) waitColumnarReplicaAvailable(sctx sessionctx.Context, schemaI
 	// They are not used for checking table existence because table or schema may be renamed
 	// during the waiting period.
 
-	session := sess.NewSession(sctx)
+	// In `checkColumnarReplicaAvailability`, we will execute an internal SQL to check the availability
+	// of tiflash Replica. When the transaction is enabled, the execution of the internal SQL may
+	// change the transaction information of sctx, so we do not use sctx to maintain the transaction information.
+	tempCtx, err := e.sessPool.Get()
+	if err != nil {
+		return errors.Trace(err)
+	}
+	defer func() {
+		e.sessPool.Put(tempCtx)
+	}()
+	tempCtx.GetSessionVars().InRestrictedSQL = true
+	session := sess.NewSession(tempCtx)
 
 	waitTimeout := 1 * time.Hour
 

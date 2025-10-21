@@ -436,6 +436,32 @@ func TestVectorExplainTruncate(t *testing.T) {
 	))
 }
 
+func TestCreateWithVectorIndexInTransaction(t *testing.T) {
+	require.NoError(t, failpoint.Enable("github.com/pingcap/tidb/pkg/ddl/MockCheckColumnarReplicaAvailability", `return(1)`))
+	defer func() {
+		err := failpoint.Disable("github.com/pingcap/tidb/pkg/ddl/MockCheckColumnarReplicaAvailability")
+		require.NoError(t, err)
+	}()
+
+	store, _ := testkit.CreateMockStoreAndDomainWithSchemaLease(t, 200*time.Millisecond, mockstore.WithMockTiFlash(2))
+	tk := testkit.NewTestKit(t, store)
+	tk.MustExec("use test;")
+
+	// disable autocommit
+	tk.MustExec("set @@autocommit = 0;")
+	tk.MustQuery("select @@autocommit;").Equal(testkit.Rows("0"))
+	tk.MustExec("begin;")
+	tk.MustExec("CREATE TABLE c (a vector(3), VECTOR INDEX ((VEC_COSINE_DISTANCE(a))) );")
+	tk.MustExec("commit;")
+
+	// enable autocommit
+	tk.MustExec("drop table c;")
+	tk.MustExec("set @@autocommit = 1;")
+	tk.MustQuery("select @@autocommit;").Equal(testkit.Rows("1"))
+	tk.MustExec("begin;")
+	tk.MustExec("CREATE TABLE c (a vector(3), VECTOR INDEX ((VEC_COSINE_DISTANCE(a))) );")
+}
+
 func TestVectorConstantExplain(t *testing.T) {
 	store := testkit.CreateMockStore(t)
 	tk := testkit.NewTestKit(t, store)

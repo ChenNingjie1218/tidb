@@ -28,17 +28,22 @@ on:
           - dev
           - staging
           - prod
+      cloud_provider:
+        description: "Update for AWS, Alicloud, or both"
+        required: true
+        default: aws
+        type: choice
+        options:
+          - aws
+          - alicloud
+          - both
+
 
 jobs:
   bump-tidb-version:
     name: bump tidb version
     runs-on: self-hosted
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.inputs.version }}
-
       - name: Invoke workflow in aws-shared-provider repo with inputs
         uses: benc-uk/workflow-dispatch@v1
         with:
@@ -46,4 +51,4 @@ jobs:
           repo: tidbcloud/aws-shared-provider
           ref: refs/heads/master
           token: ${{ secrets.GIT_ACTION_BOT }}
-          inputs: '{ "version": "${{ github.event.inputs.version }}", "env": "${{ github.event.inputs.deploy_env }}", "action_url": "${{github.server_url}}/${{ github.repository }}/actions/runs/${{ github.run_id }}", "bump_lightning": "${{ github.event.inputs.bump_lightning }}", "bump_dumpling": "${{ github.event.inputs.bump_dumpling }}", "author": "${{ github.actor }}" }'
+          inputs: '{ "version": "${{ github.event.inputs.version }}", "env": "${{ github.event.inputs.deploy_env }}", "cloud_provider": "${{ github.event.inputs.cloud_provider }}", "action_url": "${{github.server_url}}/${{ github.repository }}/actions/runs/${{ github.run_id }}", "bump_lightning": "${{ github.event.inputs.bump_lightning }}", "bump_dumpling": "${{ github.event.inputs.bump_dumpling }}", "author": "${{ github.actor }}" }'

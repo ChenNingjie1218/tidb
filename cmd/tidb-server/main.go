@@ -491,9 +491,7 @@ func main() {
 	if standbyController != nil {
 		svr.StandbyController = standbyController
 		standbyController.OnServerCreated(svr)
-	}
 
-	if standbyController != nil {
 		logutil.BgLogger().Info("standby controller starts to wait stats load")
 		<-dom.StatsHandle().InitStatsDone
 		standbyController.EndStandby(nil)

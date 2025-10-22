@@ -357,6 +357,11 @@ func NewServer(cfg *config.Config, driver IDriver) (*Server, error) {
 		s.capability |= mysql.ClientSSL
 	}
 	variable.RegisterStatistics(s)
+
+	err = s.initTiDBListener()
+	if err != nil {
+		return nil, err
+	}
 	return s, nil
 }
 
@@ -515,11 +520,6 @@ func (s *Server) RunWithStore(dom *domain.Domain, store kv.Storage) error {
 	// If error should be reported and exit the server it can be sent on this
 	// channel. Otherwise, end with sending a nil error to signal "done"
 	errChan := make(chan error, 2)
-	err := s.initTiDBListener()
-	if err != nil {
-		log.Error("failed to create the server", zap.Error(err), zap.Stack("stack"))
-		return err
-	}
 	elapsed := time.Since(startTime)
 	logutil.BgLogger().Info("[STARTUP-DEBUG]server start", zap.Int64("elapsed-ms", elapsed.Milliseconds()))
 	// Register error API is not thread-safe, the caller MUST NOT register errors after initialization.
@@ -532,7 +532,7 @@ func (s *Server) RunWithStore(dom *domain.Domain, store kv.Storage) error {
 		close(RunInGoTestChan)
 	}
 	s.health.Store(true)
-	err = <-errChan
+	err := <-errChan
 	if err != nil {
 		return err
 	}

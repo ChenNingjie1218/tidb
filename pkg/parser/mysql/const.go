@@ -32,15 +32,23 @@ const (
 	// one with MySQL compatibility version, with this fixed then we can parse TiDB
 	// version from ServerVersion.
 	VersionSeparator = "-TiDB-"
+
+	TiDBReleaseVersionStr = "8.5.3"
 )
 
 // Version information.
 var (
 	// TiDBReleaseVersion is initialized by (git describe --tags) in Makefile.
-	TiDBReleaseVersion = "v8.4.0-this-is-a-placeholder"
+	TiDBReleaseVersion = "None"
+
+	TiDBReleaseVersionFixed = fmt.Sprintf("v%s-serverless", TiDBReleaseVersionStr) // "v8.5.3-serverless"
+
+	ServerlessTiDBReleaseVersionFixed = TiDBReleaseVersionFixed
 
 	// ServerVersion is the version information of this tidb-server in MySQL's format.
-	ServerVersion = fmt.Sprintf("%s%s%s", mysqlCompatibilityVersion, VersionSeparator, TiDBReleaseVersion)
+	ServerVersion = fmt.Sprintf("%s%s%s", mysqlCompatibilityVersion, VersionSeparator, ServerlessTiDBReleaseVersionFixed)
+
+	ServerlessServerVersion = fmt.Sprintf("8.0.11-TiDB-%s", TiDBReleaseVersionFixed)
 )
 
 // Header information.

@@ -774,7 +774,7 @@ func (info *ServerInfo) asTopologyInfo() TopologyInfo {
 	dir := path.Dir(s)
 	return TopologyInfo{
 		ServerVersionInfo: ServerVersionInfo{
-			Version: mysql.TiDBReleaseVersion,
+			Version: mysql.TiDBReleaseVersionFixed,
 			GitHash: info.ServerVersionInfo.GitHash,
 		},
 		IP:             info.IP,
@@ -1153,7 +1153,7 @@ func getServerInfo(id string, serverIDGetter func() uint64) *ServerInfo {
 	info.Version = mysql.ServerVersion
 	info.GitHash = versioninfo.TiDBGitHash
 
-	metrics.ServerInfo.WithLabelValues(mysql.TiDBReleaseVersion, info.GitHash).Set(float64(info.StartTimestamp))
+	metrics.ServerInfo.WithLabelValues(mysql.TiDBReleaseVersionFixed, info.GitHash).Set(float64(info.StartTimestamp))
 
 	failpoint.Inject("mockServerInfo", func(val failpoint.Value) {
 		if val.(bool) {

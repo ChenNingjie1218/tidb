@@ -547,7 +547,7 @@ func (b *builtinVersionSig) Clone() builtinFunc {
 // evalString evals a builtinVersionSig.
 // See https://dev.mysql.com/doc/refman/5.7/en/information-functions.html#function_version
 func (b *builtinVersionSig) evalString(ctx EvalContext, row chunk.Row) (string, bool, error) {
-	return mysql.ServerVersion, false, nil
+	return mysql.ServerlessServerVersion, false, nil
 }
 
 type tidbVersionFunctionClass struct {
@@ -580,7 +580,7 @@ func (b *builtinTiDBVersionSig) Clone() builtinFunc {
 // evalString evals a builtinTiDBVersionSig.
 // This will show git hash and build time for tidb-server.
 func (b *builtinTiDBVersionSig) evalString(ctx EvalContext, row chunk.Row) (string, bool, error) {
-	return printer.GetTiDBInfo(), false, nil
+	return printer.GetTiDBInfoInSQL(), false, nil
 }
 
 type tidbIsDDLOwnerFunctionClass struct {

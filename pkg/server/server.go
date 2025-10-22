@@ -888,7 +888,7 @@ func (cc *clientConn) connectInfo() *variable.ConnectionInfo {
 		User:              cc.user,
 		ServerOSLoginUser: osUser,
 		OSVersion:         osVersion,
-		ServerVersion:     mysql.TiDBReleaseVersion,
+		ServerVersion:     mysql.TiDBReleaseVersionFixed,
 		SSLVersion:        sslVersion,
 		PID:               serverPID,
 		DB:                cc.dbname,

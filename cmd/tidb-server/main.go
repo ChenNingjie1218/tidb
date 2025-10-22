@@ -1031,7 +1031,7 @@ func setVersions() {
 		versioninfo.TiDBEdition = cfg.TiDBEdition
 	}
 	if len(cfg.TiDBReleaseVersion) > 0 {
-		mysql.TiDBReleaseVersion = cfg.TiDBReleaseVersion
+		mysql.TiDBReleaseVersionFixed = cfg.TiDBReleaseVersion
 	}
 }
 
@@ -1143,7 +1143,7 @@ func setGlobalVars() {
 		variable.SetSysVar(variable.VersionComment, cfg.VersionComment)
 	}
 	if len(cfg.TiDBReleaseVersion) > 0 {
-		mysql.TiDBReleaseVersion = cfg.TiDBReleaseVersion
+		mysql.TiDBReleaseVersionFixed = cfg.TiDBReleaseVersion
 	}
 
 	variable.SetSysVar(variable.TiDBForcePriority, mysql.Priority2Str[priority])

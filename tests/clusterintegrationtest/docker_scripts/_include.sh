@@ -20,6 +20,7 @@ function start_tidb_in_bg() {
   /root/.tiup/bin/tiup playground v7.3.0 --host 0.0.0.0 --mode=tidb-cse --tag serverless --without-monitor \
     --db.binpath /root/tidb-server \
     --kv.binpath /root/tikv-server \
+    --kv.config /root/config/tikv.toml \
     --tiflash.binpath /root/tiflash/tiflash \
     --tiflash.compute 1 &
 }
@@ -28,6 +29,7 @@ function start_tidb_in_fg() {
   /root/.tiup/bin/tiup playground v7.3.0 --host 0.0.0.0 --mode=tidb-cse --tag serverless --without-monitor \
     --db.binpath /root/tidb-server \
     --kv.binpath /root/tikv-server \
+    --kv.config /root/config/tikv.toml \
     --tiflash.binpath /root/tiflash/tiflash \
     --tiflash.compute 1
 }

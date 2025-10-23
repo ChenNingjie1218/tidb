@@ -1,0 +1,2 @@
+[kvengine]
+block-cache-type = "quick"

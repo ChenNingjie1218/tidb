@@ -116,7 +116,7 @@ drop table t;
 create table t(vec vector(3));
 insert into t values ('[0,0,0]'),('[1,1,1]'),('[2,2,2]'),('[3,3,3]');
 alter table t add vector index ((vec_l2_distance(vec)));
-Error 8200 (HY000): Unsupported add vector index: columnar replica must exist to create vector index. Try explicitly specify ADD_COLUMNAR_REPLICA_ON_DEMAND like: `ALTER TABLE <TABLE> ADD VECTOR INDEX (...) ADD_COLUMNAR_REPLICA_ON_DEMAND;`, or add a columnar replica first like: `ALTER TABLE <TABLE> SET TIFLASH REPLICA 1;`
+Error 8200 (HY000): Unsupported add columnar index: columnar replica must exist to create vector index. Try explicitly specify ADD_COLUMNAR_REPLICA_ON_DEMAND like: `ALTER TABLE <TABLE> ADD VECTOR INDEX (...) ADD_COLUMNAR_REPLICA_ON_DEMAND;`, or add a columnar replica first like: `ALTER TABLE <TABLE> SET TIFLASH REPLICA 1;`
 drop table t;
 // add index on a table with replica
 create table t(id int primary key, vec vector(3));

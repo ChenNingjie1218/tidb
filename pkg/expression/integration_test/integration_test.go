@@ -90,9 +90,9 @@ func TestVectorLong(t *testing.T) {
 		return vb.String()
 	}
 
-	failpoint.Enable("github.com/pingcap/tidb/pkg/ddl/MockCheckVectorIndexProcess", `return(1)`)
+	failpoint.Enable("github.com/pingcap/tidb/pkg/ddl/MockCheckColumnarIndexProcess", `return(1)`)
 	defer func() {
-		require.NoError(t, failpoint.Disable("github.com/pingcap/tidb/pkg/ddl/MockCheckVectorIndexProcess"))
+		require.NoError(t, failpoint.Disable("github.com/pingcap/tidb/pkg/ddl/MockCheckColumnarIndexProcess"))
 	}()
 
 	runWorkload := func() {
@@ -535,9 +535,9 @@ func TestVectorIndexExplain(t *testing.T) {
 		tiflash.Unlock()
 	}()
 
-	require.NoError(t, failpoint.Enable("github.com/pingcap/tidb/pkg/ddl/MockCheckVectorIndexProcess", `return(1)`))
+	require.NoError(t, failpoint.Enable("github.com/pingcap/tidb/pkg/ddl/MockCheckColumnarIndexProcess", `return(1)`))
 	defer func() {
-		err := failpoint.Disable("github.com/pingcap/tidb/pkg/ddl/MockCheckVectorIndexProcess")
+		err := failpoint.Disable("github.com/pingcap/tidb/pkg/ddl/MockCheckColumnarIndexProcess")
 		require.NoError(t, err)
 	}()
 

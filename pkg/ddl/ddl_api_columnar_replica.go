@@ -150,7 +150,7 @@ func (e *executor) checkColumnarReplicaAvailability(ctx context.Context, session
 	})
 
 	// This mock exists so that we can simply use one failpoint to continue the whole index adding process.
-	failpoint.Inject("MockCheckVectorIndexProcess", func(val failpoint.Value) {
+	failpoint.Inject("MockCheckColumnarIndexProcess", func(val failpoint.Value) {
 		if valInt, ok := val.(int); ok {
 			if valInt < 0 {
 				failpoint.Return(false, dbterror.ErrTiFlashBackfillIndex.FastGenByArgs("mock a check error"))
@@ -164,7 +164,7 @@ func (e *executor) checkColumnarReplicaAvailability(ctx context.Context, session
 
 	// TODO: Support partition table
 	sql := fmt.Sprintf("select available from information_schema.tiflash_replica where table_id = %d", physicalTableID)
-	rows, err := session.Execute(ctx, sql, "add_vector_index_check_result")
+	rows, err := session.Execute(ctx, sql, "add_columnar_index_check_result")
 	if err != nil || len(rows) == 0 {
 		return false, errors.Trace(err)
 	}

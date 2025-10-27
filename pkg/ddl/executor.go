@@ -900,8 +900,8 @@ func checkIndexOptions(indexType checkIndexType, indexOption *ast.IndexOption) e
 	if indexType == checkIndexTypeFullText {
 		return dbterror.ErrUnsupportedIndexType.GenWithStackByArgs("FULLTEXT")
 	}
-	if indexOption.AddColumnarReplicaOnDemand > 0 && indexType != checkIndexTypeVector {
-		return dbterror.ErrUnsupportedIndexType.FastGen("Unsupported index option: ADD_COLUMNAR_REPLICA_ON_DEMAND can be only used in vector index")
+	if indexOption.AddColumnarReplicaOnDemand > 0 && indexType != checkIndexTypeVector && indexType != checkIndexTypeFullText {
+		return dbterror.ErrUnsupportedIndexType.FastGen("Unsupported index option: ADD_COLUMNAR_REPLICA_ON_DEMAND can be only used in columnar index")
 	}
 	if indexOption.Tp == pmodel.IndexTypeHNSW && indexType != checkIndexTypeVector {
 		return dbterror.ErrUnsupportedIndexType.FastGen("Unsupported index option: HNSW can be only used in vector index")
@@ -909,8 +909,8 @@ func checkIndexOptions(indexType checkIndexType, indexOption *ast.IndexOption) e
 	if indexOption.Tp != pmodel.IndexTypeHNSW && indexType == checkIndexTypeVector {
 		return dbterror.ErrUnsupportedIndexType.FastGen("Unsupported index option: %s cannot be used in vector index", indexOption.Tp.String())
 	}
-	if indexOption.Visibility == ast.IndexVisibilityInvisible && indexType == checkIndexTypeVector {
-		return dbterror.ErrUnsupportedIndexType.FastGen("Unsupported index option: INVISIBLE can not be used in vector index")
+	if indexOption.Visibility == ast.IndexVisibilityInvisible && (indexType == checkIndexTypeVector || indexType == checkIndexTypeFullText) {
+		return dbterror.ErrUnsupportedIndexType.FastGen("Unsupported index option: INVISIBLE can not be used in columnar index")
 	}
 	return nil
 }
@@ -1889,7 +1889,7 @@ func (e *executor) AlterTable(ctx context.Context, sctx sessionctx.Context, stmt
 					err = e.CreateCheckConstraint(sctx, ident, pmodel.NewCIStr(constr.Name), spec.Constraint)
 				}
 			case ast.ConstraintVector:
-				err = e.createVectorIndex(sctx, ident, pmodel.NewCIStr(constr.Name), spec.Constraint.Keys, constr.Option, constr.IfNotExists)
+				err = e.createColumnarIndex(sctx, ident, pmodel.NewCIStr(constr.Name), spec.Constraint.Keys, constr.Option, constr.IfNotExists, pmodel.ColumnarIndexTypeVector)
 			default:
 				// Nothing to do now.
 			}
@@ -4083,7 +4083,7 @@ func checkIndexLengthWithNewCharset(tblInfo *model.TableInfo, toCharset, toColla
 	}
 
 	for _, indexInfo := range tblInfo.Indices {
-		err := checkIndexPrefixLength(columns, indexInfo.Columns)
+		err := checkIndexPrefixLength(columns, indexInfo.Columns, indexInfo.GetColumnarIndexType())
 		if err != nil {
 			return err
 		}
@@ -4579,11 +4579,12 @@ func getIdentKey(ident ast.Ident) string {
 }
 
 func getAnonymousIndexPrefix(isVector bool) string {
-	colName := "expression_index"
+	// Only vector index is in a form of expression index.
+	// This does not apply to other columnar indexes.
 	if isVector {
-		colName = "vector_index"
+		return "vector_index"
 	}
-	return colName
+	return "expression_index"
 }
 
 // GetName4AnonymousIndex returns a valid name for anonymous index.
@@ -4674,7 +4675,7 @@ func (e *executor) CreatePrimaryKey(ctx sessionctx.Context, ti ast.Ident, indexN
 	// After DDL job is put to the queue, and if the check fail, TiDB will run the DDL cancel logic.
 	// The recover step causes DDL wait a few seconds, makes the unit test painfully slow.
 	// For same reason, decide whether index is global here.
-	indexColumns, _, err := buildIndexColumns(NewMetaBuildContextWithSctx(ctx), tblInfo.Columns, indexPartSpecifications, false)
+	indexColumns, _, err := buildIndexColumns(NewMetaBuildContextWithSctx(ctx), tblInfo.Columns, indexPartSpecifications, pmodel.ColumnarIndexTypeNA)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -4734,10 +4735,10 @@ func (e *executor) CreatePrimaryKey(ctx sessionctx.Context, ti ast.Ident, indexN
 }
 
 func checkIndexNameAndColumns(ctx *metabuild.Context, t table.Table, indexName pmodel.CIStr,
-	indexPartSpecifications []*ast.IndexPartSpecification, isVector, ifNotExists bool) (pmodel.CIStr, []*model.ColumnInfo, error) {
+	indexPartSpecifications []*ast.IndexPartSpecification, columnarIndexType pmodel.ColumnarIndexType, ifNotExists bool) (pmodel.CIStr, []*model.ColumnInfo, error) {
 	// Deal with anonymous index.
 	if len(indexName.L) == 0 {
-		colName := pmodel.NewCIStr(getAnonymousIndexPrefix(isVector))
+		colName := pmodel.NewCIStr(getAnonymousIndexPrefix(columnarIndexType == pmodel.ColumnarIndexTypeVector))
 		if indexPartSpecifications[0].Column != nil {
 			colName = indexPartSpecifications[0].Column.Name
 		}
@@ -4767,7 +4768,7 @@ func checkIndexNameAndColumns(ctx *metabuild.Context, t table.Table, indexName p
 
 	// Build hidden columns if necessary.
 	var hiddenCols []*model.ColumnInfo
-	if !isVector {
+	if columnarIndexType == pmodel.ColumnarIndexTypeNA {
 		hiddenCols, err = buildHiddenColumnInfoWithCheck(ctx, indexPartSpecifications, indexName, t.Meta(), t.Cols())
 		if err != nil {
 			return pmodel.CIStr{}, nil, err
@@ -4780,43 +4781,55 @@ func checkIndexNameAndColumns(ctx *metabuild.Context, t table.Table, indexName p
 	return indexName, hiddenCols, nil
 }
 
-func checkTableTypeForVectorIndex(tblInfo *model.TableInfo) error {
+func checkTableTypeForColumnarIndex(tblInfo *model.TableInfo) error {
 	if tblInfo.TableCacheStatusType != model.TableCacheStatusDisable {
-		return dbterror.ErrUnsupportedAddVectorIndex.FastGenByArgs("cache table is not supported")
+		return dbterror.ErrUnsupportedAddColumnarIndex.FastGenByArgs("cache table is not supported")
 	}
 	if tblInfo.TempTableType != model.TempTableNone {
-		return dbterror.ErrUnsupportedAddVectorIndex.FastGenByArgs("temporary table is not supported")
+		return dbterror.ErrUnsupportedAddColumnarIndex.FastGenByArgs("temporary table is not supported")
 	}
 	if tblInfo.GetPartitionInfo() != nil {
-		return dbterror.ErrUnsupportedAddVectorIndex.FastGenByArgs("partition table is currently not supported")
+		return dbterror.ErrUnsupportedAddColumnarIndex.FastGenByArgs("partition table is currently not supported")
 	}
 	return nil
 }
 
-func (e *executor) createVectorIndex(sctx sessionctx.Context, ti ast.Ident, indexName pmodel.CIStr,
-	indexPartSpecifications []*ast.IndexPartSpecification, indexOption *ast.IndexOption, ifNotExists bool) error {
+func (e *executor) createColumnarIndex(sctx sessionctx.Context, ti ast.Ident, indexName pmodel.CIStr,
+	indexPartSpecifications []*ast.IndexPartSpecification, indexOption *ast.IndexOption, ifNotExists bool, columnarIndexType pmodel.ColumnarIndexType) error {
+	if columnarIndexType == pmodel.ColumnarIndexTypeNA {
+		// This should not happen. Caller must explicitly pass an available columnar index type.
+		return dbterror.ErrUnsupportedAddColumnarIndex.FastGenByArgs("internal error, meet unassigned columnar index type")
+	}
 	schema, t, err := e.getSchemaAndTableByIdent(ti)
 	if err != nil {
 		return errors.Trace(err)
 	}
 
 	tblInfo := t.Meta()
-	if err := checkTableTypeForVectorIndex(tblInfo); err != nil {
+	if err := checkTableTypeForColumnarIndex(tblInfo); err != nil {
 		return errors.Trace(err)
 	}
 
 	if indexOption.AddColumnarReplicaOnDemand == 0 {
 		if tblInfo.TiFlashReplica == nil || tblInfo.TiFlashReplica.Count == 0 {
-			return dbterror.ErrUnsupportedAddVectorIndex.FastGenByArgs("columnar replica must exist to create vector index. Try explicitly specify ADD_COLUMNAR_REPLICA_ON_DEMAND like: `ALTER TABLE <TABLE> ADD VECTOR INDEX (...) ADD_COLUMNAR_REPLICA_ON_DEMAND;`, or add a columnar replica first like: `ALTER TABLE <TABLE> SET TIFLASH REPLICA 1;`")
+			return dbterror.ErrUnsupportedAddColumnarIndex.FastGenByArgs(
+				fmt.Sprintf("columnar replica must exist to create %s. Try explicitly specify ADD_COLUMNAR_REPLICA_ON_DEMAND like: `ALTER TABLE <TABLE> ADD %s (...) ADD_COLUMNAR_REPLICA_ON_DEMAND;`, or add a columnar replica first like: `ALTER TABLE <TABLE> SET TIFLASH REPLICA 1;`",
+					columnarIndexType.SQLName(), strings.ToUpper(columnarIndexType.SQLName())))
 		}
 	}
 
 	metaBuildCtx := NewMetaBuildContextWithSctx(sctx)
-	indexName, _, err = checkIndexNameAndColumns(metaBuildCtx, t, indexName, indexPartSpecifications, true, ifNotExists)
+	indexName, _, err = checkIndexNameAndColumns(metaBuildCtx, t, indexName, indexPartSpecifications, columnarIndexType, ifNotExists)
 	if err != nil {
 		return errors.Trace(err)
 	}
-	_, funcExpr, err := buildVectorInfoWithCheck(indexPartSpecifications, indexOption, tblInfo)
+	var funcExpr string
+	switch columnarIndexType {
+	case pmodel.ColumnarIndexTypeVector:
+		_, funcExpr, err = buildVectorInfoWithCheck(indexPartSpecifications, indexOption, tblInfo)
+	default:
+		return dbterror.ErrUnsupportedAddColumnarIndex.FastGen("unknown columnar index type %s", columnarIndexType)
+	}
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -4827,7 +4840,7 @@ func (e *executor) createVectorIndex(sctx sessionctx.Context, ti ast.Ident, inde
 	// After DDL job is put to the queue, and if the check fail, TiDB will run the DDL cancel logic.
 	// The recover step causes DDL wait a few seconds, makes the unit test painfully slow.
 	// For same reason, decide whether index is global here.
-	_, _, err = buildIndexColumns(metaBuildCtx, tblInfo.Columns, indexPartSpecifications, true)
+	_, _, err = buildIndexColumns(metaBuildCtx, tblInfo.Columns, indexPartSpecifications, columnarIndexType)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -4840,7 +4853,7 @@ func (e *executor) createVectorIndex(sctx sessionctx.Context, ti ast.Ident, inde
 
 	job := buildAddIndexJobWithoutTypeAndArgs(sctx, schema, t)
 	job.Version = model.GetJobVerInUse()
-	job.Type = model.ActionAddVectorIndex
+	job.Type = model.ActionAddColumnarIndex
 	indexPartSpecifications[0].Expr = nil
 
 	// TODO: support CDCWriteSource
@@ -4851,7 +4864,7 @@ func (e *executor) createVectorIndex(sctx sessionctx.Context, ti ast.Ident, inde
 			IndexPartSpecifications: indexPartSpecifications,
 			IndexOption:             indexOption,
 			FuncExpr:                funcExpr,
-			IsVector:                true,
+			IsColumnar:              true,
 		}},
 		OpType: model.OpAddIndex,
 	}
@@ -4931,7 +4944,7 @@ func (e *executor) createIndex(ctx sessionctx.Context, ti ast.Ident, keyType ast
 		return dbterror.ErrUnsupportedIndexType.GenWithStack("FULLTEXT and SPATIAL index is not supported")
 	}
 	if keyType == ast.IndexKeyTypeVector {
-		return e.createVectorIndex(ctx, ti, indexName, indexPartSpecifications, indexOption, ifNotExists)
+		return e.createColumnarIndex(ctx, ti, indexName, indexPartSpecifications, indexOption, ifNotExists, pmodel.ColumnarIndexTypeVector)
 	}
 	unique := keyType == ast.IndexKeyTypeUnique
 	schema, t, err := e.getSchemaAndTableByIdent(ti)
@@ -4943,7 +4956,7 @@ func (e *executor) createIndex(ctx sessionctx.Context, ti ast.Ident, keyType ast
 		return errors.Trace(dbterror.ErrOptOnCacheTable.GenWithStackByArgs("Create Index"))
 	}
 	metaBuildCtx := NewMetaBuildContextWithSctx(ctx)
-	indexName, hiddenCols, err := checkIndexNameAndColumns(metaBuildCtx, t, indexName, indexPartSpecifications, false, ifNotExists)
+	indexName, hiddenCols, err := checkIndexNameAndColumns(metaBuildCtx, t, indexName, indexPartSpecifications, pmodel.ColumnarIndexTypeNA, ifNotExists)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -4962,7 +4975,7 @@ func (e *executor) createIndex(ctx sessionctx.Context, ti ast.Ident, keyType ast
 	// After DDL job is put to the queue, and if the check fail, TiDB will run the DDL cancel logic.
 	// The recover step causes DDL wait a few seconds, makes the unit test painfully slow.
 	// For same reason, decide whether index is global here.
-	indexColumns, _, err := buildIndexColumns(metaBuildCtx, finalColumns, indexPartSpecifications, false)
+	indexColumns, _, err := buildIndexColumns(metaBuildCtx, finalColumns, indexPartSpecifications, pmodel.ColumnarIndexTypeNA)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -4980,7 +4993,7 @@ func (e *executor) createIndex(ctx sessionctx.Context, ti ast.Ident, keyType ast
 	}
 
 	if indexOption != nil && indexOption.Tp == pmodel.IndexTypeHypo { // for hypo-index
-		indexInfo, err := BuildIndexInfo(metaBuildCtx, tblInfo, indexName, false, unique, false,
+		indexInfo, err := BuildIndexInfo(metaBuildCtx, tblInfo, indexName, false, unique, pmodel.ColumnarIndexTypeNA,
 			indexPartSpecifications, indexOption, model.StatePublic)
 		if err != nil {
 			return err

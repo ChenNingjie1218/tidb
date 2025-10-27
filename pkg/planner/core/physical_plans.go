@@ -1818,7 +1818,7 @@ func (p *PhysicalExpand) Clone(newCtx base.PlanContext) (base.PhysicalPlan, erro
 	for _, one := range p.GroupingSets {
 		clonedGroupingSets = append(clonedGroupingSets, one.Clone())
 	}
-	np.GroupingSets = p.GroupingSets
+	np.GroupingSets = clonedGroupingSets
 	return np, nil
 }
 

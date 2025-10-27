@@ -44,7 +44,7 @@ function build_new_image() {
 }
 
 function run_in_container() {
-  docker run -p 4000:4000 -v clusterintegrationtest_tiup_cache:/root/.tiup/components --rm $USE_TTY $IMAGE_ID /bin/bash -c $1
+  docker run -v clusterintegrationtest_tiup_cache:/root/.tiup/components --rm $USE_TTY $IMAGE_ID /bin/bash -c $1
 }
 
 function run_in_container_with_port_forward() {

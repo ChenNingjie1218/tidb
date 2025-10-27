@@ -221,6 +221,28 @@ const (
 	IndexTypeHNSW
 )
 
+// ColumnarIndexType is the type of columnar index.
+type ColumnarIndexType uint8
+
+const (
+	// ColumnarIndexTypeNA means this is not a columnar index.
+	ColumnarIndexTypeNA ColumnarIndexType = iota
+	// ColumnarIndexTypeInverted is the inverted index type.
+	ColumnarIndexTypeInverted
+	// ColumnarIndexTypeVector is the vector index type.
+	ColumnarIndexTypeVector
+)
+
+// SQLName returns the SQL keyword name of the columnar index. Used in log messages or error messages.
+func (c ColumnarIndexType) SQLName() string {
+	switch c {
+	case ColumnarIndexTypeVector:
+		return "vector index"
+	default:
+		return "columnar index"
+	}
+}
+
 // ReferOptionType is the type for refer options.
 type ReferOptionType int
 

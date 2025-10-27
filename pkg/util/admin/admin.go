@@ -118,6 +118,11 @@ func CheckIndicesCount(ctx sessionctx.Context, dbName, tableName string, indices
 
 // CheckRecordAndIndex is exported for testing.
 func CheckRecordAndIndex(ctx context.Context, sessCtx sessionctx.Context, txn kv.Transaction, t table.Table, idx table.Index) error {
+	if idx.Meta().IsColumnarIndex() {
+		logutil.Logger(context.Background()).Info("skip check columnar index", zap.Stringer("table", t.Meta().Name), zap.Stringer("index", idx.Meta().Name))
+		return nil
+	}
+
 	sc := sessCtx.GetSessionVars().StmtCtx
 	cols := make([]*table.Column, len(idx.Meta().Columns))
 	for i, col := range idx.Meta().Columns {

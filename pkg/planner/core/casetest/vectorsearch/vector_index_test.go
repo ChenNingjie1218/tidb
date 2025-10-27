@@ -52,9 +52,9 @@ func TestVectorIndexProtobufMatch(t *testing.T) {
 }
 
 func TestTiFlashANNIndex(t *testing.T) {
-	require.NoError(t, failpoint.Enable("github.com/pingcap/tidb/pkg/ddl/MockCheckVectorIndexProcess", `return(1)`))
+	require.NoError(t, failpoint.Enable("github.com/pingcap/tidb/pkg/ddl/MockCheckColumnarIndexProcess", `return(1)`))
 	defer func() {
-		err := failpoint.Disable("github.com/pingcap/tidb/pkg/ddl/MockCheckVectorIndexProcess")
+		err := failpoint.Disable("github.com/pingcap/tidb/pkg/ddl/MockCheckColumnarIndexProcess")
 		require.NoError(t, err)
 	}()
 
@@ -121,9 +121,9 @@ func TestTiFlashANNIndex(t *testing.T) {
 }
 
 func TestANNIndexNormalizedPlan(t *testing.T) {
-	require.NoError(t, failpoint.Enable("github.com/pingcap/tidb/pkg/ddl/MockCheckVectorIndexProcess", `return(1)`))
+	require.NoError(t, failpoint.Enable("github.com/pingcap/tidb/pkg/ddl/MockCheckColumnarIndexProcess", `return(1)`))
 	defer func() {
-		err := failpoint.Disable("github.com/pingcap/tidb/pkg/ddl/MockCheckVectorIndexProcess")
+		err := failpoint.Disable("github.com/pingcap/tidb/pkg/ddl/MockCheckColumnarIndexProcess")
 		require.NoError(t, err)
 	}()
 
@@ -245,7 +245,7 @@ func TestANNInexWithSimpleCBO(t *testing.T) {
 		tiflash.Unlock()
 	}()
 
-	failpoint.Enable("github.com/pingcap/tidb/pkg/ddl/MockCheckVectorIndexProcess", `return(1)`)
+	failpoint.Enable("github.com/pingcap/tidb/pkg/ddl/MockCheckColumnarIndexProcess", `return(1)`)
 
 	tk.MustExec("use test")
 	tk.MustExec("drop table if exists t1")
@@ -284,7 +284,7 @@ func TestANNIndexWithNonIntClusteredPk(t *testing.T) {
 		tiflash.Unlock()
 	}()
 
-	testfailpoint.Enable(t, "github.com/pingcap/tidb/pkg/ddl/MockCheckVectorIndexProcess", `return(1)`)
+	testfailpoint.Enable(t, "github.com/pingcap/tidb/pkg/ddl/MockCheckColumnarIndexProcess", `return(1)`)
 
 	tk.MustExec("use test")
 	tk.MustExec("drop table if exists t1")

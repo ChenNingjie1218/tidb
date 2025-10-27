@@ -40,9 +40,9 @@ func TestAddIndexWithColReplicaByCreateIndex(t *testing.T) {
 }
 
 func testAddIndexWithColReplica(t *testing.T, useAlterTable bool) {
-	require.NoError(t, failpoint.Enable("github.com/pingcap/tidb/pkg/ddl/MockCheckVectorIndexProcess", `return(1)`))
+	require.NoError(t, failpoint.Enable("github.com/pingcap/tidb/pkg/ddl/MockCheckColumnarIndexProcess", `return(1)`))
 	defer func() {
-		require.NoError(t, failpoint.Disable("github.com/pingcap/tidb/pkg/ddl/MockCheckVectorIndexProcess"))
+		require.NoError(t, failpoint.Disable("github.com/pingcap/tidb/pkg/ddl/MockCheckColumnarIndexProcess"))
 	}()
 
 	// tiflash stores = 0
@@ -52,13 +52,13 @@ func testAddIndexWithColReplica(t *testing.T, useAlterTable bool) {
 	tk.MustContainErrMsg(`create table t(
 		c INT,
 		PRIMARY KEY (c) ADD_COLUMNAR_REPLICA_ON_DEMAND
-	);`, `ADD_COLUMNAR_REPLICA_ON_DEMAND can be only used in vector index`)
+	);`, `ADD_COLUMNAR_REPLICA_ON_DEMAND can be only used in columnar index`)
 
 	tk.MustExec(`create table t(c INT, v VECTOR(3))`)
 	if useAlterTable {
-		tk.MustContainErrMsg(`alter table t ADD INDEX (c) ADD_COLUMNAR_REPLICA_ON_DEMAND`, `ADD_COLUMNAR_REPLICA_ON_DEMAND can be only used in vector index`)
+		tk.MustContainErrMsg(`alter table t ADD INDEX (c) ADD_COLUMNAR_REPLICA_ON_DEMAND`, `ADD_COLUMNAR_REPLICA_ON_DEMAND can be only used in columnar index`)
 	} else {
-		tk.MustContainErrMsg(`CREATE INDEX vidx ON t (c) ADD_COLUMNAR_REPLICA_ON_DEMAND`, `ADD_COLUMNAR_REPLICA_ON_DEMAND can be only used in vector index`)
+		tk.MustContainErrMsg(`CREATE INDEX vidx ON t (c) ADD_COLUMNAR_REPLICA_ON_DEMAND`, `ADD_COLUMNAR_REPLICA_ON_DEMAND can be only used in columnar index`)
 	}
 
 	replicas, err := infoschema.GetTiFlashStoreCount(tk.Session().GetStore())
@@ -67,11 +67,11 @@ func testAddIndexWithColReplica(t *testing.T, useAlterTable bool) {
 	tk.MustContainErrMsg(`create table t2(
 		v VECTOR(3),
 		VECTOR INDEX ((VEC_L2_DISTANCE(v)))
-	);`, `columnar store (TiFlash) must be deployed in the cluster in order to use vector index`)
+	);`, `columnar store (TiFlash) must be deployed in the cluster in order to use columnar index`)
 	if useAlterTable {
-		tk.MustContainErrMsg(`alter table t ADD VECTOR INDEX ((VEC_L2_DISTANCE(v))) ADD_COLUMNAR_REPLICA_ON_DEMAND`, `columnar store (TiFlash) must be deployed in the cluster in order to use vector index`)
+		tk.MustContainErrMsg(`alter table t ADD VECTOR INDEX ((VEC_L2_DISTANCE(v))) ADD_COLUMNAR_REPLICA_ON_DEMAND`, `columnar store (TiFlash) must be deployed in the cluster in order to use columnar index`)
 	} else {
-		tk.MustContainErrMsg(`CREATE VECTOR INDEX vidx ON t ((VEC_L2_DISTANCE(v))) ADD_COLUMNAR_REPLICA_ON_DEMAND`, `columnar store (TiFlash) must be deployed in the cluster in order to use vector index`)
+		tk.MustContainErrMsg(`CREATE VECTOR INDEX vidx ON t ((VEC_L2_DISTANCE(v))) ADD_COLUMNAR_REPLICA_ON_DEMAND`, `columnar store (TiFlash) must be deployed in the cluster in order to use columnar index`)
 	}
 
 	// tiflash stores = 2
@@ -97,9 +97,9 @@ func testAddIndexWithColReplica(t *testing.T, useAlterTable bool) {
 	require.Nil(t, tbl.Meta().TiFlashReplica)
 
 	if useAlterTable {
-		tk.MustContainErrMsg(`alter table t ADD INDEX (c) ADD_COLUMNAR_REPLICA_ON_DEMAND`, `ADD_COLUMNAR_REPLICA_ON_DEMAND can be only used in vector index`)
+		tk.MustContainErrMsg(`alter table t ADD INDEX (c) ADD_COLUMNAR_REPLICA_ON_DEMAND`, `ADD_COLUMNAR_REPLICA_ON_DEMAND can be only used in columnar index`)
 	} else {
-		tk.MustContainErrMsg(`CREATE INDEX vidx ON t (c) ADD_COLUMNAR_REPLICA_ON_DEMAND`, `ADD_COLUMNAR_REPLICA_ON_DEMAND can be only used in vector index`)
+		tk.MustContainErrMsg(`CREATE INDEX vidx ON t (c) ADD_COLUMNAR_REPLICA_ON_DEMAND`, `ADD_COLUMNAR_REPLICA_ON_DEMAND can be only used in columnar index`)
 	}
 
 	if useAlterTable {
@@ -141,9 +141,9 @@ func TestAddIndexWithColReplicaWaitByCreateIndex(t *testing.T) {
 func testAddIndexWithColReplicaWait(t *testing.T, useAlterTable bool) {
 	// This tests what happens when some special DDL happens during ADD_COLUMNAR_REPLICA_ON_DEMAND.
 
-	require.NoError(t, failpoint.Enable("github.com/pingcap/tidb/pkg/ddl/MockCheckVectorIndexProcess", `return(1)`))
+	require.NoError(t, failpoint.Enable("github.com/pingcap/tidb/pkg/ddl/MockCheckColumnarIndexProcess", `return(1)`))
 	defer func() {
-		require.NoError(t, failpoint.Disable("github.com/pingcap/tidb/pkg/ddl/MockCheckVectorIndexProcess"))
+		require.NoError(t, failpoint.Disable("github.com/pingcap/tidb/pkg/ddl/MockCheckColumnarIndexProcess"))
 	}()
 
 	store, _ := testkit.CreateMockStoreAndDomainWithSchemaLease(t, tiflashReplicaLease, mockstore.WithMockTiFlash(2))
@@ -270,7 +270,7 @@ func TestCreateTableWithColReplica(t *testing.T) {
 		c INT,
 		v VECTOR(3),
 		VECTOR INDEX ((VEC_L2_DISTANCE(v)))
-	);`, `columnar store (TiFlash) must be deployed in the cluster in order to use vector index`)
+	);`, `columnar store (TiFlash) must be deployed in the cluster in order to use columnar index`)
 
 	// tiflash stores = 2
 	store, dom := testkit.CreateMockStoreAndDomainWithSchemaLease(t, tiflashReplicaLease, mockstore.WithMockTiFlash(2))

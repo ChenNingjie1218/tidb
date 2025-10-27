@@ -432,9 +432,9 @@ func findTableIDFromStore(t *meta.Mutator, schemaID int64, tableName string) (in
 
 // BuildTableInfoFromAST builds model.TableInfo from a SQL statement.
 // Note: TableID and PartitionID are left as uninitialized value.
-func BuildTableInfoFromAST(ctx *metabuild.Context, s *ast.CreateTableStmt) (*model.TableInfo, error) {
+func BuildTableInfoFromAST(ctx *metabuild.Context, s *ast.CreateTableStmt, store kv.Storage) (*model.TableInfo, error) {
 	// TODO: Support the vector index for this function.
-	return buildTableInfoWithCheck(ctx, nil, s, mysql.DefaultCharset, "", nil)
+	return buildTableInfoWithCheck(ctx, store, s, mysql.DefaultCharset, "", nil)
 }
 
 // buildTableInfoWithCheck builds model.TableInfo from a SQL statement.
@@ -557,7 +557,7 @@ func setTableDefaultReplicaNumForLocalIndex(store kv.Storage, tblInfo *model.Tab
 		return errors.Trace(err)
 	}
 	if replicas == 0 {
-		return errors.Trace(dbterror.ErrUnsupportedAddVectorIndex.FastGenByArgs("columnar store (TiFlash) must be deployed in the cluster in order to use vector index"))
+		return errors.Trace(dbterror.ErrUnsupportedAddColumnarIndex.FastGenByArgs("columnar store (TiFlash) must be deployed in the cluster in order to use columnar index like vector or fulltext"))
 	}
 
 	// Always set the TiFlashReplicaInfo.count to 1 which is default.
@@ -572,15 +572,15 @@ func setTableDefaultReplicaNumForLocalIndex(store kv.Storage, tblInfo *model.Tab
 	return nil
 }
 
-func checkVectorIndexIfNeedTiFlashReplica(store kv.Storage, dbName pmodel.CIStr, tblInfo *model.TableInfo) error {
-	var hasVectorIndex bool
+func checkColumnarIndexIfNeedTiFlashReplica(store kv.Storage, dbName pmodel.CIStr, tblInfo *model.TableInfo) error {
+	hasColumnarIndex := false
 	for _, idx := range tblInfo.Indices {
-		if idx.VectorInfo != nil {
-			hasVectorIndex = true
+		if idx.IsColumnarIndex() {
+			hasColumnarIndex = true
 			break
 		}
 	}
-	if !hasVectorIndex {
+	if !hasColumnarIndex {
 		return nil
 	}
 	if store == nil {
@@ -590,14 +590,14 @@ func checkVectorIndexIfNeedTiFlashReplica(store kv.Storage, dbName pmodel.CIStr,
 		return errors.Trace(err)
 	}
 
-	if tblInfo.TiFlashReplica == nil || tblInfo.TiFlashReplica.Count == 0 {
+	if hasColumnarIndex || tblInfo.TiFlashReplica == nil {
 		err := setTableDefaultReplicaNumForLocalIndex(store, tblInfo)
 		if err != nil {
 			return errors.Trace(err)
 		}
 	}
 
-	return errors.Trace(checkTableTypeForVectorIndex(tblInfo))
+	return errors.Trace(checkTableTypeForColumnarIndex(tblInfo))
 }
 
 // checkTableInfoValidExtra is like checkTableInfoValid, but also assumes the
@@ -628,7 +628,7 @@ func checkTableInfoValidExtra(ec errctx.Context, store kv.Storage, dbName pmodel
 	if err := checkGlobalIndexes(ec, tbInfo); err != nil {
 		return errors.Trace(err)
 	}
-	if err := checkVectorIndexIfNeedTiFlashReplica(store, dbName, tbInfo); err != nil {
+	if err := checkColumnarIndexIfNeedTiFlashReplica(store, dbName, tbInfo); err != nil {
 		return errors.Trace(err)
 	}
 
@@ -1341,8 +1341,9 @@ func BuildTableInfo(
 		}
 
 		var (
-			indexName               = constr.Name
-			primary, unique, vector bool
+			indexName         = constr.Name
+			primary, unique   bool
+			columnarIndexType pmodel.ColumnarIndexType = pmodel.ColumnarIndexTypeNA
 		)
 
 		// Check if the index is primary, unique or vector.
@@ -1354,7 +1355,7 @@ func BuildTableInfo(
 		case ast.ConstraintUniq, ast.ConstraintUniqKey, ast.ConstraintUniqIndex:
 			unique = true
 		case ast.ConstraintVector:
-			vector = true
+			columnarIndexType = pmodel.ColumnarIndexTypeVector
 		}
 
 		// check constraint
@@ -1427,7 +1428,7 @@ func BuildTableInfo(
 			pmodel.NewCIStr(indexName),
 			primary,
 			unique,
-			vector,
+			columnarIndexType,
 			constr.Keys,
 			constr.Option,
 			model.StatePublic,
@@ -1592,7 +1593,7 @@ func addIndexForForeignKey(ctx *metabuild.Context, tbInfo *model.TableInfo) erro
 				Length: types.UnspecifiedLength,
 			})
 		}
-		idxInfo, err := BuildIndexInfo(ctx, tbInfo, idxName, false, false, false, keys, nil, model.StatePublic)
+		idxInfo, err := BuildIndexInfo(ctx, tbInfo, idxName, false, false, pmodel.ColumnarIndexTypeNA, keys, nil, model.StatePublic)
 		if err != nil {
 			return errors.Trace(err)
 		}

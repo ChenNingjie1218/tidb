@@ -6,6 +6,7 @@ go_library(
     importpath = "github.com/pingcap/tidb/cmd/tidb-server",
     visibility = ["//visibility:private"],
     deps = [
+        "//br/pkg/storage",
         "//pkg/bindinfo",
         "//pkg/config",
         "//pkg/ddl",
@@ -47,6 +48,7 @@ go_library(
         "//pkg/util/deadlockhistory",
         "//pkg/util/disk",
         "//pkg/util/domainutil",
+        "//pkg/util/external",
         "//pkg/util/kvcache",
         "//pkg/util/logutil",
         "//pkg/util/memory",

@@ -22,6 +22,7 @@ go_library(
     importpath = "github.com/pingcap/tidb/pkg/domain",
     visibility = ["//visibility:public"],
     deps = [
+        "//br/pkg/storage",
         "//br/pkg/streamhelper",
         "//br/pkg/streamhelper/daemon",
         "//pkg/bindinfo",
@@ -85,6 +86,7 @@ go_library(
         "//pkg/util/etcd",
         "//pkg/util/execdetails",
         "//pkg/util/expensivequery",
+        "//pkg/util/external",
         "//pkg/util/gctuner",
         "//pkg/util/globalconn",
         "//pkg/util/intest",

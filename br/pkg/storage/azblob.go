@@ -12,6 +12,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
@@ -565,6 +566,12 @@ func (s *AzureBlobStorage) Create(_ context.Context, name string, _ *WriterOptio
 
 	uploaderWriter := newBufferedWriter(uploader, azblobChunkSize, NoCompression)
 	return uploaderWriter, nil
+}
+
+// GetPresignedFileURL implements the ExternalStorage interface.
+func (*AzureBlobStorage) GetPresignedFileURL(_ context.Context, _ string, _ time.Duration) (string, error) {
+	// TODO: implement GetPresignedFileURL for AzureBlobStorage
+	return "", errors.Annotatef(berrors.ErrUnsupportedOperation, "AzureBlobStorage backend don't support GetPresignedFileURL")
 }
 
 // Rename implements the StorageWriter interface.

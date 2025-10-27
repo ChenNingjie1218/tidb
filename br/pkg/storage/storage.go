@@ -6,6 +6,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/pingcap/errors"
@@ -136,6 +137,11 @@ type ExternalStorage interface {
 	// Close release the resources of the storage.
 	Close()
 
+	// GetPresignedFileURL create a presigned URL for sharing an file without writing any code.
+	// Currently mainly used for aws S3, see
+	// https://docs.aws.amazon.com/AmazonS3/latest/userguide/ShareObjectPreSignedURL.html
+	GetPresignedFileURL(ctx context.Context, fileName string, expire time.Duration) (string, error)
+
 	// UseLocalDisk returns whether the storage is using local disk.
 	UseLocalDisk(ctx context.Context) (bool, error)
 }
@@ -183,6 +189,12 @@ type ExternalStorageOptions struct {
 	// CheckObjectLockOptions check the s3 bucket has enabled the ObjectLock.
 	// if enabled. it will send the options to tikv.
 	CheckS3ObjectLockOptions bool
+
+	// RoleExpiryWindow is used to set the expiry window for the role provider.
+	RoleExpiryWindow time.Duration
+
+	// RoleDuration is used to set the duration for the role provider.
+	RoleDuration time.Duration
 }
 
 // Create creates ExternalStorage.

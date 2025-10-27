@@ -19,6 +19,7 @@ go_library(
     importpath = "github.com/pingcap/tidb/pkg/sessionctx/variable",
     visibility = ["//visibility:public"],
     deps = [
+        "//br/pkg/storage",
         "//pkg/config",
         "//pkg/errno",
         "//pkg/executor/join/joinversion",

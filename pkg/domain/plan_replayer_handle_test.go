@@ -15,6 +15,7 @@
 package domain_test
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -133,15 +134,17 @@ func TestPlanReplayerGC(t *testing.T) {
 	startTime := time.Now()
 	time := startTime.UnixNano()
 	fileName := fmt.Sprintf("replayer_single_xxxxxx_%v.zip", time)
-	err := os.MkdirAll(replayer.GetPlanReplayerDirName(), os.ModePerm)
+	dirPath := replayer.GetPlanReplayerFullPathDirName()
+	err := os.MkdirAll(dirPath, os.ModePerm)
+
 	require.NoError(t, err)
 	tk.MustExec("insert into mysql.plan_replayer_status(sql_digest, plan_digest, token, instance) values" +
 		"('123','123','" + fileName + "','123')")
-	path := filepath.Join(replayer.GetPlanReplayerDirName(), fileName)
+	path := filepath.Join(dirPath, fileName)
 	zf, err := os.Create(path)
 	require.NoError(t, err)
 	zf.Close()
-	handler.GCDumpFiles(0, 0)
+	handler.GCDumpFiles(context.Background(), 0, 0)
 	tk.MustQuery("select count(*) from mysql.plan_replayer_status").Check(testkit.Rows("0"))
 
 	_, err = os.Stat(path)
@@ -189,7 +192,7 @@ SELECT * from tableA where SUBSTRING_INDEX(tableA.columnC, '_', 1) = tableA.colu
 	require.NotNil(t, task)
 	worker := prHandle.GetWorker()
 	success := worker.HandleTask(task)
-	defer os.RemoveAll(replayer.GetPlanReplayerDirName())
+	defer os.RemoveAll(replayer.GetPlanReplayerFullPathDirName())
 	require.True(t, success)
 	require.Equal(t, prHandle.GetTaskStatus().GetRunningTaskStatusLen(), 0)
 	// assert memory task consumed

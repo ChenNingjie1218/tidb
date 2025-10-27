@@ -31,6 +31,7 @@ import (
 	"github.com/pingcap/failpoint"
 	"github.com/pingcap/kvproto/pkg/keyspacepb"
 	"github.com/pingcap/log"
+	"github.com/pingcap/tidb/br/pkg/storage"
 	"github.com/pingcap/tidb/pkg/bindinfo"
 	"github.com/pingcap/tidb/pkg/config"
 	"github.com/pingcap/tidb/pkg/ddl"
@@ -72,6 +73,7 @@ import (
 	"github.com/pingcap/tidb/pkg/util/deadlockhistory"
 	"github.com/pingcap/tidb/pkg/util/disk"
 	"github.com/pingcap/tidb/pkg/util/domainutil"
+	"github.com/pingcap/tidb/pkg/util/external"
 	"github.com/pingcap/tidb/pkg/util/kvcache"
 	"github.com/pingcap/tidb/pkg/util/logutil"
 	"github.com/pingcap/tidb/pkg/util/memory"
@@ -421,6 +423,8 @@ func main() {
 		keyspace.SetUsernamePolicy(keyspace.NewPrefixPolicy(keyspaceMeta.GetName()))
 	}
 	// Serverless ===================
+	err = setupExternalStorage(keyspaceMeta)
+	terror.MustNil(err)
 
 	if variable.EnableTmpStorageOnOOM.Load() {
 		config.GetGlobalConfig().UpdateTempStoragePath()
@@ -1376,6 +1380,32 @@ func createMrgClient() (tidbmanager.Client, error) {
 		os.Getenv("POD_IP"),
 		os.Getenv("NAMESPACE"),
 	), nil
+}
+
+func setupExternalStorage(keyspaceMeta *keyspacepb.KeyspaceMeta) error {
+	cfg := config.GetGlobalConfig()
+	path := cfg.ExternalStoragePath
+	if len(path) == 0 {
+		path = cfg.TempDir
+	}
+	namespace := "NullKeyspace"
+	if keyspaceMeta != nil {
+		namespace = keyspaceMeta.Name
+		if keyspaceMeta.Config != nil && len(keyspaceMeta.Config[serverless.LabelTenantID]) > 0 {
+			// for serverless cluster, we use `org-{tenant-id}/tidb-external-storage/{cluster-id}` as namespace to isolate data.
+			namespace = fmt.Sprintf("org-%s/tidb-external-storage/%s",
+				keyspaceMeta.Config[serverless.LabelTenantID],
+				keyspaceMeta.Config[serverless.LabelClusterID])
+		}
+	}
+	logutil.BgLogger().Info("initialize external storage", zap.String("path", path), zap.String("namespace", namespace))
+
+	opts := &storage.ExternalStorageOptions{
+		RoleExpiryWindow: cfg.ExternalStorageConfig.RoleExpiryWindow,
+		RoleDuration:     cfg.ExternalStorageConfig.RoleDuration,
+	}
+
+	return external.CreateExternalStorage(path, namespace, opts)
 }
 
 func updateConfigForServerless(keyspaceMeta *keyspacepb.KeyspaceMeta) {

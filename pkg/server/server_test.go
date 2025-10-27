@@ -105,7 +105,7 @@ func TestOptimizerDebugTrace(t *testing.T) {
 		task := prHandle.DrainTask()
 		success := worker.HandleTask(task)
 		require.True(t, success)
-		require.NoError(t, os.Remove(filepath.Join(replayer.GetPlanReplayerDirName(), task.FileName)))
+		require.NoError(t, os.Remove(filepath.Join(replayer.GetPlanReplayerFullPathDirName(), task.FileName)))
 	}
 }
 
@@ -151,7 +151,7 @@ func TestIssue46197(t *testing.T) {
 
 	// clean up
 	path := testdata.ConvertRowsToStrings(tk.MustQuery("select @@tidb_last_plan_replayer_token").Rows())
-	require.NoError(t, os.Remove(filepath.Join(replayer.GetPlanReplayerDirName(), path[0])))
+	require.NoError(t, os.Remove(filepath.Join(replayer.GetPlanReplayerFullPathDirName(), path[0])))
 }
 
 func TestGetConAttrs(t *testing.T) {

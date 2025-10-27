@@ -3,6 +3,7 @@
 package storage
 
 import (
+	"fmt"
 	"net/url"
 	"path/filepath"
 	"reflect"
@@ -12,6 +13,10 @@ import (
 	"github.com/pingcap/errors"
 	backuppb "github.com/pingcap/kvproto/pkg/brpb"
 	berrors "github.com/pingcap/tidb/br/pkg/errors"
+)
+
+const (
+	ossEndpointFormat = "http://oss-%s.aliyuncs.com"
 )
 
 // BackendOptions further configures the storage backend not expressed by the
@@ -80,7 +85,7 @@ func parseBackend(u *url.URL, rawURL string, options *BackendOptions) (*backuppb
 		noop := &backuppb.Noop{}
 		return &backuppb.StorageBackend{Backend: &backuppb.StorageBackend_Noop{Noop: noop}}, nil
 
-	case "s3", "ks3":
+	case "s3", "ks3", "oss":
 		if u.Host == "" {
 			return nil, errors.Annotatef(berrors.ErrStorageInvalidConfig, "please specify the bucket for s3 in %s", rawURL)
 		}
@@ -96,8 +101,17 @@ func parseBackend(u *url.URL, rawURL string, options *BackendOptions) (*backuppb
 		if u.Scheme == "ks3" {
 			s3.Provider = ks3SDKProvider
 		}
+		if u.Scheme == "oss" || strings.Contains(s3.Endpoint, domainAliyun) {
+			if len(s3.Region) != 0 && len(s3.Endpoint) == 0 {
+				s3.Endpoint = fmt.Sprintf(ossEndpointFormat, s3.Region)
+			}
+			if len(s3.Endpoint) == 0 {
+				return nil, errors.Annotatef(berrors.ErrStorageInvalidConfig, "please specify the region or the endpoint for oss in %s", rawURL)
+			}
+			s3.Provider = aliProvider
+			s3.ForcePathStyle = false
+		}
 		return &backuppb.StorageBackend{Backend: &backuppb.StorageBackend_S3{S3: s3}}, nil
-
 	case "gs", "gcs":
 		if u.Host == "" {
 			return nil, errors.Annotatef(berrors.ErrStorageInvalidConfig, "please specify the bucket for gcs in %s", rawURL)

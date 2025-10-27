@@ -214,14 +214,14 @@ def go_deps():
         ],
     )
     go_repository(
-        name = "com_github_aliyun_alibaba_cloud_sdk_go",
+        name = "com_github_aliyun_alibabacloud_oss_go_sdk_v2",
         build_file_proto_mode = "disable_global",
-        importpath = "github.com/aliyun/alibaba-cloud-sdk-go",
-        sha256 = "21a5b01952452ecd963ba9f2c96ed4a5281341b1ee7b52b32e2562f9397e6961",
-        strip_prefix = "github.com/aliyun/alibaba-cloud-sdk-go@v1.61.1581",
+        importpath = "github.com/aliyun/alibabacloud-oss-go-sdk-v2",
+        sha256 = "71528990e317172f309652cf43404b0da8d43cc97e2a659636bf25eba110a97a",
+        strip_prefix = "github.com/aliyun/alibabacloud-oss-go-sdk-v2@v1.2.1",
         urls = [
-            "https://cache.hawkingrei.com/gomod/github.com/aliyun/alibaba-cloud-sdk-go/com_github_aliyun_alibaba_cloud_sdk_go-v1.61.1581.zip",
-            "https://storage.googleapis.com/pingcapmirror/gomod/github.com/aliyun/alibaba-cloud-sdk-go/com_github_aliyun_alibaba_cloud_sdk_go-v1.61.1581.zip",
+            "https://cache.hawkingrei.com/gomod/github.com/aliyun/alibabacloud-oss-go-sdk-v2/com_github_aliyun_alibabacloud_oss_go_sdk_v2-v1.2.1.zip",
+            "https://storage.googleapis.com/pingcapmirror/gomod/github.com/aliyun/alibabacloud-oss-go-sdk-v2/com_github_aliyun_alibabacloud_oss_go_sdk_v2-v1.2.1.zip",
         ],
     )
     go_repository(
@@ -2400,17 +2400,6 @@ def go_deps():
         urls = [
             "https://cache.hawkingrei.com/gomod/github.com/gogo/status/com_github_gogo_status-v1.1.0.zip",
             "https://storage.googleapis.com/pingcapmirror/gomod/github.com/gogo/status/com_github_gogo_status-v1.1.0.zip",
-        ],
-    )
-    go_repository(
-        name = "com_github_goji_httpauth",
-        build_file_proto_mode = "disable_global",
-        importpath = "github.com/goji/httpauth",
-        sha256 = "8467ed1df8ffba8da7ead144b656b6281469ab4d122adf3edf496175ad870192",
-        strip_prefix = "github.com/goji/httpauth@v0.0.0-20160601135302-2da839ab0f4d",
-        urls = [
-            "https://cache.hawkingrei.com/gomod/github.com/goji/httpauth/com_github_goji_httpauth-v0.0.0-20160601135302-2da839ab0f4d.zip",
-            "https://storage.googleapis.com/pingcapmirror/gomod/github.com/goji/httpauth/com_github_goji_httpauth-v0.0.0-20160601135302-2da839ab0f4d.zip",
         ],
     )
     go_repository(

@@ -21,6 +21,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/pingcap/errors"
 	"go.uber.org/atomic"
@@ -285,6 +286,11 @@ func (s *MemStorage) Rename(ctx context.Context, oldFileName, newFileName string
 // Close implements ExternalStorage interface.
 func (s *MemStorage) Close() {
 	s.dataStore = nil
+}
+
+// GetPresignedFileURL implements the ExternalStorage interface.
+func (*MemStorage) GetPresignedFileURL(_ context.Context, _ string, _ time.Duration) (string, error) {
+	return "", nil
 }
 
 func (s *MemStorage) UseLocalDisk(context.Context) (bool, error) {

@@ -15,8 +15,7 @@ import (
 	"sync"
 	"time"
 
-	alicred "github.com/aliyun/alibaba-cloud-sdk-go/sdk/auth/credentials"
-	aliproviders "github.com/aliyun/alibaba-cloud-sdk-go/sdk/auth/credentials/providers"
+	"github.com/aliyun/alibabacloud-oss-go-sdk-v2/oss"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/client"
@@ -64,6 +63,9 @@ const (
 	defaultRegion = "us-east-1"
 	// to check the cloud type by endpoint tag.
 	domainAliyun = "aliyuncs.com"
+
+	aliProvider     = "alibaba"
+	neteaseProvider = "netease"
 )
 
 var permissionCheckFn = map[Permission]func(context.Context, s3iface.S3API, *backuppb.S3) error{
@@ -81,6 +83,8 @@ var WriteBufferSize = 5 * 1024 * 1024
 type S3Storage struct {
 	svc     s3iface.S3API
 	options *backuppb.S3
+
+	roleDuration time.Duration
 }
 
 // GetS3APIHandle gets the handle to the S3 API.
@@ -172,7 +176,7 @@ func (options *S3BackendOptions) Apply(s3 *backuppb.S3) error {
 	}
 	// In some cases, we need to set ForcePathStyle to false.
 	// Refer to: https://rclone.org/s3/#s3-force-path-style
-	if options.Provider == "alibaba" || options.Provider == "netease" ||
+	if options.Provider == aliProvider || options.Provider == neteaseProvider ||
 		options.UseAccelerateEndpoint {
 		options.ForcePathStyle = false
 	}
@@ -287,29 +291,18 @@ func autoNewCred(qs *backuppb.S3) (cred *credentials.Credentials, err error) {
 }
 
 func createOssRAMCred() (*credentials.Credentials, error) {
-	cred, err := aliproviders.NewInstanceMetadataProvider().Retrieve()
+	// NOTE: only use for TiDB Serverless
+	proivder, err := newOssOIDCCredentialsProvider(0)
 	if err != nil {
-		log.Warn("failed to get aliyun ram credential", zap.Error(err))
-		return nil, nil
+		return nil, err
 	}
-	var aliCred, ok = cred.(*alicred.StsTokenCredential)
-	if !ok {
-		return nil, errors.Errorf("invalid credential type %T", cred)
-	}
-	newCred := credentials.NewChainCredentials([]credentials.Provider{
-		&credentials.EnvProvider{},
-		&credentials.SharedCredentialsProvider{},
-		&credentials.StaticProvider{Value: credentials.Value{AccessKeyID: aliCred.AccessKeyId, SecretAccessKey: aliCred.AccessKeySecret, SessionToken: aliCred.AccessKeyStsToken, ProviderName: ""}},
-	})
-	if _, err := newCred.Get(); err != nil {
-		return nil, errors.Trace(err)
-	}
-	return newCred, nil
+	return credentials.NewCredentials(proivder), nil
 }
 
 // NewS3Storage initialize a new s3 storage for metadata.
 func NewS3Storage(ctx context.Context, backend *backuppb.S3, opts *ExternalStorageOptions) (obj *S3Storage, errRet error) {
 	qs := *backend
+
 	awsConfig := aws.NewConfig().
 		WithS3ForcePathStyle(qs.ForcePathStyle).
 		WithCredentialsChainVerboseErrors(true)
@@ -341,6 +334,16 @@ func NewS3Storage(ctx context.Context, backend *backuppb.S3, opts *ExternalStora
 	// awsConfig.WithLogLevel(aws.LogDebugWithSigning)
 	awsSessionOpts := session.Options{
 		Config: *awsConfig,
+		CredentialsProviderOptions: &session.CredentialsProviderOptions{
+			WebIdentityRoleProviderOptions: func(p *stscreds.WebIdentityRoleProvider) {
+				if opts != nil && opts.RoleExpiryWindow != 0 {
+					p.ExpiryWindow = opts.RoleExpiryWindow
+				}
+				if opts != nil && opts.RoleDuration != 0 {
+					p.Duration = opts.RoleDuration
+				}
+			},
+		},
 	}
 	ses, err := session.NewSessionWithOptions(awsSessionOpts)
 	if err != nil {
@@ -432,6 +435,8 @@ func NewS3Storage(ctx context.Context, backend *backuppb.S3, opts *ExternalStora
 	s3Storage := &S3Storage{
 		svc:     c,
 		options: &qs,
+
+		roleDuration: opts.RoleDuration,
 	}
 	if opts.CheckS3ObjectLockOptions {
 		backend.ObjectLockEnabled = s3Storage.IsObjectLockEnabled()
@@ -1147,6 +1152,43 @@ func (rs *S3Storage) Rename(ctx context.Context, oldFileName, newFileName string
 
 // Close implements ExternalStorage interface.
 func (*S3Storage) Close() {}
+
+// GetPresignedFileURL implements the ExternalStorage interface.
+func (rs *S3Storage) GetPresignedFileURL(ctx context.Context, path string, expire time.Duration) (string, error) {
+	if rs.options.Provider == aliProvider {
+		provider, err := newOssOIDCCredentialsProvider(rs.roleDuration)
+		if err != nil {
+			return "", errors.Trace(err)
+		}
+
+		cfg := oss.LoadDefaultConfig().
+			WithCredentialsProvider(provider).
+			WithRegion(rs.options.Region)
+
+		client := oss.NewClient(cfg)
+		getObjRequest := &oss.GetObjectRequest{
+			Bucket: oss.Ptr(rs.options.Bucket),
+			Key:    oss.Ptr(rs.options.Prefix + path),
+		}
+		optFns := func(opts *oss.PresignOptions) {
+			opts.Expires = expire
+		}
+
+		getObjResult, err := client.Presign(ctx, getObjRequest, optFns)
+		if err != nil {
+			return "", errors.Trace(err)
+		}
+		return getObjResult.URL, nil
+	}
+	input := &s3.GetObjectInput{
+		Bucket: aws.String(rs.options.Bucket),
+		Key:    aws.String(rs.options.Prefix + path),
+	}
+
+	objReq, _ := rs.svc.GetObjectRequest(input)
+	url, _, err := objReq.PresignRequest(expire)
+	return url, err
+}
 
 // UseLocalDisk implements the ExternalStorage interface.
 func (rs *S3Storage) UseLocalDisk(context.Context) (bool, error) {

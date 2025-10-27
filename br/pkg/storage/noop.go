@@ -4,6 +4,7 @@ package storage
 
 import (
 	"context"
+	"time"
 )
 
 type noopStorage struct{}
@@ -91,6 +92,11 @@ func (NoopWriter) Write(_ context.Context, p []byte) (int, error) {
 
 func (NoopWriter) Close(_ context.Context) error {
 	return nil
+}
+
+// GetPresignedFileURL implements the ExternalStorage interface.
+func (*noopStorage) GetPresignedFileURL(_ context.Context, _ string, _ time.Duration) (string, error) {
+	return "", nil
 }
 
 // UseLocalDisk implements ExternalStorage interface.

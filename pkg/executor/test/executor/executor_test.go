@@ -215,7 +215,7 @@ func TestPlanReplayerDumpSingle(t *testing.T) {
 	defer os.RemoveAll(replayer.GetPlanReplayerDirName())
 	path := testdata.ConvertRowsToStrings(res.Rows())
 
-	reader, err := zip.OpenReader(filepath.Join(replayer.GetPlanReplayerDirName(), path[0]))
+	reader, err := zip.OpenReader(filepath.Join(replayer.GetPlanReplayerFullPathDirName(), path[0]))
 	require.NoError(t, err)
 	defer func() { require.NoError(t, reader.Close()) }()
 	for _, file := range reader.File {

@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -37,8 +38,10 @@ import (
 	"github.com/pingcap/tidb/pkg/statistics"
 	"github.com/pingcap/tidb/pkg/statistics/handle/util"
 	"github.com/pingcap/tidb/pkg/util/chunk"
+	"github.com/pingcap/tidb/pkg/util/external"
 	"github.com/pingcap/tidb/pkg/util/logutil"
 	"github.com/pingcap/tidb/pkg/util/printer"
+	"github.com/pingcap/tidb/pkg/util/replayer"
 	"github.com/pingcap/tidb/pkg/util/sqlexec"
 	"go.uber.org/zap"
 )
@@ -274,19 +277,28 @@ func DumpPlanReplayerInfo(ctx context.Context, sctx sessionctx.Context,
 		}
 		err1 := zw.Close()
 		if err1 != nil {
-			logutil.BgLogger().Error("Closing zip writer failed", zap.String("category", "plan-replayer-dump"), zap.Error(err), zap.String("filename", fileName))
+			logutil.BgLogger().Error("Closing zip writer failed", zap.String("category", "plan-replayer-dump"), zap.Error(err1), zap.String("filename", fileName))
 			errMsg = errMsg + "," + err1.Error()
 		}
 		err2 := zf.Close()
 		if err2 != nil {
-			logutil.BgLogger().Error("Closing zip file failed", zap.String("category", "plan-replayer-dump"), zap.Error(err), zap.String("filename", fileName))
+			logutil.BgLogger().Error("Closing zip file failed", zap.String("category", "plan-replayer-dump"), zap.Error(err2), zap.String("filename", fileName))
 			errMsg = errMsg + "," + err2.Error()
 		}
-		if len(errMsg) > 0 {
-			for i, record := range records {
-				record.FailedReason = errMsg
-				records[i] = record
+		token := ""
+		if err == nil && err1 == nil && err2 == nil {
+			storage := external.GetExternalStorage()
+			token, err = storage.GetPresignedFileURL(ctx, filepath.Join(replayer.GetPlanReplayerDirName(), task.FileName), config.GetGlobalConfig().PresignedURLTTL)
+			if err != nil {
+				logutil.BgLogger().Error("[plan-replayer-dump] Presign file failed", zap.Error(err), zap.String("filename", fileName))
+				errMsg = errMsg + "," + err.Error()
 			}
+		}
+		task.Token = token
+		for i, record := range records {
+			record.FailedReason = errMsg
+			record.Token = token
+			records[i] = record
 		}
 		insertPlanReplayerStatus(ctx, sctx, records)
 	}()
@@ -418,7 +430,6 @@ func generateRecords(task *PlanReplayerDumpTask) []PlanReplayerStatusRecord {
 				SQLDigest:  task.SQLDigest,
 				PlanDigest: task.PlanDigest,
 				OriginSQL:  execStmt.Text(),
-				Token:      task.FileName,
 			})
 		}
 	}
@@ -780,7 +791,6 @@ func dumpPlanReplayerExplain(ctx sessionctx.Context, zw *zip.Writer, task *PlanR
 		sqls = append(sqls, sql)
 		*records = append(*records, PlanReplayerStatusRecord{
 			OriginSQL: sql,
-			Token:     task.FileName,
 		})
 	}
 	debugTraces, err := dumpExplain(ctx, zw, task.Analyze, sqls, false)

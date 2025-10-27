@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/pingcap/errors"
@@ -191,6 +192,12 @@ func (l *LocalStorage) Open(_ context.Context, path string, o *ReaderOption) (Ex
 		}
 	}
 	return &localFile{File: f, pos: pos, endPos: endPos}, nil
+}
+
+// GetPresignedFileURL implements the ExternalStorage interface.
+func (l *LocalStorage) GetPresignedFileURL(_ context.Context, fileName string, _ time.Duration) (string, error) {
+	_, fileNameOnly := filepath.Split(fileName)
+	return fileNameOnly, nil
 }
 
 type localFile struct {

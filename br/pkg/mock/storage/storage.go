@@ -12,6 +12,7 @@ package mockstorage
 import (
 	context "context"
 	reflect "reflect"
+	"time"
 
 	storage "github.com/pingcap/tidb/br/pkg/storage"
 	gomock "go.uber.org/mock/gomock"
@@ -208,6 +209,12 @@ func (m *MockExternalStorage) WriteFile(arg0 context.Context, arg1 string, arg2 
 	ret := m.ctrl.Call(m, "WriteFile", arg0, arg1, arg2)
 	ret0, _ := ret[0].(error)
 	return ret0
+}
+
+func (m *MockExternalStorage) GetPresignedFileURL(arg0 context.Context, arg1 string, arg2 time.Duration) (string, error) {
+	ret := m.ctrl.Call(m, "MockExternalStorage", arg0, arg1, arg2)
+	ret0, _ := ret[0].(error)
+	return "", ret0
 }
 
 // WriteFile indicates an expected call of WriteFile.

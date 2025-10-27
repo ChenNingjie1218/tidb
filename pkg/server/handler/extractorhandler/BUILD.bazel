@@ -9,6 +9,7 @@ go_library(
         "//pkg/domain",
         "//pkg/server/handler",
         "//pkg/types",
+        "//pkg/util/external",
         "//pkg/util/logutil",
         "@com_github_pingcap_errors//:errors",
         "@com_github_pingcap_failpoint//:failpoint",

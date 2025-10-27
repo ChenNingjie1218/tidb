@@ -22,6 +22,7 @@ import (
 	"path"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/ks3sdklib/aws-sdk-go/aws"
@@ -721,6 +722,12 @@ func (rs *KS3Storage) Create(ctx context.Context, name string, option *WriterOpt
 	}
 	uploaderWriter := newBufferedWriter(uploader, bufSize, NoCompression)
 	return uploaderWriter, nil
+}
+
+// GetPresignedFileURL implements the ExternalStorage interface.
+func (*KS3Storage) GetPresignedFileURL(_ context.Context, _ string, _ time.Duration) (string, error) {
+	// TODO: implement GetPresignedFileURL for KS3Storage
+	return "", errors.Annotatef(berrors.ErrUnsupportedOperation, "KS3Storage backend don't support GetPresignedFileURL")
 }
 
 // Rename implements ExternalStorage interface.

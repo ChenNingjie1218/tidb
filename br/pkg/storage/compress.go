@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"time"
 
 	"github.com/pingcap/errors"
 	berrors "github.com/pingcap/tidb/br/pkg/errors"
@@ -40,6 +41,10 @@ func (w *withCompression) Create(ctx context.Context, name string, o *WriterOpti
 	}
 	compressedWriter := newBufferedWriter(writer, hardcodedS3ChunkSize, w.compressType)
 	return compressedWriter, nil
+}
+
+func (w *withCompression) GetPresignedFileURL(ctx context.Context, fileName string, expire time.Duration) (string, error) {
+	return w.ExternalStorage.GetPresignedFileURL(ctx, fileName, expire)
 }
 
 func (w *withCompression) Open(ctx context.Context, path string, o *ReaderOption) (ExternalFileReader, error) {

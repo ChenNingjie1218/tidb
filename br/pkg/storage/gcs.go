@@ -13,6 +13,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"time"
 
 	"cloud.google.com/go/storage"
 	"github.com/pingcap/errors"
@@ -376,6 +377,12 @@ func (*GCSStorage) UseLocalDisk(context.Context) (bool, error) {
 var mustReportCredErr = false
 
 const gcsClientCnt = 16
+
+// GetPresignedFileURL implements the ExternalStorage interface.
+func (*GCSStorage) GetPresignedFileURL(_ context.Context, _ string, _ time.Duration) (string, error) {
+	// TODO: implement GetPresignedFileURL for GCSStorage
+	return "", errors.Annotatef(berrors.ErrUnsupportedOperation, "GCSStorage backend don't support GetPresignedFileURL")
+}
 
 // NewGCSStorage creates a GCS external storage implementation.
 func NewGCSStorage(ctx context.Context, gcs *backuppb.GCS, opts *ExternalStorageOptions) (*GCSStorage, error) {

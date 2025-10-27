@@ -218,6 +218,7 @@ go_library(
         "//pkg/util/disk",
         "//pkg/util/disttask",
         "//pkg/util/execdetails",
+        "//pkg/util/external",
         "//pkg/util/filter",
         "//pkg/util/format",
         "//pkg/util/gcutil",

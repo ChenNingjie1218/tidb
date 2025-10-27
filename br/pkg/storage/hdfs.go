@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"time"
 
 	"github.com/pingcap/errors"
 	berrors "github.com/pingcap/tidb/br/pkg/errors"
@@ -139,6 +140,11 @@ func (*HDFSStorage) Rename(_ context.Context, _, _ string) error {
 
 // Close implements ExternalStorage interface.
 func (*HDFSStorage) Close() {}
+
+// GetPresignedFileURL implements the ExternalStorage interface.
+func (*HDFSStorage) GetPresignedFileURL(_ context.Context, _ string, _ time.Duration) (string, error) {
+	return "", errors.Annotatef(berrors.ErrUnsupportedOperation, "HDFS backend don't support GetPresignedFileURL")
+}
 
 // UseLocalDisk implements the ExternalStorage interface.
 func (*HDFSStorage) UseLocalDisk(context.Context) (bool, error) {

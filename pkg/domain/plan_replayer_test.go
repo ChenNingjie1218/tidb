@@ -15,6 +15,7 @@
 package domain
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -27,12 +28,13 @@ import (
 )
 
 func TestPlanReplayerDifferentGC(t *testing.T) {
-	dirName := replayer.GetPlanReplayerDirName()
+	dirName := replayer.GetPlanReplayerFullPathDirName()
+	ctx := context.Background()
 
 	time1 := time.Now().Add(-7 * 25 * time.Hour).UnixNano()
 	require.NoError(t, failpoint.Enable("github.com/pingcap/tidb/pkg/util/replayer/InjectPlanReplayerFileNameTimeField", fmt.Sprintf("return(%d)", time1)))
-	file1, fileName1, err := replayer.GeneratePlanReplayerFile(true, false, false)
-	defer os.RemoveAll(replayer.GetPlanReplayerDirName())
+	file1, fileName1, err := replayer.GeneratePlanReplayerFile(ctx, true, false, false)
+	defer os.RemoveAll(replayer.GetPlanReplayerFullPathDirName())
 	require.NoError(t, err)
 	require.NoError(t, file1.Close())
 	filePath1 := filepath.Join(dirName, fileName1)
@@ -40,7 +42,7 @@ func TestPlanReplayerDifferentGC(t *testing.T) {
 
 	time2 := time.Now().Add(-7 * 23 * time.Hour).UnixNano()
 	require.NoError(t, failpoint.Enable("github.com/pingcap/tidb/pkg/util/replayer/InjectPlanReplayerFileNameTimeField", fmt.Sprintf("return(%d)", time2)))
-	file2, fileName2, err := replayer.GeneratePlanReplayerFile(true, false, false)
+	file2, fileName2, err := replayer.GeneratePlanReplayerFile(ctx, true, false, false)
 	require.NoError(t, err)
 	require.NoError(t, file2.Close())
 	filePath2 := filepath.Join(dirName, fileName2)
@@ -48,7 +50,7 @@ func TestPlanReplayerDifferentGC(t *testing.T) {
 
 	time3 := time.Now().Add(-2 * time.Hour).UnixNano()
 	require.NoError(t, failpoint.Enable("github.com/pingcap/tidb/pkg/util/replayer/InjectPlanReplayerFileNameTimeField", fmt.Sprintf("return(%d)", time3)))
-	file3, fileName3, err := replayer.GeneratePlanReplayerFile(false, false, false)
+	file3, fileName3, err := replayer.GeneratePlanReplayerFile(ctx, false, false, false)
 	require.NoError(t, err)
 	require.NoError(t, file3.Close())
 	filePath3 := filepath.Join(dirName, fileName3)
@@ -56,22 +58,22 @@ func TestPlanReplayerDifferentGC(t *testing.T) {
 
 	time4 := time.Now().UnixNano()
 	require.NoError(t, failpoint.Enable("github.com/pingcap/tidb/pkg/util/replayer/InjectPlanReplayerFileNameTimeField", fmt.Sprintf("return(%d)", time4)))
-	file4, fileName4, err := replayer.GeneratePlanReplayerFile(false, false, false)
+	file4, fileName4, err := replayer.GeneratePlanReplayerFile(ctx, false, false, false)
 	require.NoError(t, err)
 	require.NoError(t, file4.Close())
 	filePath4 := filepath.Join(dirName, fileName4)
 	require.NoError(t, failpoint.Disable("github.com/pingcap/tidb/pkg/util/replayer/InjectPlanReplayerFileNameTimeField"))
 
 	handler := &dumpFileGcChecker{
-		paths: []string{dirName},
+		paths: []string{replayer.GetPlanReplayerDirName()},
 	}
-	handler.GCDumpFiles(time.Hour, time.Hour*24*7)
+	handler.GCDumpFiles(ctx, time.Hour, time.Hour*24*7)
 	require.NoFileExists(t, filePath1)
 	require.FileExists(t, filePath2)
 	require.NoFileExists(t, filePath3)
 	require.FileExists(t, filePath4)
 
-	handler.GCDumpFiles(0, 0)
+	handler.GCDumpFiles(ctx, 0, 0)
 	require.NoFileExists(t, filePath2)
 	require.NoFileExists(t, filePath4)
 }

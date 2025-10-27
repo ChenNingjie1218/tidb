@@ -20,7 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
+	"io"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -66,7 +66,7 @@ type PlanReplayerDumpInfo struct {
 	HistoricalStatsTS uint64
 	StartTS           uint64
 	Path              string
-	File              *os.File
+	File              io.WriteCloser
 	FileName          string
 	ctx               sessionctx.Context
 }
@@ -83,7 +83,7 @@ func (e *PlanReplayerExec) Next(ctx context.Context, req *chunk.Chunk) error {
 		}
 		return e.registerCaptureTask(ctx)
 	}
-	err := e.createFile()
+	err := e.createFile(ctx)
 	if err != nil {
 		return err
 	}
@@ -113,7 +113,7 @@ func (e *PlanReplayerExec) Next(ctx context.Context, req *chunk.Chunk) error {
 	if err != nil {
 		return err
 	}
-	req.AppendString(0, e.DumpInfo.FileName)
+	req.AppendString(0, e.DumpInfo.ctx.GetSessionVars().LastPlanReplayerToken)
 	e.endFlag = true
 	return nil
 }
@@ -163,9 +163,9 @@ func (e *PlanReplayerExec) registerCaptureTask(ctx context.Context) error {
 	return nil
 }
 
-func (e *PlanReplayerExec) createFile() error {
+func (e *PlanReplayerExec) createFile(ctx context.Context) error {
 	var err error
-	e.DumpInfo.File, e.DumpInfo.FileName, err = replayer.GeneratePlanReplayerFile(false, false, false)
+	e.DumpInfo.File, e.DumpInfo.FileName, err = replayer.GeneratePlanReplayerFile(ctx, false, false, false)
 	if err != nil {
 		return err
 	}
@@ -189,7 +189,7 @@ func (e *PlanReplayerDumpInfo) dump(ctx context.Context) (err error) {
 	if err != nil {
 		return err
 	}
-	e.ctx.GetSessionVars().LastPlanReplayerToken = e.FileName
+	e.ctx.GetSessionVars().LastPlanReplayerToken = task.Token
 	return nil
 }
 

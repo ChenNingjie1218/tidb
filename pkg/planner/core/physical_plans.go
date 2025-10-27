@@ -958,7 +958,8 @@ type PhysicalTableScan struct {
 	runtimeFilterList []*RuntimeFilter `plan-cache-clone:"must-nil"` // plan with runtime filter is not cached
 	maxWaitTimeMs     int
 
-	AnnIndexExtra *VectorIndexExtra `plan-cache-clone:"must-nil"` // MPP plan should not be cached.
+	AnnIndexExtra *VectorIndexExtra  `plan-cache-clone:"must-nil"` // MPP plan should not be cached.
+	FTSQueryInfo  *tipb.FTSQueryInfo `plan-cache-clone:"must-nil"` // FTS plan should not be cached.
 }
 
 // VectorIndexExtra is the extra information for vector index.
@@ -996,6 +997,10 @@ func (ts *PhysicalTableScan) Clone(newCtx base.PlanContext) (base.PhysicalPlan, 
 	for i, rf := range ts.runtimeFilterList {
 		clonedRF := rf.Clone()
 		clonedScan.runtimeFilterList[i] = clonedRF
+	}
+	if ts.FTSQueryInfo != nil {
+		clonedFTSQueryInfo := *ts.FTSQueryInfo
+		clonedScan.FTSQueryInfo = &clonedFTSQueryInfo
 	}
 	return clonedScan, nil
 }

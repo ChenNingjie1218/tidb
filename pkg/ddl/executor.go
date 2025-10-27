@@ -898,7 +898,12 @@ func checkIndexOptions(indexType checkIndexType, indexOption *ast.IndexOption) e
 		return nil
 	}
 	if indexType == checkIndexTypeFullText {
-		return dbterror.ErrUnsupportedIndexType.GenWithStackByArgs("FULLTEXT")
+		if !variable.EnableFullTextIndex.Load() && !config.GetGlobalConfig().ForceEnableFullTextIndex {
+			return dbterror.ErrUnsupportedIndexType.FastGen("Unsupported FULLTEXT index")
+		}
+		if indexOption.ParserName.L != "" && pmodel.GetFullTextParserTypeBySQLName(indexOption.ParserName.L) == pmodel.FullTextParserTypeInvalid {
+			return dbterror.ErrUnsupportedIndexType.FastGen("Unsupported index option: unsupported parser '%s'", indexOption.ParserName.O)
+		}
 	}
 	if indexOption.AddColumnarReplicaOnDemand > 0 && indexType != checkIndexTypeVector && indexType != checkIndexTypeFullText {
 		return dbterror.ErrUnsupportedIndexType.FastGen("Unsupported index option: ADD_COLUMNAR_REPLICA_ON_DEMAND can be only used in columnar index")
@@ -1880,8 +1885,6 @@ func (e *executor) AlterTable(ctx context.Context, sctx sessionctx.Context, stmt
 				err = e.CreateForeignKey(sctx, ident, pmodel.NewCIStr(constr.Name), spec.Constraint.Keys, spec.Constraint.Refer)
 			case ast.ConstraintPrimaryKey:
 				err = e.CreatePrimaryKey(sctx, ident, pmodel.NewCIStr(constr.Name), spec.Constraint.Keys, constr.Option)
-			case ast.ConstraintFulltext:
-				sctx.GetSessionVars().StmtCtx.AppendWarning(dbterror.ErrTableCantHandleFt)
 			case ast.ConstraintCheck:
 				if !variable.EnableCheckConstraint.Load() {
 					sctx.GetSessionVars().StmtCtx.AppendWarning(errCheckConstraintIsOff)
@@ -1890,6 +1893,8 @@ func (e *executor) AlterTable(ctx context.Context, sctx sessionctx.Context, stmt
 				}
 			case ast.ConstraintVector:
 				err = e.createColumnarIndex(sctx, ident, pmodel.NewCIStr(constr.Name), spec.Constraint.Keys, constr.Option, constr.IfNotExists, pmodel.ColumnarIndexTypeVector)
+			case ast.ConstraintFulltext:
+				err = e.createColumnarIndex(sctx, ident, pmodel.NewCIStr(constr.Name), spec.Constraint.Keys, constr.Option, constr.IfNotExists, pmodel.ColumnarIndexTypeFulltext)
 			default:
 				// Nothing to do now.
 			}
@@ -4827,6 +4832,8 @@ func (e *executor) createColumnarIndex(sctx sessionctx.Context, ti ast.Ident, in
 	switch columnarIndexType {
 	case pmodel.ColumnarIndexTypeVector:
 		_, funcExpr, err = buildVectorInfoWithCheck(indexPartSpecifications, indexOption, tblInfo)
+	case pmodel.ColumnarIndexTypeFulltext:
+		_, err = buildFullTextInfoWithCheck(indexPartSpecifications, indexOption, tblInfo)
 	default:
 		return dbterror.ErrUnsupportedAddColumnarIndex.FastGen("unknown columnar index type %s", columnarIndexType)
 	}
@@ -4865,6 +4872,7 @@ func (e *executor) createColumnarIndex(sctx sessionctx.Context, ti ast.Ident, in
 			IndexOption:             indexOption,
 			FuncExpr:                funcExpr,
 			IsColumnar:              true,
+			ColumnarIndexType:       columnarIndexType,
 		}},
 		OpType: model.OpAddIndex,
 	}
@@ -4940,11 +4948,14 @@ func (*executor) addHypoIndexIntoCtx(ctx sessionctx.Context, schemaName, tableNa
 func (e *executor) createIndex(ctx sessionctx.Context, ti ast.Ident, keyType ast.IndexKeyType, indexName pmodel.CIStr,
 	indexPartSpecifications []*ast.IndexPartSpecification, indexOption *ast.IndexOption, ifNotExists bool) error {
 	// not support Spatial and FullText index
-	if keyType == ast.IndexKeyTypeFullText || keyType == ast.IndexKeyTypeSpatial {
-		return dbterror.ErrUnsupportedIndexType.GenWithStack("FULLTEXT and SPATIAL index is not supported")
+	if keyType == ast.IndexKeyTypeSpatial {
+		return dbterror.ErrUnsupportedIndexType.GenWithStack("SPATIAL index is not supported")
 	}
 	if keyType == ast.IndexKeyTypeVector {
 		return e.createColumnarIndex(ctx, ti, indexName, indexPartSpecifications, indexOption, ifNotExists, pmodel.ColumnarIndexTypeVector)
+	}
+	if keyType == ast.IndexKeyTypeFullText {
+		return e.createColumnarIndex(ctx, ti, indexName, indexPartSpecifications, indexOption, ifNotExists, pmodel.ColumnarIndexTypeFulltext)
 	}
 	unique := keyType == ast.IndexKeyTypeUnique
 	schema, t, err := e.getSchemaAndTableByIdent(ti)

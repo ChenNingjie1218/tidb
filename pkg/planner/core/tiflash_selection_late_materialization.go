@@ -233,6 +233,10 @@ func predicatePushDownToTableScanImpl(sctx base.PlanContext, physicalSelection *
 	if physicalTableScan.tblColHists.RealtimeCount <= tiflashDataPackSize || physicalTableScan.KeepOrder {
 		return
 	}
+	if physicalTableScan.FTSQueryInfo != nil {
+		// When FTS push down is already activated, no need to do the late materialization.
+		return
+	}
 	conds := physicalSelection.Conditions
 	if len(conds) == 0 {
 		return

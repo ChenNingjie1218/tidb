@@ -385,6 +385,10 @@ type Config struct {
 
 	// --------------- GC configs end ---------------
 
+	// ForceEnableFullTextIndex controls whether adding fulltext index is forcibly allowed. (CSE ONLY)
+	// Override the variable of TIDB_ENABLE_FULLTEXT_INDEX.
+	ForceEnableFullTextIndex bool `toml:"force-enable-fulltext-index" json:"force-enable-fulltext-index"`
+
 	// EnableZeroBackend is used to control the behavior of standby idle watcher.
 	// It's introduced to make gateway zero backend feature release more smooth.
 	// We should remove this config when the feature become stable.
@@ -1269,6 +1273,7 @@ var defaultConf = Config{
 	TiDBWorker:                defaultTiDBWorker(),
 	RUConfig:                  rmclient.DefaultRequestUnitConfig(),
 	ExportID:                  "",
+	ForceEnableFullTextIndex:  false,
 	StmtSummaryAdditionalInfo: make(map[string]string),
 
 	AutoIDClientTimeout:       50 * time.Millisecond,

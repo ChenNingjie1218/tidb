@@ -1,0 +1,13 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "generator",
+    srcs = ["plan_clone_generated.go"],
+    importpath = "github.com/pingcap/tidb/pkg/planner/core/generator",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//pkg/expression",
+        "//pkg/planner/core/base",
+        "//pkg/planner/util",
+    ],
+)

@@ -49,6 +49,7 @@ import (
 	"github.com/pingcap/tidb/pkg/util/tracing"
 	"github.com/pingcap/tipb/go-tipb"
 	"go.uber.org/zap"
+	"k8s.io/utils/pointer"
 )
 
 // PlanCounterDisabled is the default value of PlanCounterTp, indicating that optimizer needn't force a plan.
@@ -2410,6 +2411,7 @@ func GetPhysicalScan4LogicalTableScan(s *logicalop.LogicalTableScan, schema *exp
 		AccessCondition: s.AccessConds,
 		tblCols:         ds.TblCols,
 		tblColHists:     ds.TblColHists,
+		FTSQueryInfo:    ds.FtsPushDown,
 	}.Init(s.SCtx(), s.QueryBlockOffset())
 	ts.SetStats(stats)
 	ts.SetSchema(schema.Clone())
@@ -2521,13 +2523,13 @@ func convertToTableScan(ds *logicalop.DataSource, prop *property.PhysicalPropert
 			ts.AnnIndexExtra = &VectorIndexExtra{
 				IndexInfo: candidate.path.Index,
 				PushDownQueryInfo: &tipb.ANNQueryInfo{
-					QueryType:      tipb.ANNQueryType_OrderBy,
-					DistanceMetric: tipb.VectorDistanceMetric(distanceMetricPB),
-					TopK:           prop.VectorProp.TopK,
-					ColumnName:     ts.Table.Columns[candidate.path.Index.Columns[0].Offset].Name.L,
-					ColumnId:       prop.VectorProp.Column.ID,
-					IndexId:        candidate.path.Index.ID,
-					RefVecF32:      prop.VectorProp.Vec.SerializeTo(nil),
+					QueryType:          tipb.ANNQueryType_OrderBy,
+					DistanceMetric:     tipb.VectorDistanceMetric(distanceMetricPB),
+					TopK:               prop.VectorProp.TopK,
+					ColumnName:         ts.Table.Columns[candidate.path.Index.Columns[0].Offset].Name.L,
+					DeprecatedColumnId: pointer.Int64(prop.VectorProp.Column.ID),
+					IndexId:            candidate.path.Index.ID,
+					RefVecF32:          prop.VectorProp.Vec.SerializeTo(nil),
 				},
 			}
 			ts.SetStats(util.DeriveLimitStats(ts.StatsInfo(), float64(prop.VectorProp.TopK)))
@@ -2882,6 +2884,7 @@ func getOriginalPhysicalTableScan(ds *logicalop.DataSource, prop *property.Physi
 		constColsByCond: path.ConstCols,
 		prop:            prop,
 		filterCondition: slices.Clone(path.TableFilters),
+		FTSQueryInfo:    ds.FtsPushDown,
 	}.Init(ds.SCtx(), ds.QueryBlockOffset())
 	ts.SetSchema(ds.Schema().Clone())
 	rowCount := path.CountAfterAccess

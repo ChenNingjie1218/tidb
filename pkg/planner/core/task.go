@@ -54,6 +54,7 @@ var HeavyFunctionNameMap = map[string]bool{
 	"vec_negative_inner_product": true,
 	"vec_dims":                   true,
 	"vec_l2_norm":                true,
+	"fts_match_word":             true,
 }
 
 func attachPlan2Task(p base.PhysicalPlan, t base.Task) base.Task {

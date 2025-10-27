@@ -1267,7 +1267,7 @@ func BuildTableInfo(
 		if err != nil {
 			return nil, err
 		}
-		if constr.Tp != ast.ConstraintVector {
+		if constr.Tp != ast.ConstraintVector && constr.Tp != ast.ConstraintFulltext {
 			// Build hidden columns if necessary.
 			hiddenCols, err = buildHiddenColumnInfoWithCheck(ctx, constr.Keys, pmodel.NewCIStr(constr.Name), tbInfo, tblColumns)
 			if err != nil {
@@ -1335,11 +1335,6 @@ func BuildTableInfo(
 			}
 		}
 
-		if constr.Tp == ast.ConstraintFulltext {
-			ctx.AppendWarning(dbterror.ErrTableCantHandleFt.FastGenByArgs())
-			continue
-		}
-
 		var (
 			indexName         = constr.Name
 			primary, unique   bool
@@ -1356,6 +1351,8 @@ func BuildTableInfo(
 			unique = true
 		case ast.ConstraintVector:
 			columnarIndexType = pmodel.ColumnarIndexTypeVector
+		case ast.ConstraintFulltext:
+			columnarIndexType = pmodel.ColumnarIndexTypeFulltext
 		}
 
 		// check constraint

@@ -1321,6 +1321,11 @@ type IndexArg struct {
 	// For columnar index
 	FuncExpr   string `json:"func_expr,omitempty"`
 	IsColumnar bool   `json:"is_columnar,omitempty"`
+	// ColumnarIndexType is used to distinguish different columnar index types.
+	// Only used for job args v2.
+	// Note: 1. when you want to read it, always calling `GetColumnarIndexType`` rather than using it directly.
+	//       2. when you set it, make sure IsColumnar = ColumnarIndexType != ColumnarIndexTypeNA.
+	ColumnarIndexType pmodel.ColumnarIndexType `json:"columnar_index_type,omitempty"`
 
 	// For PK
 	IsPK    bool          `json:"is_pk,omitempty"`
@@ -1330,6 +1335,24 @@ type IndexArg struct {
 	IndexID  int64 `json:"index_id,omitempty"`
 	IfExist  bool  `json:"if_exist,omitempty"`
 	IsGlobal bool  `json:"is_global,omitempty"`
+}
+
+// GetColumnarIndexType gets the real columnar index type in a backward compatibility way.
+func (a *IndexArg) GetColumnarIndexType() pmodel.ColumnarIndexType {
+	// For compatibility, if columnar index type is not set, and it's a columnar index, it's a vector index.
+
+	// If the columnar index type is NA and it's not a columnar index, it's a general index.
+	if a.ColumnarIndexType == pmodel.ColumnarIndexTypeNA && !a.IsColumnar {
+		return pmodel.ColumnarIndexTypeNA
+	}
+	// If the columnar index type is NA and it's a columnar index, it's a vector index.
+	if a.ColumnarIndexType == pmodel.ColumnarIndexTypeNA && a.IsColumnar {
+		return pmodel.ColumnarIndexTypeVector
+	}
+	if a.ColumnarIndexType == pmodel.ColumnarIndexTypeFulltext && a.IsColumnar {
+		return pmodel.ColumnarIndexTypeFulltext
+	}
+	return a.ColumnarIndexType
 }
 
 // ModifyIndexArgs is the argument for add/drop/rename index jobs,

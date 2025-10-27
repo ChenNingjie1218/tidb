@@ -1036,6 +1036,30 @@ func TestAddIndexArgs(t *testing.T) {
 	}
 
 	for _, v := range []JobVersion{JobVersion1, JobVersion2} {
+		inArgs.IndexArgs[0].ColumnarIndexType = model.ColumnarIndexTypeInverted
+		inArgs.IndexArgs[0].IsColumnar = true
+		inArgs.IndexArgs[0].IsPK = false
+		j2 := &Job{}
+		require.NoError(t, j2.Decode(getJobBytes(t, inArgs, v, ActionAddColumnarIndex)))
+
+		args, err := GetModifyIndexArgs(j2)
+		require.NoError(t, err)
+
+		a := args.IndexArgs[0]
+		// ColumnarIndexType is only used in JobVersion2
+		if v == JobVersion2 {
+			require.Equal(t, inArgs.IndexArgs[0].ColumnarIndexType, a.ColumnarIndexType)
+		} else {
+			require.Equal(t, model.ColumnarIndexTypeNA, a.ColumnarIndexType)
+		}
+		require.Equal(t, inArgs.IndexArgs[0].IsColumnar, a.IsColumnar)
+		require.Equal(t, inArgs.IndexArgs[0].IndexName, a.IndexName)
+		require.Equal(t, inArgs.IndexArgs[0].IndexPartSpecifications, a.IndexPartSpecifications)
+		require.Equal(t, inArgs.IndexArgs[0].IndexOption, a.IndexOption)
+		require.Equal(t, inArgs.IndexArgs[0].FuncExpr, a.FuncExpr)
+	}
+
+	for _, v := range []JobVersion{JobVersion1, JobVersion2} {
 		j2 := &Job{}
 		require.NoError(t, j2.Decode(getFinishedJobBytes(t, inArgs, v, ActionAddIndex)))
 

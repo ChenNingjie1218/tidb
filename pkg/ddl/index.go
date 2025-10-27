@@ -213,6 +213,10 @@ func checkIndexColumn(col *model.ColumnInfo, indexColumnLen int, suppressTooLong
 			if col.FieldType.GetType() != mysql.TypeTiDBVectorFloat32 {
 				return dbterror.ErrUnsupportedAddColumnarIndex.FastGenByArgs("vector index can only be added on a vector column")
 			}
+		case pmodel.ColumnarIndexTypeFulltext:
+			if !types.IsString(col.FieldType.GetType()) {
+				return dbterror.ErrUnsupportedAddColumnarIndex.FastGenByArgs("fulltext index can only be added on a string-like column")
+			}
 		default:
 			return dbterror.ErrUnsupportedAddColumnarIndex.FastGen("unknown columnar index type %s", columnarIndexType)
 		}
@@ -366,6 +370,12 @@ func BuildIndexInfo(
 			return nil, errors.Trace(err)
 		}
 		idxInfo.VectorInfo = vectorInfo
+	case pmodel.ColumnarIndexTypeFulltext:
+		ftsInfo, err := buildFullTextInfoWithCheck(indexPartSpecifications, indexOption, tblInfo)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		idxInfo.FullTextInfo = ftsInfo
 	default:
 		return nil, dbterror.ErrUnsupportedAddColumnarIndex.FastGen("unknown columnar index type %s", columnarIndexType)
 	}
@@ -453,6 +463,53 @@ func buildVectorInfoWithCheck(indexPartSpecifications []*ast.IndexPartSpecificat
 		Dimension:      uint64(colInfo.FieldType.GetFlen()),
 		DistanceMetric: distanceMetric,
 	}, exprStr, nil
+}
+
+func buildFullTextInfoWithCheck(indexPartSpecifications []*ast.IndexPartSpecification, indexOption *ast.IndexOption,
+	tblInfo *model.TableInfo) (*pmodel.FullTextIndexInfo, error) {
+	if len(indexPartSpecifications) == 0 {
+		return nil, fmt.Errorf("fulltext index must specify a string column")
+	}
+	if len(indexPartSpecifications) > 1 {
+		return nil, fmt.Errorf("currently fulltext index only supports one column")
+	}
+	idxPart := indexPartSpecifications[0]
+	if idxPart.Expr != nil {
+		return nil, fmt.Errorf("fulltext index can not be defined using an expression")
+	}
+	if idxPart.Length != types.UnspecifiedLength {
+		return nil, fmt.Errorf("fulltext index does not support prefix length")
+	}
+	if idxPart.Desc {
+		return nil, fmt.Errorf("fulltext index does not support DESC order")
+	}
+	// The Default parser is STANDARD
+	parser := pmodel.FullTextParserTypeStandardV1
+	if indexOption != nil && indexOption.ParserName.L != "" {
+		parser = pmodel.GetFullTextParserTypeBySQLName(indexOption.ParserName.L)
+		if parser == pmodel.FullTextParserTypeInvalid {
+			// Actually indexOption must be valid. It is already checked in checkIndexOptions.
+			return nil, fmt.Errorf("fulltext index must specify a valid parser")
+		}
+	}
+	colInfo := findColumnByName(idxPart.Column.Name.L, tblInfo)
+	if colInfo == nil {
+		return nil, infoschema.ErrColumnNotExists.GenWithStackByArgs(idxPart.Column.Name.L, tblInfo.Name)
+	}
+	for _, idx := range tblInfo.Indices {
+		if idx.FullTextInfo == nil {
+			continue
+		}
+		if idxCol := idx.FindColumnByName(colInfo.Name.L); idxCol == nil {
+			continue
+		}
+		return nil, dbterror.ErrDupKeyName.GenWithStack(
+			fmt.Sprintf("fulltext index '%s' already exist on column %s",
+				idx.Name, colInfo.Name))
+	}
+	return &pmodel.FullTextIndexInfo{
+		ParserType: parser,
+	}, nil
 }
 
 // AddIndexColumnFlag aligns the column flags of columns in TableInfo to IndexInfo.
@@ -761,7 +818,7 @@ func (w *worker) onCreateColumnarIndex(jobCtx *jobContext, job *model.Job) (ver 
 
 	// Note: job does not have the `columnarIndexType` arg,
 	// so that `columnarIndexType` will not be included in args (set as ColumnarIndexTypeVector default).
-	columnarIndexType := pmodel.ColumnarIndexTypeVector
+	columnarIndexType := a.GetColumnarIndexType()
 	// if a.ColumnarIndexType == pmodel.ColumnarIndexTypeNA {
 	// 	job.State = model.JobStateCancelled
 	// 	return ver, dbterror.ErrUnsupportedAddColumnarIndex.FastGenByArgs("internal error, failed to decode columnar index type")

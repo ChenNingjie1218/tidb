@@ -795,15 +795,41 @@ func (crs *CopRuntimeStats) RecordOneCopTask(address string, summary *tipb.Execu
 			maxRemoteStreamMs:         summary.GetTiflashScanContext().GetMaxRemoteStreamMs(),
 			regionsOfInstance:         make(map[string]uint64),
 
-			totalVectorIdxLoadFromS3:           summary.GetTiflashScanContext().GetTotalVectorIdxLoadFromS3(),
-			totalVectorIdxLoadFromDisk:         summary.GetTiflashScanContext().GetTotalVectorIdxLoadFromDisk(),
-			totalVectorIdxLoadFromCache:        summary.GetTiflashScanContext().GetTotalVectorIdxLoadFromCache(),
-			totalVectorIdxLoadTimeMs:           summary.GetTiflashScanContext().GetTotalVectorIdxLoadTimeMs(),
-			totalVectorIdxSearchTimeMs:         summary.GetTiflashScanContext().GetTotalVectorIdxSearchTimeMs(),
-			totalVectorIdxSearchVisitedNodes:   summary.GetTiflashScanContext().GetTotalVectorIdxSearchVisitedNodes(),
-			totalVectorIdxSearchDiscardedNodes: summary.GetTiflashScanContext().GetTotalVectorIdxSearchDiscardedNodes(),
-			totalVectorIdxReadVecTimeMs:        summary.GetTiflashScanContext().GetTotalVectorIdxReadVecTimeMs(),
-			totalVectorIdxReadOthersTimeMs:     summary.GetTiflashScanContext().GetTotalVectorIdxReadOthersTimeMs(),
+			totalVectorIdxLoadFromS3:           summary.GetTiflashScanContext().GetVectorIdxLoadFromS3(),
+			totalVectorIdxLoadFromDisk:         summary.GetTiflashScanContext().GetVectorIdxLoadFromDisk(),
+			totalVectorIdxLoadFromCache:        summary.GetTiflashScanContext().GetVectorIdxLoadFromCache(),
+			totalVectorIdxLoadTimeMs:           summary.GetTiflashScanContext().GetVectorIdxLoadTimeMs(),
+			totalVectorIdxSearchTimeMs:         summary.GetTiflashScanContext().GetVectorIdxSearchTimeMs(),
+			totalVectorIdxSearchVisitedNodes:   summary.GetTiflashScanContext().GetVectorIdxSearchVisitedNodes(),
+			totalVectorIdxSearchDiscardedNodes: summary.GetTiflashScanContext().GetVectorIdxSearchDiscardedNodes(),
+			totalVectorIdxReadVecTimeMs:        summary.GetTiflashScanContext().GetVectorIdxReadVecTimeMs(),
+			totalVectorIdxReadOthersTimeMs:     summary.GetTiflashScanContext().GetVectorIdxReadOthersTimeMs(),
+
+			ftsNFromInmemoryNoindex:     summary.GetTiflashScanContext().GetFtsNFromInmemoryNoindex(),
+			ftsNFromTinyIndex:           summary.GetTiflashScanContext().GetFtsNFromTinyIndex(),
+			ftsNFromTinyNoindex:         summary.GetTiflashScanContext().GetFtsNFromTinyNoindex(),
+			ftsNFromDmfIndex:            summary.GetTiflashScanContext().GetFtsNFromDmfIndex(),
+			ftsNFromDmfNoindex:          summary.GetTiflashScanContext().GetFtsNFromDmfNoindex(),
+			ftsRowsFromInmemoryNoindex:  summary.GetTiflashScanContext().GetFtsRowsFromInmemoryNoindex(),
+			ftsRowsFromTinyIndex:        summary.GetTiflashScanContext().GetFtsRowsFromTinyIndex(),
+			ftsRowsFromTinyNoindex:      summary.GetTiflashScanContext().GetFtsRowsFromTinyNoindex(),
+			ftsRowsFromDmfIndex:         summary.GetTiflashScanContext().GetFtsRowsFromDmfIndex(),
+			ftsRowsFromDmfNoindex:       summary.GetTiflashScanContext().GetFtsRowsFromDmfNoindex(),
+			ftsIdxLoadTotalMs:           summary.GetTiflashScanContext().GetFtsIdxLoadTotalMs(),
+			ftsIdxLoadFromCache:         summary.GetTiflashScanContext().GetFtsIdxLoadFromCache(),
+			ftsIdxLoadFromColumnFile:    summary.GetTiflashScanContext().GetFtsIdxLoadFromColumnFile(),
+			ftsIdxLoadFromStableS3:      summary.GetTiflashScanContext().GetFtsIdxLoadFromStableS3(),
+			ftsIdxLoadFromStableDisk:    summary.GetTiflashScanContext().GetFtsIdxLoadFromStableDisk(),
+			ftsIdxSearchN:               summary.GetTiflashScanContext().GetFtsIdxSearchN(),
+			ftsIdxSearchTotalMs:         summary.GetTiflashScanContext().GetFtsIdxSearchTotalMs(),
+			ftsIdxDmSearchRows:          summary.GetTiflashScanContext().GetFtsIdxDmSearchRows(),
+			ftsIdxDmTotalReadFtsMs:      summary.GetTiflashScanContext().GetFtsIdxDmTotalReadFtsMs(),
+			ftsIdxDmTotalReadOthersMs:   summary.GetTiflashScanContext().GetFtsIdxDmTotalReadOthersMs(),
+			ftsIdxTinySearchRows:        summary.GetTiflashScanContext().GetFtsIdxTinySearchRows(),
+			ftsIdxTinyTotalReadFtsMs:    summary.GetTiflashScanContext().GetFtsIdxTinyTotalReadFtsMs(),
+			ftsIdxTinyTotalReadOthersMs: summary.GetTiflashScanContext().GetFtsIdxTinyTotalReadOthersMs(),
+			ftsBruteTotalReadMs:         summary.GetTiflashScanContext().GetFtsBruteTotalReadMs(),
+			ftsBruteTotalSearchMs:       summary.GetTiflashScanContext().GetFtsBruteTotalSearchMs(),
 		},
 		tiflashWaitSummary: TiFlashWaitSummary{
 			executionTime:           *summary.TimeProcessedNs,
@@ -999,6 +1025,32 @@ type TiFlashScanContext struct {
 	totalVectorIdxSearchDiscardedNodes uint64
 	totalVectorIdxReadVecTimeMs        uint64
 	totalVectorIdxReadOthersTimeMs     uint64
+
+	ftsNFromInmemoryNoindex     uint32
+	ftsNFromTinyIndex           uint32
+	ftsNFromTinyNoindex         uint32
+	ftsNFromDmfIndex            uint32
+	ftsNFromDmfNoindex          uint32
+	ftsRowsFromInmemoryNoindex  uint64
+	ftsRowsFromTinyIndex        uint64
+	ftsRowsFromTinyNoindex      uint64
+	ftsRowsFromDmfIndex         uint64
+	ftsRowsFromDmfNoindex       uint64
+	ftsIdxLoadTotalMs           uint64
+	ftsIdxLoadFromCache         uint32
+	ftsIdxLoadFromColumnFile    uint32
+	ftsIdxLoadFromStableS3      uint32
+	ftsIdxLoadFromStableDisk    uint32
+	ftsIdxSearchN               uint32
+	ftsIdxSearchTotalMs         uint64
+	ftsIdxDmSearchRows          uint64
+	ftsIdxDmTotalReadFtsMs      uint64
+	ftsIdxDmTotalReadOthersMs   uint64
+	ftsIdxTinySearchRows        uint64
+	ftsIdxTinyTotalReadFtsMs    uint64
+	ftsIdxTinyTotalReadOthersMs uint64
+	ftsBruteTotalReadMs         uint64
+	ftsBruteTotalSearchMs       uint64
 }
 
 // Clone implements the deep copy of * TiFlashshScanContext
@@ -1044,6 +1096,32 @@ func (context *TiFlashScanContext) Clone() TiFlashScanContext {
 		totalVectorIdxSearchDiscardedNodes: context.totalVectorIdxSearchDiscardedNodes,
 		totalVectorIdxReadVecTimeMs:        context.totalVectorIdxReadVecTimeMs,
 		totalVectorIdxReadOthersTimeMs:     context.totalVectorIdxReadOthersTimeMs,
+
+		ftsNFromInmemoryNoindex:     context.ftsNFromInmemoryNoindex,
+		ftsNFromTinyIndex:           context.ftsNFromTinyIndex,
+		ftsNFromTinyNoindex:         context.ftsNFromTinyNoindex,
+		ftsNFromDmfIndex:            context.ftsNFromDmfIndex,
+		ftsNFromDmfNoindex:          context.ftsNFromDmfNoindex,
+		ftsRowsFromInmemoryNoindex:  context.ftsRowsFromInmemoryNoindex,
+		ftsRowsFromTinyIndex:        context.ftsRowsFromTinyIndex,
+		ftsRowsFromTinyNoindex:      context.ftsRowsFromTinyNoindex,
+		ftsRowsFromDmfIndex:         context.ftsRowsFromDmfIndex,
+		ftsRowsFromDmfNoindex:       context.ftsRowsFromDmfNoindex,
+		ftsIdxLoadTotalMs:           context.ftsIdxLoadTotalMs,
+		ftsIdxLoadFromCache:         context.ftsIdxLoadFromCache,
+		ftsIdxLoadFromColumnFile:    context.ftsIdxLoadFromColumnFile,
+		ftsIdxLoadFromStableS3:      context.ftsIdxLoadFromStableS3,
+		ftsIdxLoadFromStableDisk:    context.ftsIdxLoadFromStableDisk,
+		ftsIdxSearchN:               context.ftsIdxSearchN,
+		ftsIdxSearchTotalMs:         context.ftsIdxSearchTotalMs,
+		ftsIdxDmSearchRows:          context.ftsIdxDmSearchRows,
+		ftsIdxDmTotalReadFtsMs:      context.ftsIdxDmTotalReadFtsMs,
+		ftsIdxDmTotalReadOthersMs:   context.ftsIdxDmTotalReadOthersMs,
+		ftsIdxTinySearchRows:        context.ftsIdxTinySearchRows,
+		ftsIdxTinyTotalReadFtsMs:    context.ftsIdxTinyTotalReadFtsMs,
+		ftsIdxTinyTotalReadOthersMs: context.ftsIdxTinyTotalReadOthersMs,
+		ftsBruteTotalReadMs:         context.ftsBruteTotalReadMs,
+		ftsBruteTotalSearchMs:       context.ftsBruteTotalSearchMs,
 	}
 	for k, v := range context.regionsOfInstance {
 		newContext.regionsOfInstance[k] = v
@@ -1059,6 +1137,20 @@ func (context *TiFlashScanContext) String() string {
 		items = append(items, fmt.Sprintf("search:{total:%dms,visited_nodes:%d,discarded_nodes:%d}", context.totalVectorIdxSearchTimeMs, context.totalVectorIdxSearchVisitedNodes, context.totalVectorIdxSearchDiscardedNodes))
 		items = append(items, fmt.Sprintf("read:{vec_total:%dms,others_total:%dms}", context.totalVectorIdxReadVecTimeMs, context.totalVectorIdxReadOthersTimeMs))
 		output = append(output, "vector_idx:{"+strings.Join(items, ",")+"}")
+	}
+	if context.ftsNFromInmemoryNoindex+context.ftsNFromTinyIndex+context.ftsNFromTinyNoindex+context.ftsNFromDmfIndex+context.ftsNFromDmfNoindex > 0 {
+		var items []string
+		items = append(items, fmt.Sprintf("hit_rows:{delta:%d,dmf:%d}", context.ftsRowsFromTinyIndex, context.ftsRowsFromDmfIndex))
+		items = append(items, fmt.Sprintf("miss_rows:{mem:%d,delta:%d,dmf:%d}", context.ftsRowsFromInmemoryNoindex, context.ftsRowsFromTinyNoindex, context.ftsRowsFromDmfNoindex))
+		items = append(items, fmt.Sprintf("idx_load:{total:%dms,from:{s3:%d,disk:%d,cache:%d}}", context.ftsIdxLoadTotalMs, context.ftsIdxLoadFromStableS3, context.ftsIdxLoadFromStableDisk+context.ftsIdxLoadFromColumnFile, context.ftsIdxLoadFromCache))
+		avg := uint64(0)
+		if context.ftsIdxSearchN > 0 {
+			avg = context.ftsIdxSearchTotalMs / uint64(context.ftsIdxSearchN)
+		}
+		items = append(items, fmt.Sprintf("idx_search:{total:%dms,avg:%dms}", context.ftsIdxSearchTotalMs, avg))
+		items = append(items, fmt.Sprintf("idx_read:{rows:%d,fts_total:%dms,others_total:%dms}", context.ftsIdxDmSearchRows+context.ftsIdxTinySearchRows, context.ftsIdxDmTotalReadFtsMs+context.ftsIdxTinyTotalReadFtsMs, context.ftsIdxDmTotalReadOthersMs+context.ftsIdxTinyTotalReadOthersMs))
+		items = append(items, fmt.Sprintf("miss:{read:%dms,search:%dms}", context.ftsBruteTotalReadMs, context.ftsBruteTotalSearchMs))
+		output = append(output, "fts:{"+strings.Join(items, ",")+"}")
 	}
 
 	regionBalanceInfo := "none"
@@ -1191,6 +1283,32 @@ func (context *TiFlashScanContext) Merge(other TiFlashScanContext) {
 	context.totalVectorIdxReadVecTimeMs += other.totalVectorIdxReadVecTimeMs
 	context.totalVectorIdxReadOthersTimeMs += other.totalVectorIdxReadOthersTimeMs
 
+	context.ftsNFromInmemoryNoindex += other.ftsNFromInmemoryNoindex
+	context.ftsNFromTinyIndex += other.ftsNFromTinyIndex
+	context.ftsNFromTinyNoindex += other.ftsNFromTinyNoindex
+	context.ftsNFromDmfIndex += other.ftsNFromDmfIndex
+	context.ftsNFromDmfNoindex += other.ftsNFromDmfNoindex
+	context.ftsRowsFromInmemoryNoindex += other.ftsRowsFromInmemoryNoindex
+	context.ftsRowsFromTinyIndex += other.ftsRowsFromTinyIndex
+	context.ftsRowsFromTinyNoindex += other.ftsRowsFromTinyNoindex
+	context.ftsRowsFromDmfIndex += other.ftsRowsFromDmfIndex
+	context.ftsRowsFromDmfNoindex += other.ftsRowsFromDmfNoindex
+	context.ftsIdxLoadTotalMs += other.ftsIdxLoadTotalMs
+	context.ftsIdxLoadFromCache += other.ftsIdxLoadFromCache
+	context.ftsIdxLoadFromColumnFile += other.ftsIdxLoadFromColumnFile
+	context.ftsIdxLoadFromStableS3 += other.ftsIdxLoadFromStableS3
+	context.ftsIdxLoadFromStableDisk += other.ftsIdxLoadFromStableDisk
+	context.ftsIdxSearchN += other.ftsIdxSearchN
+	context.ftsIdxSearchTotalMs += other.ftsIdxSearchTotalMs
+	context.ftsIdxDmSearchRows += other.ftsIdxDmSearchRows
+	context.ftsIdxDmTotalReadFtsMs += other.ftsIdxDmTotalReadFtsMs
+	context.ftsIdxDmTotalReadOthersMs += other.ftsIdxDmTotalReadOthersMs
+	context.ftsIdxTinySearchRows += other.ftsIdxTinySearchRows
+	context.ftsIdxTinyTotalReadFtsMs += other.ftsIdxTinyTotalReadFtsMs
+	context.ftsIdxTinyTotalReadOthersMs += other.ftsIdxTinyTotalReadOthersMs
+	context.ftsBruteTotalReadMs += other.ftsBruteTotalReadMs
+	context.ftsBruteTotalSearchMs += other.ftsBruteTotalSearchMs
+
 	if context.minLocalStreamMs == 0 || other.minLocalStreamMs < context.minLocalStreamMs {
 		context.minLocalStreamMs = other.minLocalStreamMs
 	}
@@ -1224,7 +1342,12 @@ func (context *TiFlashScanContext) Empty() bool {
 		context.remoteRegions == 0 &&
 		context.totalVectorIdxLoadFromDisk == 0 &&
 		context.totalVectorIdxLoadFromCache == 0 &&
-		context.totalVectorIdxLoadFromS3 == 0
+		context.totalVectorIdxLoadFromS3 == 0 &&
+		context.ftsNFromInmemoryNoindex == 0 &&
+		context.ftsNFromTinyIndex == 0 &&
+		context.ftsNFromTinyNoindex == 0 &&
+		context.ftsNFromDmfIndex == 0 &&
+		context.ftsNFromDmfNoindex == 0
 	return res
 }
 

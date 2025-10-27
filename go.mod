@@ -90,7 +90,7 @@ require (
 	github.com/pingcap/log v1.1.1-0.20250514022801-14f3b4ca066e
 	github.com/pingcap/sysutil v1.0.1-0.20240311050922-ae81ee01f3a5
 	github.com/pingcap/tidb/pkg/parser v0.0.0-20211011031125-9b13dc409c5e
-	github.com/pingcap/tipb v0.0.0-20241022082558-0607513e7fa4
+	github.com/pingcap/tipb v0.0.0-20250401143359-775c2379cbc7
 	github.com/prometheus/client_golang v1.20.5
 	github.com/prometheus/client_model v0.6.1
 	github.com/prometheus/common v0.57.0
@@ -145,6 +145,7 @@ require (
 	gorm.io/gorm v1.25.11
 	honnef.co/go/tools v0.5.1
 	k8s.io/api v0.29.11
+	k8s.io/utils v0.0.0-20230726121419-3b25d923346b
 	sourcegraph.com/sourcegraph/appdash v0.0.0-20190731080439-ebfcffb1b5c0
 	sourcegraph.com/sourcegraph/appdash-data v0.0.0-20151005221446-73f23eafcf67
 )
@@ -186,7 +187,6 @@ require (
 	golang.org/x/xerrors v0.0.0-20231012003039-104605ab7028 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20240318140521-94a12d6c2237 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240515191416-fc5f0ca64291 // indirect
-	k8s.io/utils v0.0.0-20230726121419-3b25d923346b // indirect
 )
 
 require (

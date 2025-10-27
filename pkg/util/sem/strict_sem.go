@@ -258,8 +258,7 @@ func strictModeReadOnlySysVar(varNameInLower string) bool {
 		variable.TiDBPessimisticTransactionFairLocking,
 		variable.TiDBReplicaRead,
 		variable.TiDBEnableDistTask,
-		// TODO: full text index
-		// variable.TiDBEnableFullTextIndex,
+		variable.TiDBEnableFullTextIndex,
 
 		// The following variables contain sensitive information, so we mask them when enabling sem and
 		// mark them as read-only.

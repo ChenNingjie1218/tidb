@@ -5030,11 +5030,11 @@ def go_deps():
         name = "com_github_pingcap_tipb",
         build_file_proto_mode = "disable_global",
         importpath = "github.com/pingcap/tipb",
-        sha256 = "1b707429b5b938a05b250b5770be2a6aa243d6a4983d23b01bbca164e86b3e3c",
-        strip_prefix = "github.com/pingcap/tipb@v0.0.0-20241022082558-0607513e7fa4",
+        sha256 = "5bffa36fa7e42bca9b6de7ba2536f64f5482be1104c838dda78b9beff550942d",
+        strip_prefix = "github.com/pingcap/tipb@v0.0.0-20250401143359-775c2379cbc7",
         urls = [
-            "https://cache.hawkingrei.com/gomod/github.com/pingcap/tipb/com_github_pingcap_tipb-v0.0.0-20241022082558-0607513e7fa4.zip",
-            "https://storage.googleapis.com/pingcapmirror/gomod/github.com/pingcap/tipb/com_github_pingcap_tipb-v0.0.0-20241022082558-0607513e7fa4.zip",
+            "https://cache.hawkingrei.com/gomod/github.com/pingcap/tipb/com_github_pingcap_tipb-v0.0.0-20250401143359-775c2379cbc7.zip",
+            "https://storage.googleapis.com/pingcapmirror/gomod/github.com/pingcap/tipb/com_github_pingcap_tipb-v0.0.0-20250401143359-775c2379cbc7.zip",
         ],
     )
     go_repository(

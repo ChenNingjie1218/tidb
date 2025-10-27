@@ -1157,6 +1157,8 @@ const (
 	// TiDBTTLRunningTasks limits the count of running ttl tasks. Default to 0, means 3 times the count of TiKV (or no
 	// limitation, if the storage is not TiKV).
 	TiDBTTLRunningTasks = "tidb_ttl_running_tasks"
+	// TiDBEnableFullTextIndex indicates whether to enable FULLTEXT index. (CSE ONLY)
+	TiDBEnableFullTextIndex = "tidb_enable_fulltext_index"
 	// AuthenticationLDAPSASLAuthMethodName defines the authentication method used by LDAP SASL authentication plugin
 	AuthenticationLDAPSASLAuthMethodName = "authentication_ldap_sasl_auth_method_name"
 	// AuthenticationLDAPSASLCAPath defines the ca certificate to verify LDAP connection in LDAP SASL authentication plugin
@@ -1609,6 +1611,7 @@ const (
 	DefTiDBEnableSharedLockPromotion                  = false
 	DefTiDBTSOClientRPCMode                           = TSOClientRPCModeDefault
 	DefTiDBLoadBindingTimeout                         = 200
+	DefTiDBEnableFullTextIndex                        = false
 )
 
 // Process global variables.
@@ -1731,6 +1734,8 @@ var (
 
 	SchemaCacheSize           = atomic.NewUint64(DefTiDBSchemaCacheSize)
 	SchemaCacheSizeOriginText = atomic.NewString(strconv.Itoa(DefTiDBSchemaCacheSize))
+
+	EnableFullTextIndex = atomic.NewBool(DefTiDBEnableFullTextIndex)
 )
 
 var (

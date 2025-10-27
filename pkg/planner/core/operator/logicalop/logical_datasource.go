@@ -44,6 +44,7 @@ import (
 	h "github.com/pingcap/tidb/pkg/util/hint"
 	"github.com/pingcap/tidb/pkg/util/intset"
 	"github.com/pingcap/tidb/pkg/util/plancodec"
+	"github.com/pingcap/tipb/go-tipb"
 )
 
 // DataSource represents a tableScan without condition push down.
@@ -114,6 +115,10 @@ type DataSource struct {
 	// It's calculated after we generated the access paths and estimated row count for them, and before entering findBestTask.
 	// It considers CountAfterIndex for index paths and CountAfterAccess for table paths and index merge paths.
 	AccessPathMinSelectivity float64
+
+	// FtsPushDown is the extracted FTS query info, when applicable fts expression is provided
+	// in WHERE and TopN.
+	FtsPushDown *tipb.FTSQueryInfo
 }
 
 // Init initializes DataSource.
@@ -251,6 +256,11 @@ func (ds *DataSource) PruneColumns(parentUsedCols []*expression.Column, opt *opt
 			// it can't prune the generated column of shard index
 			if ds.ContainExprPrefixUk &&
 				expression.GcColumnExprIsTidbShard(ds.Schema().Columns[i].VirtualExpr) {
+				continue
+			}
+			if ds.Columns[i].ID == model.VirtualColFTSScoreID {
+				// Currently this virtual column must exist in TableScan in order to enable
+				// Full Text index.
 				continue
 			}
 			prunedColumns = append(prunedColumns, ds.Schema().Columns[i])

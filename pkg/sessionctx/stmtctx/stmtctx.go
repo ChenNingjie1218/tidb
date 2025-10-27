@@ -438,6 +438,10 @@ type StatementContext struct {
 	// Note: These VectorSearch fields will also set in a valid EXPLAIN (ANALYZE) statement.
 	VectorSearchIsANNQuery bool
 	VectorSearchTopK       uint32
+
+	// Set to true when a FTS function is constructed.
+	// Optimizer uses this flag to perform some checks only when FTS function is used.
+	FTSFunctionIsUsed bool
 }
 
 // DefaultStmtErrLevels is the default error levels for statement

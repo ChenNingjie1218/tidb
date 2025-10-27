@@ -231,6 +231,8 @@ const (
 	ColumnarIndexTypeInverted
 	// ColumnarIndexTypeVector is the vector index type.
 	ColumnarIndexTypeVector
+	// ColumnarIndexTypeFulltext is the fulltext index type.
+	ColumnarIndexTypeFulltext
 )
 
 // SQLName returns the SQL keyword name of the columnar index. Used in log messages or error messages.
@@ -238,6 +240,8 @@ func (c ColumnarIndexType) SQLName() string {
 	switch c {
 	case ColumnarIndexTypeVector:
 		return "vector index"
+	case ColumnarIndexTypeFulltext:
+		return "fulltext index"
 	default:
 		return "columnar index"
 	}

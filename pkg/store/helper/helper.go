@@ -908,6 +908,16 @@ func CollectTiFlashStatus(statusAddress string, keyspaceID tikv.KeyspaceID, tabl
 	return nil
 }
 
+// IsTiFlashWriteNode checks whether the store is a tiflash write node.
+func IsTiFlashWriteNode(store pd.MetaStore) bool {
+	for _, label := range store.Labels {
+		if label.Key == "engine" && label.Value == "tiflash" {
+			return true
+		}
+	}
+	return false
+}
+
 // SyncTableSchemaToTiFlash query sync schema of one table to TiFlash store.
 func SyncTableSchemaToTiFlash(statusAddress string, keyspaceID tikv.KeyspaceID, tableID int64) error {
 	// The new query schema is like: http://<host>/tiflash/sync-schema/keyspace/<keyspaceID>/table/<tableID>.

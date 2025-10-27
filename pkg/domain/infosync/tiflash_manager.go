@@ -182,6 +182,9 @@ func (m *TiFlashReplicaManagerCtx) CalculateTiFlashProgress(tableID int64, repli
 // SyncTiFlashTableSchema syncs the table's schema to TiFlash.
 func (m *TiFlashReplicaManagerCtx) SyncTiFlashTableSchema(tableID int64, tiFlashStores []pd.StoreInfo) error {
 	for _, store := range tiFlashStores {
+		if !helper.IsTiFlashWriteNode(store.Store) {
+			continue
+		}
 		err := helper.SyncTableSchemaToTiFlash(store.Store.StatusAddress, m.codec.GetKeyspaceID(), tableID)
 		if err != nil {
 			logutil.BgLogger().Error("Fail to sync peer schema to TiFlash",

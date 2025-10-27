@@ -1,0 +1,37 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "regionclient",
+    srcs = [
+        "breaker.go",
+        "cse.go",
+        "fallback.go",
+        "metrics.go",
+    ],
+    importpath = "github.com/pingcap/tidb/pkg/regionclient",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@com_github_golang_protobuf//proto",
+        "@com_github_pingcap_kvproto//pkg/metapb",
+        "@com_github_pingcap_kvproto//pkg/pdpb",
+        "@com_github_pingcap_log//:log",
+        "@com_github_pkg_errors//:errors",
+        "@com_github_prometheus_client_golang//prometheus",
+        "@com_github_sony_gobreaker//:gobreaker",
+        "@com_github_tikv_client_go_v2//metrics",
+        "@com_github_tikv_client_go_v2//tikv",
+        "@com_github_tikv_client_go_v2//tikvrpc",
+        "@com_github_tikv_client_go_v2//util/codec",
+        "@com_github_tikv_pd//pkg/core",
+        "@com_github_tikv_pd_client//:client",
+        "@org_uber_go_zap//:zap",
+    ],
+)
+
+go_test(
+    name = "regionclient_test",
+    timeout = "short",
+    srcs = ["cse_test.go"],
+    embed = [":regionclient"],
+    flaky = True,
+)

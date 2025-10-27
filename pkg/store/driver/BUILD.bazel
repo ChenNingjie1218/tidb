@@ -11,6 +11,7 @@ go_library(
         "//pkg/kv",
         "//pkg/metaservice",
         "//pkg/metrics",
+        "//pkg/regionclient",
         "//pkg/sessionctx/variable",
         "//pkg/store/copr",
         "//pkg/store/driver/error",

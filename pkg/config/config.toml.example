@@ -475,3 +475,7 @@ max_connections = 0
 
 # Run ddl worker on this tidb-server.
 tidb_enable_ddl = true
+
+[cse]
+# Enable seek region location by CSE region client
+enable-region-client = false

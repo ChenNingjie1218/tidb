@@ -33,6 +33,7 @@ import (
 	"github.com/pingcap/tidb/pkg/kv"
 	"github.com/pingcap/tidb/pkg/metaservice"
 	"github.com/pingcap/tidb/pkg/metrics"
+	"github.com/pingcap/tidb/pkg/regionclient"
 	"github.com/pingcap/tidb/pkg/sessionctx/variable"
 	"github.com/pingcap/tidb/pkg/store/copr"
 	derr "github.com/pingcap/tidb/pkg/store/driver/error"
@@ -106,6 +107,7 @@ type TiKVDriver struct {
 	pdConfig        config.PDClient
 	security        config.Security
 	tikvConfig      config.TiKVClient
+	cseConfig       tidb_config.CSE
 	txnLocalLatches config.TxnLocalLatches
 }
 
@@ -116,11 +118,12 @@ func (d TiKVDriver) Open(path string, driverOpenOptions *kv.DriverOpenOption) (k
 }
 
 func (d *TiKVDriver) setDefaultAndOptions(options ...Option) {
-	tidbCfg := config.GetGlobalConfig()
+	tidbCfg := tidb_config.GetGlobalConfig()
 	d.pdConfig = tidbCfg.PDClient
-	d.security = tidbCfg.Security
+	d.security = tidbCfg.GetTiKVConfig().Security
 	d.tikvConfig = tidbCfg.TiKVClient
-	d.txnLocalLatches = tidbCfg.TxnLocalLatches
+	d.txnLocalLatches = tidbCfg.GetTiKVConfig().TxnLocalLatches
+	d.cseConfig = tidbCfg.CSE
 	for _, f := range options {
 		f(d)
 	}
@@ -238,6 +241,23 @@ func (d TiKVDriver) OpenWithOptions(path string, driverOpenOptions *kv.DriverOpe
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
+
+	tlsConfig, err := d.security.ToTLSConfig()
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	if d.cseConfig.EnableRegionClient {
+		logutil.BgLogger().Warn("enable cse region client")
+		pdCli, err = regionclient.NewClient(pdCli, tlsConfig, nil)
+	} else {
+		// If `cse.enable-region-client` is not enabled, we use CSEClient as fallback for PDClient.
+		pdCli, err = regionclient.NewClientWithFallback(pdCli, tlsConfig, nil)
+	}
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
 	pdCli = util.InterceptedPDClient{Client: pdCli}
 
 	// FIXME: uuid will be a very long and ugly string, simplify it.
@@ -245,11 +265,6 @@ func (d TiKVDriver) OpenWithOptions(path string, driverOpenOptions *kv.DriverOpe
 	if store, ok := mc.cache[uuid]; ok {
 		pdCli.Close()
 		return store, nil
-	}
-
-	tlsConfig, err := d.security.ToTLSConfig()
-	if err != nil {
-		return nil, errors.Trace(err)
 	}
 
 	// ---------------- keyspace logic  ----------------

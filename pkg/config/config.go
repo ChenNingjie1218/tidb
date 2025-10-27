@@ -435,6 +435,9 @@ type Config struct {
 
 	// ExternalStorageConfig is config for external storage.
 	ExternalStorageConfig ExternalStorageConfig `toml:"external-storage-config" json:"external-storage-config"`
+
+	// CSE is the config collection for the cloud storage engine.
+	CSE CSE `toml:"cse" json:"cse"`
 }
 
 // ExternalStorageConfig is config for external storage.
@@ -443,6 +446,12 @@ type ExternalStorageConfig struct {
 	RoleExpiryWindow time.Duration `toml:"role-expiry-window" json:"role-expiry-window"`
 	// RoleDuration is used to set the duration for the role provider.
 	RoleDuration time.Duration `toml:"role-duration" json:"role-duration"`
+}
+
+// CSE is the config collection for the cloud storage engine.
+type CSE struct {
+	// EnableRegionClient indicates whether to enable region client.
+	EnableRegionClient bool `toml:"enable-region-client" json:"enable-region-client"`
 }
 
 // UpdateTempStoragePath is to update the `TempStoragePath` if port/statusPort was changed

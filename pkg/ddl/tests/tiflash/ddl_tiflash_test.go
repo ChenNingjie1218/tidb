@@ -1296,6 +1296,40 @@ func TestTiFlashAvailableAfterResetReplica(t *testing.T) {
 	require.Nil(t, tb.Meta().TiFlashReplica)
 }
 
+func TestTiFlashAvailableByRegionCount(t *testing.T) {
+	s, teardown := createTiFlashContext(t)
+	defer teardown()
+	tk := testkit.NewTestKit(t, s.store)
+
+	tk.MustExec("use test")
+	tk.MustExec("drop table if exists ddltiflash")
+	tk.MustExec("create table ddltiflash(z int)")
+	tb, err := s.dom.InfoSchema().TableByName(context.Background(), pmodel.NewCIStr("test"), pmodel.NewCIStr("ddltiflash"))
+	require.NoError(t, err)
+	require.NotNil(t, tb)
+	tk.MustExec("alter table ddltiflash set tiflash replica 2")
+	s.tiflash.ResetSyncStatus(int(tb.Meta().ID), true)
+	require.NoError(t, failpoint.Enable("github.com/pingcap/tidb/pkg/ddl/OneTiFlashStoreDown", `return`))
+	require.NoError(t, failpoint.Enable("github.com/pingcap/tidb/pkg/domain/infosync/OneTiFlashStoreDown", `return`))
+	defer func() {
+		require.NoError(t, failpoint.Disable("github.com/pingcap/tidb/pkg/ddl/OneTiFlashStoreDown"))
+		require.NoError(t, failpoint.Disable("github.com/pingcap/tidb/pkg/domain/infosync/OneTiFlashStoreDown"))
+	}()
+
+	require.NoError(t, failpoint.Enable("github.com/pingcap/tidb/pkg/infoschema/mockTiFlashStoreCount", `return(true)`))
+	defer func() {
+		require.NoError(t, failpoint.Disable("github.com/pingcap/tidb/pkg/infoschema/mockTiFlashStoreCount"))
+	}()
+
+	time.Sleep(ddl.PollTiFlashInterval * RoundToBeAvailable * 3)
+	CheckTableAvailable(s.dom, t, 2, []string{})
+
+	tk.MustExec("alter table ddltiflash set tiflash replica 0")
+	require.NoError(t, err)
+	require.NotNil(t, tb)
+	require.Nil(t, tb.Meta().TiFlashReplica)
+}
+
 func TestTiFlashPartitionNotAvailable(t *testing.T) {
 	s, teardown := createTiFlashContext(t)
 	defer teardown()

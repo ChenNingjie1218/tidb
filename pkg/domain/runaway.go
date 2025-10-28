@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	rmpb "github.com/pingcap/kvproto/pkg/resource_manager"
 	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/pkg/config"
 	"github.com/pingcap/tidb/pkg/domain/infosync"
@@ -31,6 +32,13 @@ import (
 	pd "github.com/tikv/pd/client"
 	rmclient "github.com/tikv/pd/client/resource_group/controller"
 	"go.uber.org/zap"
+)
+
+const (
+
+	// Set to the same parameters as when serverless activates a new cluster
+	defaultDegradedRUFillRate   = 2_000_000      // 2 million RU per second
+	defaultDegradedRuBurstLimit = 50_000_000_000 // 50 billion RU
 )
 
 func (do *Domain) initResourceGroupsController(ctx context.Context, pdClient pd.Client, uniqueID uint64) error {
@@ -45,10 +53,20 @@ func (do *Domain) initResourceGroupsController(ctx context.Context, pdClient pd.
 
 	var opts []rmclient.ResourceControlCreateOption
 	if config.GetGlobalConfig().EnableRULimit {
+		ruSetting := &rmpb.GroupRequestUnitSettings{
+			RU: &rmpb.TokenBucket{
+				Settings: &rmpb.TokenLimitSettings{
+					FillRate:   defaultDegradedRUFillRate,
+					BurstLimit: defaultDegradedRuBurstLimit,
+				},
+			},
+		}
+
 		opts = []rmclient.ResourceControlCreateOption{
 			rmclient.EnableSingleGroupByKeyspace(),
 			rmclient.WithMaxWaitDuration(time.Hour),
 			rmclient.WithDegradedModeWaitDuration(time.Second * 3 / 2), // 1.5s
+			rmclient.WithDegradedRUSettings(ruSetting),
 		}
 
 		if strings.Contains(os.Getenv("NAMESPACE"), "vip") { // enlarge wait retry for vip clusters, 2s total wait time.

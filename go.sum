@@ -1704,12 +1704,12 @@ github.com/tidbcloud/aws-shared-provider/pkg/tidbworker/clientv2 v0.0.0-20240929
 github.com/tidbcloud/aws-shared-provider/pkg/tidbworker/clientv2 v0.0.0-20240929071820-0c047349cbf9/go.mod h1:0XTZzZYKKJJs5Trjmt3Eg7R+YEnqkEAjVPsXSUEW4dA=
 github.com/tidbcloud/aws-shared-provider/pkg/tidbworker/proto v0.0.0-20240929071820-0c047349cbf9 h1:6PllvxeZh5SA6oo0tWH+yfGs6IBIgGTzMpmDeO5rLU0=
 github.com/tidbcloud/aws-shared-provider/pkg/tidbworker/proto v0.0.0-20240929071820-0c047349cbf9/go.mod h1:n8YxMuMgic91v9WOQvs88CUbOiJLZRZqSCuMIkyuefw=
-github.com/tidbcloud/client-go-cse/v2 v2.0.0-20250918172621-8a2bb0088854 h1:Hd3svL79BPa5rydk9T/KVb4DvKFSKEP3Yz9JAlv66HY=
-github.com/tidbcloud/client-go-cse/v2 v2.0.0-20250918172621-8a2bb0088854/go.mod h1:RYZjMBD/Wp3KigfO6ZQ2xNFkXuXpLTu9ljhfq1DYr8c=
+github.com/tidbcloud/client-go-cse/v2 v2.0.0-20251023031251-386c20743ea7 h1:S1rwykku9C8K3HdupumSyLPPzM6RKa9s5r07WsHTkC8=
+github.com/tidbcloud/client-go-cse/v2 v2.0.0-20251023031251-386c20743ea7/go.mod h1:iPyjnXZw4s7qfhzSFegUXxXY4FHDyEFGhZGl+HiVGao=
 github.com/tidbcloud/kvproto v0.0.0-20250916081355-a2c1af80452d h1:ddDVnF4oBoh3SDZ/cBlxj26uesvTWXYJwvZ2O14i+UU=
 github.com/tidbcloud/kvproto v0.0.0-20250916081355-a2c1af80452d/go.mod h1:rXxWk2UnwfUhLXha1jxRWPADw9eMZGWEWCg92Tgmb/8=
-github.com/tidbcloud/pd-cse/client v0.0.0-20250917031303-6f2260e7c78e h1:RZL2QG4Sf0h+HwrnmiFsN6zzn9FQoXq4cq50GsvEs5k=
-github.com/tidbcloud/pd-cse/client v0.0.0-20250917031303-6f2260e7c78e/go.mod h1:qcFvglsx46dcmg0Wd0wOEvHnFSbs5MR2K+8EeDwa0cM=
+github.com/tidbcloud/pd-cse/client v0.0.0-20251022143944-3405eeea5ee9 h1:r/NGNXJjM9VdLOnop34WMKv5k+StCYvhg6C17zlf1r0=
+github.com/tidbcloud/pd-cse/client v0.0.0-20251022143944-3405eeea5ee9/go.mod h1:qcFvglsx46dcmg0Wd0wOEvHnFSbs5MR2K+8EeDwa0cM=
 github.com/tikv/pd v0.0.0-20230420042919-0e0313adef1f h1:1BBlbLSCua+oK3xngEjPO2dj1oLcItJxhCzqYG6XANA=
 github.com/tikv/pd v0.0.0-20230420042919-0e0313adef1f/go.mod h1:2hGdvUNGLaCKLbEXC8JMiQz2JsbxEDCKGDOBGJTt0NQ=
 github.com/timakin/bodyclose v0.0.0-20240125160201-f835fa56326a h1:A6uKudFIfAEpoPdaal3aSqGxBzLyU8TqyXImLwo6dIo=

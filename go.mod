@@ -330,8 +330,8 @@ replace (
 	github.com/go-ldap/ldap/v3 => github.com/YangKeao/ldap/v3 v3.4.5-0.20230421065457-369a3bab1117
 	github.com/pingcap/kvproto => github.com/tidbcloud/kvproto v0.0.0-20250916081355-a2c1af80452d
 	github.com/pingcap/tidb/pkg/parser => ./pkg/parser
-	github.com/tikv/client-go/v2 => github.com/tidbcloud/client-go-cse/v2 v2.0.0-20250918172621-8a2bb0088854
-	github.com/tikv/pd/client => github.com/tidbcloud/pd-cse/client v0.0.0-20250917031303-6f2260e7c78e
+	github.com/tikv/client-go/v2 => github.com/tidbcloud/client-go-cse/v2 v2.0.0-20251023031251-386c20743ea7
+	github.com/tikv/pd/client => github.com/tidbcloud/pd-cse/client v0.0.0-20251022143944-3405eeea5ee9
 
 	// TODO: `sourcegraph.com/sourcegraph/appdash` has been archived, and the original host has been removed.
 	// Please remove these dependencies.

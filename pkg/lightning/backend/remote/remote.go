@@ -46,6 +46,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/tikv/client-go/v2/oracle"
 	tikvclient "github.com/tikv/client-go/v2/tikv"
+	pd "github.com/tikv/pd/client"
 	"go.uber.org/zap"
 )
 
@@ -109,6 +110,7 @@ func NewBackend(
 	ctx context.Context,
 	tls *common.TLS,
 	cfg *BackendConfig,
+	pdSvcDiscovery pd.ServiceDiscovery,
 ) (backend.Backend, error) {
 	localFile := cfg.SortedKVDir
 
@@ -143,7 +145,13 @@ func NewBackend(
 	}
 	reportErrOnDup := cfg.DuplicateResolution == config.ErrorOnDup
 
-	pdCtl, err := pdutil.NewPdController(ctx, strings.Split(cfg.PdAddr, ","), tls.TLSConfig(), tls.ToPDSecurityOption())
+	var pdAddrs []string
+	if pdSvcDiscovery != nil {
+		pdAddrs = pdSvcDiscovery.GetServiceURLs()
+	} else {
+		pdAddrs = strings.Split(cfg.PdAddr, ",")
+	}
+	pdCtl, err := pdutil.NewPdController(ctx, pdAddrs, tls.TLSConfig(), tls.ToPDSecurityOption())
 	if err != nil {
 		log.L().Error("fail to create pd controller", zap.Error(err))
 		return nil, common.ErrCreatePDClient.Wrap(err).GenWithStackByArgs()
@@ -222,6 +230,7 @@ type BackendConfig struct {
 	ChunkCacheDir       string
 	ChunkCacheInMem     bool
 	CheckpointEnabled   bool
+	WorkerConcurrency   int
 	DuplicateResolution config.DuplicateResolutionAlgorithm
 }
 
@@ -234,6 +243,7 @@ func NewBackendConfig(cfg *config.Config, keyspaceName string) *BackendConfig {
 		SortedKVDir:         cfg.TikvImporter.SortedKVDir,
 		ChunkCacheDir:       cfg.TikvImporter.ChunkCacheDir,
 		CheckpointEnabled:   cfg.Checkpoint.Enable,
+		WorkerConcurrency:   cfg.TikvImporter.RangeConcurrency * 2,
 		DuplicateResolution: cfg.Conflict.Strategy,
 	}
 }

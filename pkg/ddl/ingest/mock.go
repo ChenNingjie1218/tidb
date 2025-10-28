@@ -83,6 +83,10 @@ func (m *MockBackendCtxMgr) Unregister(jobID int64) {
 	}
 }
 
+// CleanupAfterImport implements BackendCtxMgr.CleanupAfterImport interface.
+func (m *MockBackendCtxMgr) CleanupAfterImport(jobID int64) {
+}
+
 // EncodeJobSortPath implements BackendCtxMgr interface.
 func (m *MockBackendCtxMgr) EncodeJobSortPath(int64) string {
 	return ""
@@ -113,7 +117,7 @@ type MockBackendCtx struct {
 }
 
 // Register implements BackendCtx.Register interface.
-func (m *MockBackendCtx) Register(indexIDs []int64, _ []bool, _ table.Table) ([]Engine, error) {
+func (m *MockBackendCtx) Register(indexIDs []int64, _ []bool, _, _ int64, _ uint32, _ table.Table) ([]Engine, error) {
 	logutil.DDLIngestLogger().Info("mock backend ctx register", zap.Int64("jobID", m.jobID), zap.Int64s("indexIDs", indexIDs))
 	ret := make([]Engine, 0, len(indexIDs))
 	for range indexIDs {
@@ -125,6 +129,18 @@ func (m *MockBackendCtx) Register(indexIDs []int64, _ []bool, _ table.Table) ([]
 // FinishAndUnregisterEngines implements BackendCtx interface.
 func (*MockBackendCtx) FinishAndUnregisterEngines(_ UnregisterOpt) error {
 	logutil.DDLIngestLogger().Info("mock backend ctx unregister")
+	return nil
+}
+
+// FinishAndImport implements BackendCtx interface.
+func (*MockBackendCtx) FinishAndImport(_ UnregisterOpt) error {
+	logutil.DDLIngestLogger().Info("mock backend ctx import")
+	return nil
+}
+
+// Cleanup implements BackendCtx interface.
+func (*MockBackendCtx) Cleanup() error {
+	logutil.DDLIngestLogger().Info("mock backend ctx cleanup")
 	return nil
 }
 
@@ -150,7 +166,7 @@ func (m *MockBackendCtx) GetCheckpointManager() *CheckpointManager {
 }
 
 // GetLocalBackend returns the local backend.
-func (m *MockBackendCtx) GetLocalBackend() *local.Backend {
+func (m *MockBackendCtx) GetLocalBackend() backend.Backend {
 	b := &local.Backend{}
 	b.LocalStoreDir = filepath.Join(os.TempDir(), "mock_backend", strconv.FormatInt(m.jobID, 10))
 	return b

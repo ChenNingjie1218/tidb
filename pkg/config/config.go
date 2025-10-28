@@ -406,6 +406,8 @@ type Config struct {
 	// EnableAutoAnalyzeSysTable is used to control whether to enable auto analyze system tables.
 	EnableAutoAnalyzeSysTable bool `toml:"enable-auto-analyze-sys-table" json:"enable-auto-analyze-sys-table"`
 
+	EnableDistTask bool `toml:"enable-dist-task" json:"enable-dist-task"`
+
 	// TiKVAPIServiceAddr is the address of the TiKV API service.
 	TiKVAPIServiceAddr string `toml:"tikv-api-service-addr" json:"tikv-api-service-addr"`
 
@@ -1740,6 +1742,10 @@ func (c *Config) Valid() error {
 		return err
 	}
 
+	if c.EnableDistTask && len(c.TiKVAPIServiceAddr) == 0 {
+		return fmt.Errorf("should set enable-dist-task with tikv-api-service-addr")
+	}
+
 	// test log level
 	l := zap.NewAtomicLevel()
 	return l.UnmarshalText([]byte(c.Log.Level))
@@ -1945,5 +1951,5 @@ func GetGlobalKeyspaceName() string {
 
 // EnableRemoteBackend return true when `TiKVAPIServiceAddr` is configured
 func EnableRemoteBackend() bool {
-	return GetGlobalConfig().TiKVAPIServiceAddr != ""
+	return len(GetGlobalConfig().TiKVAPIServiceAddr) != 0
 }

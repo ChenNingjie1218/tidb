@@ -50,6 +50,7 @@ import (
 type BackfillingSchedulerExt struct {
 	d          *ddl
 	GlobalSort bool
+	RemoteSort bool
 }
 
 // NewBackfillingSchedulerExt creates a new backfillingSchedulerExt, only used for test now.
@@ -97,7 +98,7 @@ func (sch *BackfillingSchedulerExt) OnNextSubtasksBatch(
 	// TODO: use planner.
 	switch nextStep {
 	case proto.BackfillStepReadIndex:
-		return generateReadIndexPlan(ctx, sch.d, tblInfo, job, sch.GlobalSort, len(execIDs), logger)
+		return generateReadIndexPlan(ctx, sch.d, tblInfo, job, sch.GlobalSort, sch.RemoteSort, len(execIDs), logger)
 	case proto.BackfillStepMergeSort:
 		return generateMergePlan(taskHandle, task, len(execIDs), logger)
 	case proto.BackfillStepWriteAndIngest:
@@ -118,6 +119,8 @@ func (sch *BackfillingSchedulerExt) OnNextSubtasksBatch(
 				task,
 				backfillMeta.CloudStorageURI,
 				logger)
+		} else if sch.RemoteSort {
+			return generateRemoteIngestPlan()
 		}
 		return nil, nil
 	default:
@@ -133,6 +136,8 @@ func (sch *BackfillingSchedulerExt) GetNextStep(task *proto.TaskBase) proto.Step
 	case proto.BackfillStepReadIndex:
 		if sch.GlobalSort {
 			return proto.BackfillStepMergeSort
+		} else if sch.RemoteSort {
+			return proto.BackfillStepWriteAndIngest
 		}
 		return proto.StepDone
 	case proto.BackfillStepMergeSort:
@@ -142,6 +147,16 @@ func (sch *BackfillingSchedulerExt) GetNextStep(task *proto.TaskBase) proto.Step
 	default:
 		return proto.StepDone
 	}
+}
+
+func generateRemoteIngestPlan() (metas [][]byte, err error) {
+	subTaskMeta := &BackfillSubTaskMeta{}
+	metaBytes, err := json.Marshal(subTaskMeta)
+	if err != nil {
+		return nil, err
+	}
+
+	return [][]byte{metaBytes}, nil
 }
 
 func skipMergeSort(stats []external.MultipleFilesStat) bool {
@@ -188,6 +203,7 @@ func (sch *LitBackfillScheduler) Init() (err error) {
 	}
 	sch.BaseScheduler.Extension = &BackfillingSchedulerExt{
 		d:          sch.d,
+		RemoteSort: len(taskMeta.CloudStorageURI) == 0 && len(taskMeta.Job.ReorgMeta.TiKVAPIServiceAddr) > 0,
 		GlobalSort: len(taskMeta.CloudStorageURI) > 0}
 	return sch.BaseScheduler.Init()
 }
@@ -219,7 +235,7 @@ func generateReadIndexPlan(
 	d *ddl,
 	tblInfo *model.TableInfo,
 	job *model.Job,
-	useCloud bool,
+	useCloud, remoteSort bool,
 	nodeCnt int,
 	logger *zap.Logger,
 ) (metas [][]byte, err error) {
@@ -228,12 +244,12 @@ func generateReadIndexPlan(
 		return nil, err
 	}
 	if tblInfo.Partition == nil {
-		return generatePlanForPhysicalTable(ctx, d, tbl.(table.PhysicalTable), job, useCloud, nodeCnt, logger)
+		return generatePlanForPhysicalTable(ctx, d, tbl.(table.PhysicalTable), job, useCloud, remoteSort, nodeCnt, logger)
 	}
 	defs := tblInfo.Partition.Definitions
 	for _, def := range defs {
 		partTbl := tbl.GetPartitionedTable().GetPartition(def.ID)
-		partMeta, err := generatePlanForPhysicalTable(ctx, d, partTbl, job, useCloud, nodeCnt, logger)
+		partMeta, err := generatePlanForPhysicalTable(ctx, d, partTbl, job, useCloud, remoteSort, nodeCnt, logger)
 		if err != nil {
 			return nil, err
 		}
@@ -247,7 +263,7 @@ func generatePlanForPhysicalTable(
 	d *ddl,
 	tbl table.PhysicalTable,
 	job *model.Job,
-	useCloud bool,
+	useCloud, remoteSort bool,
 	nodeCnt int,
 	logger *zap.Logger,
 ) (metas [][]byte, err error) {
@@ -292,7 +308,7 @@ func generatePlanForPhysicalTable(
 			return true, nil
 		}
 
-		regionBatch := CalculateRegionBatch(len(recordRegionMetas), nodeCnt, !useCloud)
+		regionBatch := CalculateRegionBatch(len(recordRegionMetas), nodeCnt, !useCloud, remoteSort)
 		logger.Info("calculate region batch",
 			zap.Int("totalRegionCnt", len(recordRegionMetas)),
 			zap.Int("regionBatch", regionBatch),
@@ -335,14 +351,18 @@ func generatePlanForPhysicalTable(
 }
 
 // CalculateRegionBatch is exported for test.
-func CalculateRegionBatch(totalRegionCnt int, nodeCnt int, useLocalDisk bool) int {
+func CalculateRegionBatch(totalRegionCnt int, nodeCnt int, useLocalDisk, useRemoteSort bool) int {
 	failpoint.Inject("mockRegionBatch", func(val failpoint.Value) {
 		failpoint.Return(val.(int))
 	})
 	var regionBatch int
 	avgTasksPerInstance := (totalRegionCnt + nodeCnt - 1) / nodeCnt // ceiling
 	if useLocalDisk {
-		regionBatch = avgTasksPerInstance
+		if useRemoteSort {
+			regionBatch = 4
+		} else {
+			regionBatch = avgTasksPerInstance
+		}
 	} else {
 		// For cloud storage, each subtask should contain no more than 4000 regions.
 		regionBatch = min(4000, avgTasksPerInstance)

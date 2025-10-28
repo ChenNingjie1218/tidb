@@ -367,6 +367,12 @@ type Job struct {
 	// itself (AdminCommandBySystem) or by user (AdminCommandByEndUser).
 	AdminOperator AdminCommandOperator `json:"admin_operator"`
 
+	// EstimatedTableDataSize is the estimated table size for remote backend
+	EstimatedTableDataSize int64 `json:"estimed_table_data_size"`
+	// StatisticsTableRowCount is the table row count used to decide whether
+	// to use FastRorg.
+	StatisticsTableRowCount int64 `json:"statistics_table_row_count"`
+
 	// TraceInfo indicates the information for SQL tracing
 	TraceInfo *TraceInfo `json:"trace_info"`
 

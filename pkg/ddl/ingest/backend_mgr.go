@@ -27,7 +27,9 @@ import (
 	"github.com/pingcap/failpoint"
 	"github.com/pingcap/tidb/pkg/config"
 	ddllogutil "github.com/pingcap/tidb/pkg/ddl/logutil"
+	"github.com/pingcap/tidb/pkg/lightning/backend"
 	"github.com/pingcap/tidb/pkg/lightning/backend/local"
+	"github.com/pingcap/tidb/pkg/lightning/backend/remote"
 	"github.com/pingcap/tidb/pkg/lightning/common"
 	"github.com/pingcap/tidb/pkg/meta/model"
 	"github.com/pingcap/tidb/pkg/util/logutil"
@@ -56,6 +58,7 @@ type BackendCtxMgr interface {
 		initTS uint64,
 		adjustedWorkerConcurrency int,
 	) (BackendCtx, error)
+	CleanupAfterImport(jobID int64)
 	Unregister(jobID int64)
 	// EncodeJobSortPath encodes the job ID to the local disk sort path.
 	EncodeJobSortPath(jobID int64) string
@@ -141,7 +144,7 @@ func (m *litBackendCtxMgr) Register(
 		logutil.Logger(ctx).Error(LitErrCreateDirFail, zap.Error(err))
 		return nil, err
 	}
-	cfg, err := genConfig(ctx, sortPath, m.memRoot, hasUnique, resourceGroupName, concurrency, maxWriteSpeed, job.ReorgMeta.UseCloudStorage)
+	lcfg, rcfg, err := genConfig(ctx, sortPath, m.memRoot, hasUnique, resourceGroupName, concurrency, maxWriteSpeed, job.ReorgMeta.UseCloudStorage, job.ReorgMeta.TiKVAPIServiceAddr)
 	if err != nil {
 		logutil.Logger(ctx).Warn(LitWarnConfigError, zap.Int64("job ID", job.ID), zap.Error(err))
 		return nil, err
@@ -153,14 +156,14 @@ func (m *litBackendCtxMgr) Register(
 	// folder, which may cause cleanupSortPath wrongly delete the sort folder if only
 	// checking the existence of the entry in backends.
 	m.backends.mu.Lock()
-	bd, err := createLocalBackend(ctx, cfg, pdSvcDiscovery, adjustedWorkerConcurrency)
+	bd, err := createLocalBackend(ctx, lcfg, rcfg, pdSvcDiscovery, adjustedWorkerConcurrency)
 	if err != nil {
 		m.backends.mu.Unlock()
 		logutil.Logger(ctx).Error(LitErrCreateBackendFail, zap.Int64("job ID", job.ID), zap.Error(err))
 		return nil, err
 	}
 
-	bcCtx := newBackendContext(ctx, job.ID, bd, cfg, defaultImportantVariables, m.memRoot, m.diskRoot, etcdClient, initTS)
+	bcCtx := newBackendContext(ctx, job.ID, bd, lcfg, rcfg, defaultImportantVariables, m.memRoot, m.diskRoot, etcdClient, initTS)
 	m.backends.m[job.ID] = bcCtx
 	m.memRoot.Consume(structSizeBackendCtx)
 	m.backends.mu.Unlock()
@@ -179,12 +182,13 @@ func (m *litBackendCtxMgr) EncodeJobSortPath(jobID int64) string {
 
 func createLocalBackend(
 	ctx context.Context,
-	cfg *local.BackendConfig,
+	lcfg *local.BackendConfig,
+	rcfg *remote.BackendConfig,
 	pdSvcDiscovery pd.ServiceDiscovery,
 	adjustedWorkerConcurrency int,
-) (*local.Backend, error) {
-	if adjustedWorkerConcurrency > 0 {
-		cfg.WorkerConcurrency = adjustedWorkerConcurrency
+) (backend.Backend, error) {
+	if lcfg != nil && adjustedWorkerConcurrency > 0 {
+		lcfg.WorkerConcurrency = adjustedWorkerConcurrency
 	}
 	tidbCfg := config.GetGlobalConfig()
 	tls, err := common.NewTLS(
@@ -198,20 +202,27 @@ func createLocalBackend(
 		logutil.Logger(ctx).Error(LitErrCreateBackendFail, zap.Error(err))
 		return nil, err
 	}
+	if rcfg != nil {
+		ddllogutil.DDLIngestLogger().Info("create remote backend for adding index",
+			zap.String("sortDir", rcfg.SortedKVDir),
+			zap.String("keyspaceName", rcfg.KeyspaceName))
+		return remote.NewBackend(ctx, tls, rcfg, pdSvcDiscovery)
+	}
 
 	ddllogutil.DDLIngestLogger().Info("create local backend for adding index",
-		zap.String("sortDir", cfg.LocalStoreDir),
-		zap.String("keyspaceName", cfg.KeyspaceName))
-	return local.NewBackend(ctx, tls, *cfg, pdSvcDiscovery)
+		zap.String("sortDir", lcfg.LocalStoreDir),
+		zap.String("keyspaceName", lcfg.KeyspaceName))
+	return local.NewBackend(ctx, tls, *lcfg, pdSvcDiscovery)
 }
 
-const checkpointUpdateInterval = 10 * time.Minute
+const checkpointUpdateInterval = 3 * time.Minute
 
 func newBackendContext(
 	ctx context.Context,
 	jobID int64,
-	be *local.Backend,
-	cfg *local.BackendConfig,
+	be backend.Backend,
+	lcfg *local.BackendConfig,
+	rcfg *remote.BackendConfig,
 	vars map[string]string,
 	memRoot MemRoot,
 	diskRoot DiskRoot,
@@ -225,7 +236,8 @@ func newBackendContext(
 		jobID:          jobID,
 		backend:        be,
 		ctx:            ctx,
-		cfg:            cfg,
+		lcfg:           lcfg,
+		rcfg:           rcfg,
 		sysVars:        vars,
 		updateInterval: checkpointUpdateInterval,
 		etcdClient:     etcdClient,
@@ -260,6 +272,28 @@ func (m *litBackendCtxMgr) Unregister(jobID int64) {
 	delete(m.backends.m, jobID)
 }
 
+// CleanupAfterImport cleanup engine after import.
+func (m *litBackendCtxMgr) CleanupAfterImport(jobID int64) {
+	m.backends.mu.RLock()
+	_, exist := m.backends.m[jobID]
+	m.backends.mu.RUnlock()
+	if !exist {
+		return
+	}
+
+	m.backends.mu.Lock()
+	defer m.backends.mu.Unlock()
+	bc, exist := m.backends.m[jobID]
+	if !exist {
+		return
+	}
+
+	err := bc.Cleanup()
+	if err != nil {
+		logutil.Logger(bc.ctx).Error(LitErrCleanEngineErr, zap.Int64("job ID", jobID), zap.Error(err))
+	}
+}
+
 func (m *litBackendCtxMgr) Load(jobID int64) (BackendCtx, bool) {
 	m.backends.mu.RLock()
 	defer m.backends.mu.RUnlock()
@@ -274,8 +308,10 @@ func (m *litBackendCtxMgr) TotalDiskUsage() uint64 {
 	defer m.backends.mu.RUnlock()
 
 	for _, bc := range m.backends.m {
-		_, _, bcDiskUsed, _ := local.CheckDiskQuota(bc.backend, math.MaxInt64)
-		totalDiskUsed += uint64(bcDiskUsed)
+		if lb, ok := bc.backend.(*local.Backend); ok {
+			_, _, bcDiskUsed, _ := local.CheckDiskQuota(lb, math.MaxInt64)
+			totalDiskUsed += uint64(bcDiskUsed)
+		}
 	}
 	return totalDiskUsed
 }
@@ -286,9 +322,11 @@ func (m *litBackendCtxMgr) UpdateMemoryUsage() {
 	defer m.backends.mu.RUnlock()
 
 	for _, bc := range m.backends.m {
-		curSize := bc.backend.TotalMemoryConsume()
-		m.memRoot.ReleaseWithTag(encodeBackendTag(bc.jobID))
-		m.memRoot.ConsumeWithTag(encodeBackendTag(bc.jobID), curSize)
+		if lb, ok := bc.backend.(*local.Backend); ok {
+			curSize := lb.TotalMemoryConsume()
+			m.memRoot.ReleaseWithTag(encodeBackendTag(bc.jobID))
+			m.memRoot.ConsumeWithTag(encodeBackendTag(bc.jobID), curSize)
+		}
 	}
 }
 

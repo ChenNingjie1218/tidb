@@ -27,6 +27,7 @@ import (
 	"github.com/pingcap/tidb/pkg/lightning/backend"
 	"github.com/pingcap/tidb/pkg/lightning/backend/encode"
 	"github.com/pingcap/tidb/pkg/lightning/backend/local"
+	"github.com/pingcap/tidb/pkg/lightning/backend/remote"
 	"github.com/pingcap/tidb/pkg/lightning/common"
 	lightning "github.com/pingcap/tidb/pkg/lightning/config"
 	"github.com/pingcap/tidb/pkg/lightning/log"
@@ -52,12 +53,16 @@ type BackendCtx interface {
 	// BackendCtx.
 	//
 	// Register is only used in local disk based ingest.
-	Register(indexIDs []int64, uniques []bool, tbl table.Table) ([]Engine, error)
+	Register(indexIDs []int64, uniques []bool, jobID, dataSize int64, keyspaceID uint32, tbl table.Table) ([]Engine, error)
 	// FinishAndUnregisterEngines finishes the task and unregisters all engines that
 	// are Register-ed before. It's safe to call it multiple times.
 	//
 	// FinishAndUnregisterEngines is only used in local disk based ingest.
 	FinishAndUnregisterEngines(opt UnregisterOpt) error
+
+	Cleanup() error
+
+	FinishAndImport(opt UnregisterOpt) error
 
 	FlushController
 
@@ -66,7 +71,7 @@ type BackendCtx interface {
 
 	// GetLocalBackend exposes local.Backend. It's only used in global sort based
 	// ingest.
-	GetLocalBackend() *local.Backend
+	GetLocalBackend() backend.Backend
 	// CollectRemoteDuplicateRows collects duplicate entry error for given index as
 	// the supplement of FlushController.Flush.
 	//
@@ -81,6 +86,8 @@ const (
 	// FlushModeAuto means caller does not enforce any flush, the implementation can
 	// decide it.
 	FlushModeAuto FlushMode = iota
+	// FlushModeForceFlushOnly means flush all data to disk.
+	FlushModeForceFlushOnly
 	// FlushModeForceFlushAndImport means flush and import all data to TiKV.
 	FlushModeForceFlushAndImport
 )
@@ -92,9 +99,10 @@ type litBackendCtx struct {
 	diskRoot DiskRoot
 	jobID    int64
 	tbl      table.Table
-	backend  *local.Backend
+	backend  backend.Backend
 	ctx      context.Context
-	cfg      *local.BackendConfig
+	lcfg     *local.BackendConfig
+	rcfg     *remote.BackendConfig
 	sysVars  map[string]string
 
 	flushing        atomic.Bool
@@ -107,6 +115,15 @@ type litBackendCtx struct {
 	// unregisterMu prevents concurrent calls of `FinishAndUnregisterEngines`.
 	// For details, see https://github.com/pingcap/tidb/issues/53843.
 	unregisterMu sync.Mutex
+}
+
+func (bc *litBackendCtx) getDupeController() *local.DupeController {
+	if rbc, ok := bc.backend.(*remote.Backend); ok {
+		return rbc.GetDupeController(bc.lcfg.WorkerConcurrency, nil)
+	} else if lbc, ok := bc.backend.(*local.Backend); ok {
+		return lbc.GetDupeController(bc.rcfg.WorkerConcurrency, nil)
+	}
+	return nil
 }
 
 func (bc *litBackendCtx) handleErrorAfterCollectRemoteDuplicateRows(
@@ -148,7 +165,7 @@ func (bc *litBackendCtx) CollectRemoteDuplicateRows(indexID int64, tbl table.Tab
 }
 
 func (bc *litBackendCtx) collectRemoteDuplicateRows(indexID int64, tbl table.Table) error {
-	dupeController := bc.backend.GetDupeController(bc.cfg.WorkerConcurrency, nil)
+	dupeController := bc.getDupeController()
 	hasDupe, err := dupeController.CollectRemoteDuplicateRows(bc.ctx, tbl, tbl.Meta().Name.L, &encode.SessionOptions{
 		SQLMode:     mysql.ModeStrictAllTables,
 		SysVars:     bc.sysVars,
@@ -228,10 +245,13 @@ func (bc *litBackendCtx) Flush(ctx context.Context, mode FlushMode) (flushed, im
 		// another TS after failover. Need to refine the checkpoint mechanism.
 		newTS, err = mgr.refreshTSAndUpdateCP()
 		if err == nil {
-			for _, ei := range bc.engines {
-				err = bc.backend.SetTSAfterResetEngine(ei.uuid, newTS)
-				if err != nil {
-					return false, false, err
+			lbc, ok := bc.backend.(*local.Backend)
+			if ok {
+				for _, ei := range bc.engines {
+					err = lbc.SetTSAfterResetEngine(ei.uuid, newTS)
+					if err != nil {
+						return false, false, err
+					}
 				}
 			}
 		}
@@ -258,30 +278,32 @@ func (bc *litBackendCtx) unsafeImportAndReset(ctx context.Context, ei *engineInf
 		return err
 	}
 
-	resetFn := bc.backend.ResetEngineSkipAllocTS
-	mgr := bc.GetCheckpointManager()
-	if mgr == nil {
-		// disttask case, no need to refresh TS.
-		//
-		// TODO(lance6716): for disttask local sort case, we need to use a fixed TS. But
-		// it doesn't have checkpoint, so we need to find a way to save TS.
-		resetFn = bc.backend.ResetEngine
+	if lbc, ok := bc.backend.(*local.Backend); ok {
+		resetFn := lbc.ResetEngineSkipAllocTS
+		mgr := bc.GetCheckpointManager()
+		if mgr == nil {
+			// disttask case, no need to refresh TS.
+			//
+			// TODO(lance6716): for disttask local sort case, we need to use a fixed TS. But
+			// it doesn't have checkpoint, so we need to find a way to save TS.
+			resetFn = bc.backend.ResetEngine
+		}
+		err := resetFn(ctx, ei.uuid)
+		failpoint.Inject("mockResetEngineFailed", func() {
+			err = fmt.Errorf("mock reset engine failed")
+		})
+		if err != nil {
+			logger.Error(LitErrResetEngineFail, zap.Int64("index ID", ei.indexID))
+			err1 := closedEngine.Cleanup(bc.ctx)
+			if err1 != nil {
+				logutil.Logger(ei.ctx).Error(LitErrCleanEngineErr, zap.Error(err1),
+					zap.Int64("job ID", ei.jobID), zap.Int64("index ID", ei.indexID))
+			}
+			ei.openedEngine = nil
+			return err
+		}
 	}
 
-	err := resetFn(ctx, ei.uuid)
-	failpoint.Inject("mockResetEngineFailed", func() {
-		err = fmt.Errorf("mock reset engine failed")
-	})
-	if err != nil {
-		logger.Error(LitErrResetEngineFail, zap.Int64("index ID", ei.indexID))
-		err1 := closedEngine.Cleanup(bc.ctx)
-		if err1 != nil {
-			logutil.Logger(ei.ctx).Error(LitErrCleanEngineErr, zap.Error(err1),
-				zap.Int64("job ID", ei.jobID), zap.Int64("index ID", ei.indexID))
-		}
-		ei.openedEngine = nil
-		return err
-	}
 	return nil
 }
 
@@ -293,11 +315,17 @@ func (bc *litBackendCtx) checkFlush(mode FlushMode) (shouldFlush bool, shouldImp
 		// used in a manual test
 		ForceSyncFlagForTest = true
 	})
+
+	if mode == FlushModeForceFlushOnly {
+		return true, false
+	}
 	if mode == FlushModeForceFlushAndImport || ForceSyncFlagForTest {
 		return true, true
 	}
 	bc.diskRoot.UpdateUsage()
-	shouldImport = bc.diskRoot.ShouldImport()
+	if _, ok := bc.backend.(*local.Backend); ok {
+		shouldImport = bc.diskRoot.ShouldImport()
+	}
 	interval := bc.updateInterval
 	// This failpoint will be manually set through HTTP status port.
 	failpoint.Inject("mockSyncIntervalMs", func(val failpoint.Value) {
@@ -321,6 +349,6 @@ func (bc *litBackendCtx) GetCheckpointManager() *CheckpointManager {
 }
 
 // GetLocalBackend returns the local backend.
-func (bc *litBackendCtx) GetLocalBackend() *local.Backend {
+func (bc *litBackendCtx) GetLocalBackend() backend.Backend {
 	return bc.backend
 }

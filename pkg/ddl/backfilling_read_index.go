@@ -105,7 +105,7 @@ func (*readIndexExecutor) Init(_ context.Context) error {
 
 func (r *readIndexExecutor) RunSubtask(ctx context.Context, subtask *proto.Subtask) error {
 	logutil.DDLLogger().Info("read index executor run subtask",
-		zap.Bool("use cloud", len(r.cloudStorageURI) > 0))
+		zap.Bool("use cloud", len(r.cloudStorageURI) > 0), zap.Bool("use remote", len(r.job.ReorgMeta.TiKVAPIServiceAddr) > 0))
 
 	r.subtaskSummary.Store(subtask.ID, &readIndexSummary{
 		metaGroups: make([]*external.SortedKVMeta, len(r.indexes)),
@@ -141,6 +141,10 @@ func (r *readIndexExecutor) RunSubtask(ctx context.Context, subtask *proto.Subta
 			logutil.DDLLogger().Warn("read index executor unregister engine failed", zap.Error(err1))
 		}
 		return err
+	}
+
+	if r.isRemoteSort() {
+		return nil
 	}
 	return r.bc.FinishAndUnregisterEngines(ingest.OptCleanData | ingest.OptCheckDup)
 }
@@ -195,18 +199,25 @@ func (r *readIndexExecutor) OnFinished(ctx context.Context, subtask *proto.Subta
 	}
 	subtask.Meta = meta
 	if variable.EnableDistTask.Load() && tidbworker.IsBgTaskEnabled(ctx, string(subtask.Type)) {
-		return tidbworker.GlobalTiDBWorkerManager.RecycleBgTask(
+		err = tidbworker.GlobalTiDBWorkerManager.RecycleBgTask(
 			ctx, tidbworker.TaskWorkerType(string(subtask.Type)),
 			"",
 			subtask.TaskID,
 			subtask.ID,
 		)
+		if err != nil {
+			tidblogutil.Logger(ctx).Info("tidb worker manager failed to recycle subtask", zap.Error(err))
+		}
 	}
 	return nil
 }
 
 func (r *readIndexExecutor) isGlobalSort() bool {
 	return len(r.cloudStorageURI) > 0
+}
+
+func (r *readIndexExecutor) isRemoteSort() bool {
+	return len(r.job.ReorgMeta.TiKVAPIServiceAddr) > 0
 }
 
 func (r *readIndexExecutor) getTableStartEndKey(sm *BackfillSubTaskMeta) (
@@ -255,7 +266,8 @@ func (r *readIndexExecutor) buildLocalStorePipeline(
 		}
 		idxNames.WriteString(index.Name.O)
 	}
-	engines, err := r.bc.Register(indexIDs, uniques, r.ptbl)
+	keyspaceID := d.store.GetCodec().GetKeyspaceID()
+	engines, err := r.bc.Register(indexIDs, uniques, r.job.ID, r.job.EstimatedTableDataSize, uint32(keyspaceID), r.ptbl)
 	if err != nil {
 		tidblogutil.Logger(opCtx).Error("cannot register new engine",
 			zap.Error(err),

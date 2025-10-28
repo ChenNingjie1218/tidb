@@ -184,13 +184,13 @@ func NewTableImporter(
 		return nil, err
 	}
 
+	d := kvStore.(tidbkv.StorageWithPD).GetPDClient().GetServiceDiscovery()
 	var backend backend.Backend
 	if e.Plan.CloudStorageURI == "" && e.Plan.TiKVAPIServiceAddr != "" {
 		backendConfig := e.getRemoteBackendCfg(tidbCfg.Path, dir, e.Plan.TiKVAPIServiceAddr)
-		backend, err = remote.NewBackend(ctx, tls, &backendConfig)
+		backend, err = remote.NewBackend(ctx, tls, &backendConfig, d)
 	} else {
 		backendConfig := e.getLocalBackendCfg(tidbCfg.Path, dir)
-		d := kvStore.(tidbkv.StorageWithPD).GetPDClient().GetServiceDiscovery()
 		backend, err = local.NewBackend(ctx, tls, backendConfig, d)
 	}
 	if err != nil {

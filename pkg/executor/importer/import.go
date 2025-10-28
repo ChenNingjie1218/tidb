@@ -1443,6 +1443,7 @@ func (e *LoadDataController) getRemoteBackendCfg(pdAddr, dataDir, importerAddr s
 		KeyspaceName:      tidbcfg.GetGlobalKeyspaceName(),
 		SortedKVDir:       dataDir,
 		CheckpointEnabled: false,
+		WorkerConcurrency: e.ThreadCnt,
 		// import into currently does not support conflict detection,
 		// and remote backend behavior is aligned with the local backend.
 		DuplicateResolution: config.NoneOnDup,

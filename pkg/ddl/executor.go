@@ -68,6 +68,7 @@ import (
 	"github.com/pingcap/tidb/pkg/util/dbterror/exeerrors"
 	"github.com/pingcap/tidb/pkg/util/domainutil"
 	"github.com/pingcap/tidb/pkg/util/generic"
+	"github.com/pingcap/tidb/pkg/util/intest"
 	"github.com/pingcap/tidb/pkg/util/stringutil"
 	"github.com/tikv/client-go/v2/oracle"
 	pdhttp "github.com/tikv/pd/client/http"
@@ -5062,8 +5063,9 @@ func initJobReorgMetaFromVariables(job *model.Job, sctx sessionctx.Context) erro
 	setDistTaskParam := func() error {
 		m.IsDistReorg = variable.EnableDistTask.Load()
 		m.IsFastReorg = variable.EnableFastReorg.Load()
+		m.TiKVAPIServiceAddr = config.GetGlobalConfig().TiKVAPIServiceAddr
 		m.TargetScope = variable.ServiceScope.Load()
-		if hasSysDB(job) {
+		if hasSysDB(job) || (len(m.TiKVAPIServiceAddr) == 0 && !intest.InTest) {
 			if m.IsDistReorg {
 				logutil.DDLLogger().Info("cannot use distributed task execution on system DB",
 					zap.Stringer("job", job))

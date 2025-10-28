@@ -128,10 +128,12 @@ func (s *backfillDistExecutor) newBackfillSubtaskExecutor(
 	case proto.BackfillStepMergeSort:
 		return newMergeSortExecutor(jobMeta.ID, indexInfos, tbl, cloudStorageURI)
 	case proto.BackfillStepWriteAndIngest:
-		if len(cloudStorageURI) == 0 {
-			return nil, errors.Errorf("local import does not have write & ingest step")
+		if len(cloudStorageURI) != 0 {
+			return newCloudImportExecutor(s.BaseTaskExecutor.Ctx(), jobMeta, indexInfos, tbl, s.getBackendCtx, cloudStorageURI)
+		} else if len(jobMeta.ReorgMeta.TiKVAPIServiceAddr) != 0 {
+			return newRemoteIngestExecutor(s.BaseTaskExecutor.Ctx(), ddlObj, jobMeta, indexInfos, tbl, s.getBackendCtx)
 		}
-		return newCloudImportExecutor(s.BaseTaskExecutor.Ctx(), jobMeta, indexInfos, tbl, s.getBackendCtx, cloudStorageURI)
+		return nil, errors.Errorf("local import does not have write & ingest step")
 	default:
 		// should not happen, caller has checked the stage
 		return nil, errors.Errorf("unknown step %d for job %d", stage, jobMeta.ID)

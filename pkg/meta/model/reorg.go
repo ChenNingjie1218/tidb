@@ -78,6 +78,8 @@ type DDLReorgMeta struct {
 	Concurrency   atomic.Int64 `json:"concurrency"`
 	BatchSize     atomic.Int64 `json:"batch_size"`
 	MaxWriteSpeed atomic.Int64 `json:"max_write_speed"`
+
+	TiKVAPIServiceAddr string `json:"tikv_api_service_addr"`
 }
 
 // GetConcurrencyOrDefault gets the concurrency from DDLReorgMeta,

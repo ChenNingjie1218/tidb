@@ -43,6 +43,7 @@ import (
 	"github.com/pingcap/tidb/pkg/disttask/framework/storage"
 	"github.com/pingcap/tidb/pkg/domain/infosync"
 	"github.com/pingcap/tidb/pkg/errctx"
+	"github.com/pingcap/tidb/pkg/expression"
 	"github.com/pingcap/tidb/pkg/infoschema"
 	"github.com/pingcap/tidb/pkg/kv"
 	"github.com/pingcap/tidb/pkg/lightning/backend"
@@ -57,6 +58,8 @@ import (
 	pmodel "github.com/pingcap/tidb/pkg/parser/model"
 	"github.com/pingcap/tidb/pkg/parser/mysql"
 	"github.com/pingcap/tidb/pkg/parser/terror"
+	"github.com/pingcap/tidb/pkg/planner/cardinality"
+	"github.com/pingcap/tidb/pkg/planner/planctx"
 	"github.com/pingcap/tidb/pkg/sessionctx"
 	"github.com/pingcap/tidb/pkg/sessionctx/variable"
 	"github.com/pingcap/tidb/pkg/store/helper"
@@ -87,6 +90,8 @@ import (
 const (
 	// MaxCommentLength is exported for testing.
 	MaxCommentLength = 1024
+	// RowCountThresholdForFastReorg is threshold to use fast reorg.
+	RowCountThresholdForFastReorg = 10000
 )
 
 var telemetryAddIndexIngestUsage = metrics.TelemetryAddIndexIngestCnt
@@ -1096,6 +1101,11 @@ SwitchIndexState:
 	switch allIndexInfos[0].State {
 	case model.StateNone:
 		// none -> delete only
+		job.StatisticsTableRowCount, job.EstimatedTableDataSize, err = getTableSizeFromStatistics(w.sess.GetPlanCtx(), tblInfo, allIndexInfos, w.ddlCtx)
+		if err != nil {
+			return ver, err
+		}
+
 		var reorgTp model.ReorgType
 		reorgTp, err = pickBackfillType(job)
 		if err != nil {
@@ -1394,6 +1404,9 @@ func pickBackfillType(job *model.Job) (model.ReorgType, error) {
 		return model.ReorgTypeTxn, nil
 	}
 	if ingest.LitInitialized {
+		if job.StatisticsTableRowCount < RowCountThresholdForFastReorg {
+			return model.ReorgTypeTxn, nil
+		}
 		if job.ReorgMeta.UseCloudStorage {
 			job.ReorgMeta.ReorgTp = model.ReorgTypeLitMerge
 			return model.ReorgTypeLitMerge, nil
@@ -1506,6 +1519,9 @@ func doReorgWorkForCreateIndex(
 			indexInfo.BackfillState = model.BackfillStateMerging
 		}
 		if reorgTp == model.ReorgTypeLitMerge {
+			if len(job.ReorgMeta.TiKVAPIServiceAddr) != 0 {
+				ingest.LitBackCtxMgr.CleanupAfterImport(job.ID)
+			}
 			ingest.LitBackCtxMgr.Unregister(job.ID)
 		}
 		job.SnapshotVer = 0 // Reset the snapshot version for merge index reorg.
@@ -2580,7 +2596,20 @@ func (w *worker) addTableIndex(
 		phyTbl := t.(table.PhysicalTable)
 		err = w.addPhysicalTableIndex(ctx, phyTbl, reorgInfo)
 	}
-	return errors.Trace(err)
+
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	if !reorgInfo.mergingTmpIdx && reorgInfo.ReorgMeta.ReorgTp == model.ReorgTypeLitMerge && len(reorgInfo.ReorgMeta.TiKVAPIServiceAddr) != 0 {
+		bcCtx, exist := ingest.LitBackCtxMgr.Load(reorgInfo.Job.ID)
+		if !exist {
+			logutil.DDLLogger().Warn("backend context not found", zap.Stringer("job", reorgInfo.Job), zap.Stringer("reorgInfo", reorgInfo))
+			return errors.New("unexpected error, can't find backend context")
+		}
+		return bcCtx.FinishAndImport(ingest.OptCheckDup)
+	}
+	return nil
 }
 
 func checkDuplicateForUniqueIndex(ctx context.Context, t table.Table, reorgInfo *reorgInfo, discovery pd.ServiceDiscovery) error {
@@ -3297,4 +3326,64 @@ func renameHiddenColumns(tblInfo *model.TableInfo, from, to pmodel.CIStr) {
 			col.Name.O = strings.Replace(col.Name.O, from.O, to.O, 1)
 		}
 	}
+}
+
+func getTableSizeFromStatistics(pctx planctx.PlanContext, tblInfo *model.TableInfo, allIndexInfos []*model.IndexInfo, d *ddlCtx) (int64, int64, error) {
+	if intest.InTest {
+		return RowCountThresholdForFastReorg + 1, 0, nil
+	}
+
+	// If running in bootstrap, the statsHandle is not initialized.
+	if d.statsHandle == nil {
+		return 0, 0, nil
+	}
+
+	tblStats, err := d.statsHandle.TableStatsFromStorage(tblInfo, tblInfo.ID, false, 0)
+	if tblStats == nil || err != nil {
+		return 0, 0, err
+	}
+
+	size := 0
+	for _, indexInfo := range allIndexInfos {
+		size += len(indexInfo.Columns)
+	}
+	exprCols := make([]*expression.Column, 0, size)
+
+	for _, indexInfo := range allIndexInfos {
+		for _, col := range indexInfo.Columns {
+			colInfo := tblInfo.Columns[col.Offset]
+			exprCols = append(exprCols, &expression.Column{
+				RetType:  colInfo.FieldType.Clone(),
+				ID:       colInfo.ID,
+				UniqueID: colInfo.ID,
+				Index:    colInfo.Offset,
+				OrigName: colInfo.Name.L,
+				IsHidden: colInfo.Hidden,
+			})
+		}
+	}
+	if tblInfo.IsCommonHandle {
+		pkIdx := tables.FindPrimaryIndex(tblInfo)
+		for _, col := range pkIdx.Columns {
+			colInfo := tblInfo.Columns[col.Offset]
+			exprCols = append(exprCols, &expression.Column{
+				RetType:  colInfo.FieldType.Clone(),
+				ID:       colInfo.ID,
+				UniqueID: colInfo.ID,
+				Index:    colInfo.Offset,
+				OrigName: colInfo.Name.L,
+				IsHidden: colInfo.Hidden,
+			})
+		}
+	}
+
+	idxRowSize := cardinality.GetIndexAvgRowSize(pctx, &tblStats.HistColl, exprCols, allIndexInfos[0].Unique)
+
+	rowCount, dataSize := tblStats.RealtimeCount, int64(idxRowSize)*tblStats.RealtimeCount*2
+	logutil.DDLLogger().Info("[ddl] get table size for adding index",
+		zap.String("table name", tblInfo.Name.String()),
+		zap.String("index name", allIndexInfos[0].Name.String()),
+		zap.Int64("row count", rowCount),
+		zap.Int64("data size", dataSize))
+	return rowCount, dataSize, nil
 }

@@ -449,7 +449,7 @@ func NewImportControllerWithPauser(
 		initGlobalConfig(tls.ToTiKVSecurityConfig())
 
 		backendConfig := remote.NewBackendConfig(cfg, p.KeyspaceName)
-		backendObj, err = remote.NewBackend(ctx, tls, backendConfig)
+		backendObj, err = remote.NewBackend(ctx, tls, backendConfig, pdCli.GetServiceDiscovery())
 		if err != nil {
 			return nil, common.NormalizeOrWrapErr(common.ErrUnknown, err)
 		}

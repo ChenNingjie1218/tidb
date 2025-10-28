@@ -196,7 +196,12 @@ func NewAddIndexIngestPipeline(
 		reorgMeta.GetBatchSizeOrDefault(int(variable.GetDDLReorgBatchSize())), rm)
 	ingestOp := NewIndexIngestOperator(ctx, copCtx, backendCtx, sessPool,
 		tbl, indexes, engines, srcChkPool, writerCnt, reorgMeta, cpMgr, rowCntListener)
-	sinkOp := newIndexWriteResultSink(ctx, backendCtx, tbl, indexes, cpMgr, rowCntListener)
+
+	flushMode := ingest.FlushModeForceFlushAndImport
+	if len(reorgMeta.TiKVAPIServiceAddr) != 0 {
+		flushMode = ingest.FlushModeForceFlushOnly
+	}
+	sinkOp := newIndexWriteResultSink(ctx, backendCtx, tbl, indexes, cpMgr, rowCntListener, flushMode)
 
 	operator.Compose(srcOp, scanOp)
 	operator.Compose(scanOp, ingestOp)
@@ -267,7 +272,7 @@ func NewWriteIndexToExternalStoragePipeline(
 		tbl, indexes, extStore, srcChkPool, writerCnt,
 		onClose, memSizePerIndex, reorgMeta, rowCntListener,
 	)
-	sinkOp := newIndexWriteResultSink(ctx, nil, tbl, indexes, nil, rowCntListener)
+	sinkOp := newIndexWriteResultSink(ctx, nil, tbl, indexes, nil, rowCntListener, ingest.FlushModeForceFlushAndImport)
 
 	operator.Compose(srcOp, scanOp)
 	operator.Compose(scanOp, writeOp)
@@ -950,6 +955,8 @@ type indexWriteResultSink struct {
 
 	errGroup errgroup.Group
 	source   operator.DataChannel[IndexWriteResult]
+
+	flushMode ingest.FlushMode
 }
 
 func newIndexWriteResultSink(
@@ -959,6 +966,7 @@ func newIndexWriteResultSink(
 	indexes []table.Index,
 	cpMgr *ingest.CheckpointManager,
 	rowCntListener RowCountListener,
+	flushMode ingest.FlushMode,
 ) *indexWriteResultSink {
 	return &indexWriteResultSink{
 		ctx:            ctx,
@@ -968,6 +976,7 @@ func newIndexWriteResultSink(
 		errGroup:       errgroup.Group{},
 		cpMgr:          cpMgr,
 		rowCntListener: rowCntListener,
+		flushMode:      flushMode,
 	}
 }
 
@@ -1008,7 +1017,7 @@ func (s *indexWriteResultSink) flush() error {
 	failpoint.Inject("mockFlushError", func(_ failpoint.Value) {
 		failpoint.Return(errors.New("mock flush error"))
 	})
-	flushed, imported, err := s.backendCtx.Flush(s.ctx, ingest.FlushModeForceFlushAndImport)
+	flushed, imported, err := s.backendCtx.Flush(s.ctx, s.flushMode)
 	if s.cpMgr != nil {
 		// Try to advance watermark even if there is an error.
 		s.cpMgr.AdvanceWatermark(flushed, imported)

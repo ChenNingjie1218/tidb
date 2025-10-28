@@ -23,7 +23,7 @@ import (
 )
 
 // Register implements BackendCtx.
-func (bc *litBackendCtx) Register(indexIDs []int64, uniques []bool, tbl table.Table) ([]Engine, error) {
+func (bc *litBackendCtx) Register(indexIDs []int64, uniques []bool, jobID, dataSize int64, keyspaceID uint32, tbl table.Table) ([]Engine, error) {
 	ret := make([]Engine, 0, len(indexIDs))
 
 	for _, indexID := range indexIDs {
@@ -55,11 +55,12 @@ func (bc *litBackendCtx) Register(indexIDs []int64, uniques []bool, tbl table.Ta
 	if c := bc.checkpointMgr; c != nil {
 		ts = c.GetTS()
 	}
-	cfg := generateLocalEngineConfig(ts)
-
 	openedEngines := make(map[int64]*engineInfo, numIdx)
 
+	tableID := tbl.Meta().ID
 	for i, indexID := range indexIDs {
+		cfg := generateLocalEngineConfig(ts, tableID, jobID, indexID, dataSize)
+
 		openedEngine, err := mgr.OpenEngine(bc.ctx, cfg, tbl.Meta().Name.L, int32(indexID))
 		if err != nil {
 			logutil.Logger(bc.ctx).Warn(LitErrCreateEngineFail,
@@ -137,8 +138,54 @@ func (bc *litBackendCtx) FinishAndUnregisterEngines(opt UnregisterOpt) error {
 	}
 
 	bc.engines = make(map[int64]*engineInfo, 10)
-
 	bc.memRoot.Release(numIdx * structSizeEngineInfo)
+	return nil
+}
 
+// FinishAndImport implements BackendCtx.
+func (bc *litBackendCtx) FinishAndImport(opt UnregisterOpt) error {
+	bc.unregisterMu.Lock()
+	defer bc.unregisterMu.Unlock()
+
+	if len(bc.engines) == 0 {
+		return nil
+	}
+
+	for _, ei := range bc.engines {
+		ei.Close(opt&OptCleanData != 0)
+		if err := ei.Import(); err != nil {
+			return err
+		}
+	}
+
+	if opt&OptCheckDup != 0 {
+		for _, ei := range bc.engines {
+			if ei.unique {
+				err := bc.collectRemoteDuplicateRows(ei.indexID, bc.tbl)
+				if err != nil {
+					return errors.Trace(err)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// Cleanup implements BackendCtx.
+func (bc *litBackendCtx) Cleanup() error {
+	bc.unregisterMu.Lock()
+	defer bc.unregisterMu.Unlock()
+
+	if len(bc.engines) == 0 {
+		return nil
+	}
+
+	numIdx := int64(len(bc.engines))
+	for _, ei := range bc.engines {
+		ei.Cleanup()
+	}
+
+	bc.engines = make(map[int64]*engineInfo, 10)
+	bc.memRoot.Release(numIdx * structSizeEngineInfo)
 	return nil
 }

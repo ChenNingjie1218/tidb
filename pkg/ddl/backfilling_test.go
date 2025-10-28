@@ -80,6 +80,7 @@ func TestPickBackfillType(t *testing.T) {
 		},
 	}
 	mockJob.ReorgMeta.IsFastReorg = true
+	mockJob.StatisticsTableRowCount = RowCountThresholdForFastReorg + 1
 	tp, err := pickBackfillType(mockJob)
 	require.NoError(t, err)
 	require.Equal(t, tp, model.ReorgTypeTxn)

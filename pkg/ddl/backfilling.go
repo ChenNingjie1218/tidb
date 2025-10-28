@@ -36,6 +36,7 @@ import (
 	"github.com/pingcap/tidb/pkg/expression/exprctx"
 	"github.com/pingcap/tidb/pkg/expression/exprstatic"
 	"github.com/pingcap/tidb/pkg/kv"
+	"github.com/pingcap/tidb/pkg/lightning/backend/local"
 	"github.com/pingcap/tidb/pkg/meta/model"
 	"github.com/pingcap/tidb/pkg/metrics"
 	pmodel "github.com/pingcap/tidb/pkg/parser/model"
@@ -799,7 +800,6 @@ func (dc *ddlCtx) runAddIndexInLocalIngestMode(
 	if err != nil {
 		return errors.Trace(err)
 	}
-	defer ingest.LitBackCtxMgr.Unregister(job.ID)
 
 	cpMgr, err := ingest.NewCheckpointManager(
 		ctx,
@@ -809,6 +809,7 @@ func (dc *ddlCtx) runAddIndexInLocalIngestMode(
 		indexIDs,
 		ingest.LitBackCtxMgr.EncodeJobSortPath(job.ID),
 		dc.store.(kv.StorageWithPD).GetPDClient(),
+		len(job.ReorgMeta.TiKVAPIServiceAddr) != 0,
 	)
 	if err != nil {
 		logutil.DDLIngestLogger().Warn("create checkpoint manager failed",
@@ -833,7 +834,8 @@ func (dc *ddlCtx) runAddIndexInLocalIngestMode(
 	defer sessPool.Put(sctx)
 	avgRowSize := estimateTableRowSize(ctx, dc.store, sctx.GetRestrictedSQLExecutor(), t)
 
-	engines, err := bcCtx.Register(indexIDs, uniques, t)
+	keyspaceID := dc.store.GetCodec().GetKeyspaceID()
+	engines, err := bcCtx.Register(indexIDs, uniques, job.ID, job.EstimatedTableDataSize, uint32(keyspaceID), t)
 	if err != nil {
 		logutil.DDLIngestLogger().Error("cannot register new engine",
 			zap.Int64("jobID", job.ID),
@@ -875,6 +877,10 @@ func (dc *ddlCtx) runAddIndexInLocalIngestMode(
 	if cpMgr != nil {
 		cpMgr.AdvanceWatermark(true, true)
 	}
+
+	if len(job.ReorgMeta.TiKVAPIServiceAddr) != 0 {
+		return nil
+	}
 	return bcCtx.FinishAndUnregisterEngines(ingest.OptCleanData | ingest.OptCheckDup)
 }
 
@@ -904,11 +910,13 @@ func adjustWorkerCntAndMaxWriteSpeed(ctx context.Context, pipe *operator.AsyncPi
 		case <-ticker.C:
 			failpoint.InjectCall("onUpdateJobParam")
 			maxWriteSpeed := job.ReorgMeta.GetMaxWriteSpeedOrDefault()
-			if maxWriteSpeed != bcCtx.GetLocalBackend().GetWriteSpeedLimit() {
-				bcCtx.GetLocalBackend().UpdateWriteSpeedLimit(maxWriteSpeed)
-				logutil.DDLIngestLogger().Info("adjust ddl job config success",
-					zap.Int64("jobID", job.ID),
-					zap.Int("max write speed", bcCtx.GetLocalBackend().GetWriteSpeedLimit()))
+			if lb, ok := bcCtx.GetLocalBackend().(*local.Backend); ok {
+				if maxWriteSpeed != lb.GetWriteSpeedLimit() {
+					lb.UpdateWriteSpeedLimit(maxWriteSpeed)
+					logutil.DDLIngestLogger().Info("adjust ddl job config success",
+						zap.Int64("jobID", job.ID),
+						zap.Int("max write speed", lb.GetWriteSpeedLimit()))
+				}
 			}
 
 			concurrency := job.ReorgMeta.GetConcurrencyOrDefault(int(variable.GetDDLReorgWorkerCounter()))

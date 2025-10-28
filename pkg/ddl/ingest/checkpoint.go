@@ -62,6 +62,7 @@ type CheckpointManager struct {
 	// we require each task ID to be continuous and start from 0.
 	minTaskIDFinished int
 	dirty             bool
+	isRemoteSort      bool
 
 	// Persisted to the storage.
 	flushedKeyLowWatermark  kv.Key
@@ -102,6 +103,7 @@ func NewCheckpointManager(
 	indexIDs []int64,
 	localStoreDir string,
 	pdCli pd.Client,
+	isRemoteSort bool,
 ) (*CheckpointManager, error) {
 	instanceAddr := InstanceAddr()
 	ctx2, cancel := context.WithCancel(ctx)
@@ -115,6 +117,7 @@ func NewCheckpointManager(
 		jobID:         jobID,
 		indexIDs:      indexIDs,
 		localStoreDir: localStoreDir,
+		isRemoteSort:  isRemoteSort,
 		pdCli:         pdCli,
 		logger:        logger,
 		checkpoints:   make(map[int]*taskCheckpoint, 16),
@@ -348,8 +351,8 @@ func (s *CheckpointManager) resumeOrInitCheckpoint() error {
 			s.importedKeyCnt = cp.GlobalKeyCount
 			s.ts = cp.TS
 			folderNotEmpty := util.FolderNotEmpty(s.localStoreDir)
-			if folderNotEmpty &&
-				(s.instanceAddr == cp.InstanceAddr || cp.InstanceAddr == "" /* initial state */) {
+			if s.isRemoteSort || (folderNotEmpty &&
+				(s.instanceAddr == cp.InstanceAddr || cp.InstanceAddr == "" /* initial state */)) {
 				s.localDataIsValid = true
 				s.flushedKeyLowWatermark = cp.LocalSyncKey
 				s.flushedKeyCnt = cp.LocalKeyCount

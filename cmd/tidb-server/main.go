@@ -1212,6 +1212,9 @@ func setGlobalVars() {
 	if len(cfg.Instance.TiDBServiceScope) > 0 {
 		variable.ServiceScope.Store(strings.ToLower(cfg.Instance.TiDBServiceScope))
 	}
+
+	variable.EnableDistTask.Store(cfg.EnableDistTask)
+	variable.EnableFastReorg.Store(len(cfg.TiKVAPIServiceAddr) != 0)
 }
 
 func setupLog(keyspaceID uint32) {

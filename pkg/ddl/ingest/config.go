@@ -24,6 +24,7 @@ import (
 	tidb "github.com/pingcap/tidb/pkg/config"
 	"github.com/pingcap/tidb/pkg/lightning/backend"
 	"github.com/pingcap/tidb/pkg/lightning/backend/local"
+	"github.com/pingcap/tidb/pkg/lightning/backend/remote"
 	"github.com/pingcap/tidb/pkg/lightning/checkpoints"
 	"github.com/pingcap/tidb/pkg/lightning/common"
 	lightning "github.com/pingcap/tidb/pkg/lightning/config"
@@ -46,43 +47,60 @@ func genConfig(
 	concurrency int,
 	maxWriteSpeed int,
 	globalSort bool,
-) (*local.BackendConfig, error) {
-	cfg := &local.BackendConfig{
-		LocalStoreDir:     jobSortPath,
-		ResourceGroupName: resourceGroup,
-		MaxConnPerStore:   concurrency,
-		WorkerConcurrency: concurrency * 2,
-		KeyspaceName:      tidb.GetGlobalKeyspaceName(),
-		// We disable the switch TiKV mode feature for now, because the impact is not
-		// fully tested.
-		ShouldCheckWriteStall: true,
+	tikvAPIServiceAddr string,
+) (*local.BackendConfig, *remote.BackendConfig, error) {
+	var (
+		lcfg *local.BackendConfig
+		rcfg *remote.BackendConfig
+	)
+	if tidb.EnableRemoteBackend() {
+		rcfg = &remote.BackendConfig{
+			WorkerConcurrency: concurrency * 2,
+			TikvImporterAddr:  tikvAPIServiceAddr,
+			KeyspaceName:      tidb.GetGlobalKeyspaceName(),
+			SortedKVDir:       jobSortPath,
+			CheckpointEnabled: true,
+		}
+		if unique && !globalSort {
+			rcfg.DuplicateResolution = lightning.ErrorOnDup
+		}
+	} else {
+		lcfg = &local.BackendConfig{
+			LocalStoreDir:     jobSortPath,
+			ResourceGroupName: resourceGroup,
+			MaxConnPerStore:   concurrency,
+			WorkerConcurrency: concurrency * 2,
+			KeyspaceName:      tidb.GetGlobalKeyspaceName(),
+			// We disable the switch TiKV mode feature for now, because the impact is not
+			// fully tested.
+			ShouldCheckWriteStall: true,
 
-		// lighting default values
-		CheckpointEnabled:           true,
-		BlockSize:                   lightning.DefaultBlockSize,
-		KVWriteBatchSize:            lightning.KVWriteBatchSize,
-		RegionSplitBatchSize:        lightning.DefaultRegionSplitBatchSize,
-		RegionSplitConcurrency:      runtime.GOMAXPROCS(0),
-		MemTableSize:                lightning.DefaultEngineMemCacheSize,
-		LocalWriterMemCacheSize:     lightning.DefaultLocalWriterMemCacheSize,
-		ShouldCheckTiKV:             true,
-		MaxOpenFiles:                int(litRLimit),
-		PausePDSchedulerScope:       lightning.PausePDSchedulerScopeTable,
-		TaskType:                    kvutil.ExplicitTypeDDL,
-		DisableAutomaticCompactions: true,
-		StoreWriteBWLimit:           maxWriteSpeed,
+			// lighting default values
+			CheckpointEnabled:           true,
+			BlockSize:                   lightning.DefaultBlockSize,
+			KVWriteBatchSize:            lightning.KVWriteBatchSize,
+			RegionSplitBatchSize:        lightning.DefaultRegionSplitBatchSize,
+			RegionSplitConcurrency:      runtime.GOMAXPROCS(0),
+			MemTableSize:                lightning.DefaultEngineMemCacheSize,
+			LocalWriterMemCacheSize:     lightning.DefaultLocalWriterMemCacheSize,
+			ShouldCheckTiKV:             true,
+			MaxOpenFiles:                int(litRLimit),
+			PausePDSchedulerScope:       lightning.PausePDSchedulerScopeTable,
+			TaskType:                    kvutil.ExplicitTypeDDL,
+			DisableAutomaticCompactions: true,
+			StoreWriteBWLimit:           maxWriteSpeed,
+		}
+		// Each backend will build a single dir in lightning dir.
+		if ImporterRangeConcurrencyForTest != nil {
+			lcfg.WorkerConcurrency = int(ImporterRangeConcurrencyForTest.Load()) * 2
+		}
+		adjustImportMemory(ctx, memRoot, lcfg)
+		if unique && !globalSort {
+			lcfg.DupeDetectEnabled = true
+			lcfg.DuplicateDetectOpt = common.DupDetectOpt{ReportErrOnDup: true}
+		}
 	}
-	// Each backend will build a single dir in lightning dir.
-	if ImporterRangeConcurrencyForTest != nil {
-		cfg.WorkerConcurrency = int(ImporterRangeConcurrencyForTest.Load()) * 2
-	}
-	adjustImportMemory(ctx, memRoot, cfg)
-	if unique && !globalSort {
-		cfg.DupeDetectEnabled = true
-		cfg.DuplicateDetectOpt = common.DupDetectOpt{ReportErrOnDup: true}
-	}
-
-	return cfg, nil
+	return lcfg, rcfg, nil
 }
 
 // CopReadBatchSize is the batch size of coprocessor read.
@@ -123,17 +141,23 @@ var (
 	compactConcurrency = 4
 )
 
-func generateLocalEngineConfig(ts uint64) *backend.EngineConfig {
+func generateLocalEngineConfig(ts uint64, tableID, jobID, indexID, dataSize int64) *backend.EngineConfig {
 	return &backend.EngineConfig{
+		EngineID: int32(indexID),
+		TaskID:   jobID,
 		Local: backend.LocalEngineConfig{
 			Compact:            true,
 			CompactThreshold:   int64(compactMemory),
 			CompactConcurrency: compactConcurrency,
 			BlockSize:          16 * 1024, // using default for DDL
 		},
-		TableInfo:   &checkpoints.TidbTableInfo{},
+		TableInfo: &checkpoints.TidbTableInfo{
+			ID: tableID,
+		},
 		KeepSortDir: true,
 		TS:          ts,
+
+		EstimatedDataSize: dataSize,
 	}
 }
 

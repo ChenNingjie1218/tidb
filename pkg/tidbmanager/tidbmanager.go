@@ -52,7 +52,7 @@ func NewClient(
 	podName, podIP, namespace string,
 ) Client {
 	scheme := "http://"
-	httpClient := http.DefaultClient
+	httpClient := &http.Client{}
 	if tlsConfig != nil {
 		httpClient.Transport = &http.Transport{
 			TLSClientConfig:   tlsConfig,

@@ -62,6 +62,66 @@ import (
 	"github.com/tikv/client-go/v2/oracle"
 )
 
+func TestEmbedFunction(t *testing.T) {
+	store := testkit.CreateMockStore(t)
+	tk := testkit.NewTestKit(t, store)
+	tk.MustExec("use test")
+
+	tk.MustQuery("select @@global.tidb_exp_embed_jina_api_key").Check(testkit.Rows(""))
+	tk.MustExec("set @@global.tidb_exp_embed_jina_api_key = 'test_key'")
+	tk.MustQuery("select @@global.tidb_exp_embed_jina_api_key").Check(testkit.Rows("******_key"))
+	tk.MustExec("set @@global.tidb_exp_embed_jina_api_key = 'abc'")
+	tk.MustQuery("select @@global.tidb_exp_embed_jina_api_key").Check(testkit.Rows("******"))
+	tk.MustExec("set @@global.tidb_exp_embed_jina_api_key = ''")
+	tk.MustQuery("select @@global.tidb_exp_embed_jina_api_key").Check(testkit.Rows(""))
+
+	err := tk.QueryToErr("select embed_text('text-embedding-3', 'hello world')")
+	require.ErrorContains(t, err, "model name must be in format")
+
+	err = tk.QueryToErr("select embed_text('openai/text-embedding-3', 'hello world')")
+	require.ErrorContains(t, err, "OpenAI API key is not configured")
+
+	err = tk.QueryToErr("select embed_text('foo/text-embedding-3', 'hello world')")
+	require.ErrorContains(t, err, "unknown embedding provider")
+
+	tk.MustQuery(`select embed_text('mock/json', '[1, 3,  4]')`).
+		Check(testkit.Rows("[1,3,4]"))
+
+	// Test with options
+	tk.MustQuery(`select embed_text('mock/json', '[1, 3,  4]', '{"plus":0.1}')`).
+		Check(testkit.Rows("[1.1,3.1,4.1]"))
+	err = tk.QueryToErr(`select embed_text('mock/json', '[1, 3,  4]', '{invalid_json}')`)
+	require.ErrorContains(t, err, "EMBED_TEXT expects options in JSON format")
+
+	// Test with using the embed_text function in a generated column
+	tk.MustExec(`
+
+	CREATE TABLE t(
+		id INT PRIMARY KEY,
+		text TEXT,
+		vec VECTOR(3) GENERATED ALWAYS AS (embed_text('text-embedding-3', text)) STORED
+		);
+	`)
+
+	err = tk.ExecToErr("insert into t values (1, 'hello world', DEFAULT)")
+	require.ErrorContains(t, err, "model name must be in format")
+	tk.MustExec("drop table t")
+
+	tk.MustExec(`
+
+	CREATE TABLE t(
+		id INT PRIMARY KEY,
+		text TEXT,
+		vec VECTOR(3) GENERATED ALWAYS AS (embed_text('mock/json', text)) STORED
+		);
+	`)
+
+	tk.MustExec("insert into t values (1, '[1,2,3]', DEFAULT)")
+	tk.MustQuery("select * from t").Check(testkit.Rows(
+		"1 [1,2,3] [1,2,3]",
+	))
+}
+
 func TestFTSConfigDisable(t *testing.T) {
 	store := testkit.CreateMockStoreWithSchemaLease(t, 1*time.Second, mockstore.WithMockTiFlash(2))
 	tk := testkit.NewTestKit(t, store)
@@ -2288,7 +2348,7 @@ func TestEnumIndex(t *testing.T) {
 	ops := []string{"=", "!=", ">", ">=", "<", "<="}
 	testElems := []string{"\"a\"", "\"b\"", "\"c\"", "\"d\"", "\"\"", "1", "2", "3", "4", "0", "-1"}
 	for i := 0; i < nRows; i++ {
-		cond := "e" + ops[rand.Intn(len(ops))] + testElems[rand.Intn(len(testElems))]
+		cond := fmt.Sprintf("%s", "e"+ops[rand.Intn(len(ops))]+testElems[rand.Intn(len(testElems))])
 		result := tk.MustQuery("select * from t where " + cond).Sort().Rows()
 		tk.MustQuery("select * from tidx where " + cond).Sort().Check(result)
 	}

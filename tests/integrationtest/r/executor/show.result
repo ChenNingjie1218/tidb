@@ -662,6 +662,7 @@ des_decrypt
 des_encrypt
 div
 elt
+embed_text
 encode
 encrypt
 eq

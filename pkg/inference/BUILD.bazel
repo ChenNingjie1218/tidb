@@ -1,0 +1,18 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "inference",
+    srcs = ["sqlembed.go"],
+    importpath = "github.com/pingcap/tidb/pkg/inference",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//pkg/inference/embedding/batcher",
+        "//pkg/inference/embedding/jina",
+        "//pkg/inference/embedding/mock",
+        "//pkg/inference/embedding/openai",
+        "//pkg/sessionctx/variable",
+        "//pkg/util/intest",
+        "@com_github_dgraph_io_ristretto//:ristretto",
+        "@org_golang_x_sync//singleflight",
+    ],
+)

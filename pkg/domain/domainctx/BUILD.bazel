@@ -1,0 +1,9 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "domainctx",
+    srcs = ["domainctx.go"],
+    importpath = "github.com/pingcap/tidb/pkg/domain/domainctx",
+    visibility = ["//visibility:public"],
+    deps = ["//pkg/util/context"],
+)

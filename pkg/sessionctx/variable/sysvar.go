@@ -3500,6 +3500,29 @@ var defaultSysVars = []*SysVar{
 			return (*SetPDClientDynamicOption.Load())(TiDBTSOClientRPCMode, val)
 		},
 	},
+	{Scope: ScopeGlobal, Name: TiDBExpEmbedJinaAPIKey, Value: "", Type: TypeStr, SetGlobal: func(ctx context.Context, vars *SessionVars, s string) error {
+		EmbedJinaAPIKey.Store(s)
+		return nil
+	}, GetGlobal: func(ctx context.Context, vars *SessionVars) (string, error) {
+		return maskEmbedAPIKey(EmbedJinaAPIKey.Load()), nil
+	}},
+	{Scope: ScopeGlobal, Name: TiDBExpEmbedOpenAIAPIKey, Value: "", Type: TypeStr, SetGlobal: func(ctx context.Context, vars *SessionVars, s string) error {
+		EmbedOpenAIAPIKey.Store(s)
+		return nil
+	}, GetGlobal: func(ctx context.Context, vars *SessionVars) (string, error) {
+		return maskEmbedAPIKey(EmbedOpenAIAPIKey.Load()), nil
+	}},
+}
+
+func maskEmbedAPIKey(key string) string {
+	if key == "" {
+		return ""
+	}
+	// only reveal the last 4 characters of the API key
+	if len(key) <= 4 {
+		return "******"
+	}
+	return "******" + key[len(key)-4:]
 }
 
 // GlobalSystemVariableInitialValue gets the default value for a system variable including ones that are dynamically set (e.g. based on the store)

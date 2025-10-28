@@ -1,4 +1,4 @@
-// Copyright 2015 PingCAP, Inc.
+// Copyright 2025 PingCAP, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,23 +14,21 @@
 
 package domain
 
-import (
-	"testing"
+import "github.com/pingcap/tidb/pkg/inference"
 
-	"github.com/pingcap/tidb/pkg/domain/domainctx"
-	"github.com/pingcap/tidb/pkg/util/mock"
-	"github.com/stretchr/testify/require"
-)
+func (d *Domain) initInferenceProviders() {
+	d.embedFn = inference.NewEmbedFn()
+}
 
-func TestDomainCtx(t *testing.T) {
-	ctx := mock.NewContext()
-	require.NotEqual(t, "", domainctx.DomainKey.String())
+func (d *Domain) closeInferenceProviders() {
+	if d.embedFn != nil {
+		d.embedFn.Close()
+		d.embedFn = nil
+	}
+}
 
-	BindDomain(ctx, nil)
-	v := GetDomain(ctx)
-	require.Nil(t, v)
-
-	ctx.ClearValue(domainctx.DomainKey)
-	v = GetDomain(ctx)
-	require.Nil(t, v)
+// GetEmbedFn returns the embed function bridge in the domain. It is roughly a global singleton.
+// (but with domain lifecycle management to avoid goroutine leaks in tests)
+func (d *Domain) GetEmbedFn() *inference.EmbedFn {
+	return d.embedFn
 }

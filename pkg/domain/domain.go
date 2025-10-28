@@ -50,6 +50,7 @@ import (
 	"github.com/pingcap/tidb/pkg/domain/globalconfigsync"
 	"github.com/pingcap/tidb/pkg/domain/infosync"
 	"github.com/pingcap/tidb/pkg/errno"
+	"github.com/pingcap/tidb/pkg/inference"
 	"github.com/pingcap/tidb/pkg/infoschema"
 	infoschema_metrics "github.com/pingcap/tidb/pkg/infoschema/metrics"
 	"github.com/pingcap/tidb/pkg/infoschema/perfschema"
@@ -205,6 +206,7 @@ type Domain struct {
 	ttlJobManager            atomic.Pointer[ttlworker.JobManager]
 	runawayManager           *runaway.Manager
 	resourceGroupsController *rmclient.ResourceGroupsController
+	embedFn                  *inference.EmbedFn
 
 	serverID             uint64
 	serverIDSession      *concurrency.Session
@@ -1281,6 +1283,8 @@ func (do *Domain) Close() {
 		handle.Close()
 	}
 
+	do.closeInferenceProviders()
+
 	logutil.BgLogger().Info("domain closed", zap.Duration("take time", time.Since(startTime)))
 }
 
@@ -1536,6 +1540,8 @@ func (do *Domain) Start(startMode ddl.StartMode) error {
 	}
 
 	do.remoteQueryServer = remotequery.NewServer()
+
+	do.initInferenceProviders()
 
 	return nil
 }

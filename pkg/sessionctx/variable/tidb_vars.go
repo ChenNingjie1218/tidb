@@ -1242,6 +1242,10 @@ const (
 	// TiDBTSOClientRPCMode controls how the TSO client performs the TSO RPC requests. It internally controls the
 	// concurrency of the RPC. This variable provides an approach to tune the latency of getting timestamps from PD.
 	TiDBTSOClientRPCMode = "tidb_tso_client_rpc_mode"
+	// TiDBExpEmbedJinaAPIKey is the API key to use when calling JINA embedding API.
+	TiDBExpEmbedJinaAPIKey = "tidb_exp_embed_jina_api_key"
+	// TiDBExpEmbedOpenAIAPIKey is the API key to use when calling OpenAI embedding API.
+	TiDBExpEmbedOpenAIAPIKey = "tidb_exp_embed_openai_api_key"
 )
 
 // TiDB intentional limits
@@ -1731,6 +1735,9 @@ var (
 	CloudStorageURI                 = atomic.NewString("")
 	IgnoreInlistPlanDigest          = atomic.NewBool(DefTiDBIgnoreInlistPlanDigest)
 	TxnEntrySizeLimit               = atomic.NewUint64(DefTiDBTxnEntrySizeLimit)
+	// Embedding related global variables
+	EmbedJinaAPIKey   = atomic.NewString("")
+	EmbedOpenAIAPIKey = atomic.NewString("")
 
 	SchemaCacheSize           = atomic.NewUint64(DefTiDBSchemaCacheSize)
 	SchemaCacheSizeOriginText = atomic.NewString(strconv.Itoa(DefTiDBSchemaCacheSize))

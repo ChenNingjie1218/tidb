@@ -1,10 +1,10 @@
-// Copyright 2015 PingCAP, Inc.
+// Copyright 2025 PingCAP, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//	http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -12,25 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package domain
+package base
 
 import (
-	"testing"
-
-	"github.com/pingcap/tidb/pkg/domain/domainctx"
-	"github.com/pingcap/tidb/pkg/util/mock"
-	"github.com/stretchr/testify/require"
+	"context"
 )
 
-func TestDomainCtx(t *testing.T) {
-	ctx := mock.NewContext()
-	require.NotEqual(t, "", domainctx.DomainKey.String())
-
-	BindDomain(ctx, nil)
-	v := GetDomain(ctx)
-	require.Nil(t, v)
-
-	ctx.ClearValue(domainctx.DomainKey)
-	v = GetDomain(ctx)
-	require.Nil(t, v)
+// Embedder is an interface for embedding providers.
+type Embedder interface {
+	// CreateEmbeddings generates embeddings for the given texts using the specified model and options.
+	// Different implementations requires different options types. Options can be nil if not needed.
+	CreateEmbeddings(ctx context.Context, model string, texts []string, opts map[string]any) ([][]float32, error)
 }

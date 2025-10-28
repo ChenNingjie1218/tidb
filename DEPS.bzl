@@ -2183,6 +2183,17 @@ def go_deps():
         ],
     )
     go_repository(
+        name = "com_github_go_json_experiment_json",
+        build_file_proto_mode = "disable_global",
+        importpath = "github.com/go-json-experiment/json",
+        sha256 = "f47de740d717a7c599f7d894fbc416bc241ef46bec16e479b91384394f89d206",
+        strip_prefix = "github.com/go-json-experiment/json@v0.0.0-20250626171732-1a886bd29d1b",
+        urls = [
+            "https://cache.hawkingrei.com/gomod/github.com/go-json-experiment/json/com_github_go_json_experiment_json-v0.0.0-20250626171732-1a886bd29d1b.zip",
+            "https://storage.googleapis.com/pingcapmirror/gomod/github.com/go-json-experiment/json/com_github_go_json_experiment_json-v0.0.0-20250626171732-1a886bd29d1b.zip",
+        ],
+    )
+    go_repository(
         name = "com_github_go_kit_kit",
         build_file_proto_mode = "disable_global",
         importpath = "github.com/go-kit/kit",

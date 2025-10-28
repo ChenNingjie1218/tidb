@@ -72,8 +72,8 @@ func loadRestoreStores(ctx context.Context, pdClient util.StoreMeta) ([]uint64, 
 }
 
 // NewPlacementRuleManager sets and unset placement rules for online restore.
-func NewPlacementRuleManager(ctx context.Context, pdClient pd.Client, pdHTTPCli pdhttp.Client, tlsConf *tls.Config, isOnline bool) (PlacementRuleManager, error) {
-	if !isOnline {
+func NewPlacementRuleManager(ctx context.Context, pdClient pd.Client, pdHTTPCli pdhttp.Client, tlsConf *tls.Config, isOnline, isKeyspaceMode bool) (PlacementRuleManager, error) {
+	if !isOnline || isKeyspaceMode {
 		return offlinePlacementRuleManager{}, nil
 	}
 

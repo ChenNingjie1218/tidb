@@ -34,6 +34,7 @@ import (
 	"github.com/pingcap/tidb/br/pkg/utils"
 	"github.com/pingcap/tidb/br/pkg/version"
 	"github.com/pingcap/tidb/pkg/config"
+	"github.com/pingcap/tidb/pkg/keyspace"
 	"github.com/pingcap/tidb/pkg/kv"
 	"github.com/pingcap/tidb/pkg/parser/mysql"
 	"github.com/pingcap/tidb/pkg/sessionctx/stmtctx"
@@ -517,7 +518,9 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 		return errors.Trace(err)
 	}
 
-	if cfg.RemoveSchedulers {
+	if cfg.RemoveSchedulers && !keyspace.IsKeyspaceNameEmpty(cfg.KeyspaceName) {
+		log.Info("skip removing PD schedulers while backing up specific keyspace's data")
+	} else if cfg.RemoveSchedulers {
 		log.Debug("removing some PD schedulers")
 		restore, e := mgr.RemoveSchedulers(ctx)
 		defer func() {

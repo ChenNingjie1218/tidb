@@ -156,8 +156,9 @@ func RestorePreWork(
 	switcher *ImportModeSwitcher,
 	isOnline bool,
 	switchToImport bool,
+	isKeyspaceMode bool,
 ) (pdutil.UndoFunc, *pdutil.ClusterConfig, error) {
-	if isOnline {
+	if isOnline || isKeyspaceMode {
 		return pdutil.Nop, nil, nil
 	}
 
@@ -176,8 +177,9 @@ func RestorePostWork(
 	switcher *ImportModeSwitcher,
 	restoreSchedulers pdutil.UndoFunc,
 	isOnline bool,
+	isKeyspaceMode bool,
 ) {
-	if isOnline {
+	if isOnline || isKeyspaceMode {
 		return
 	}
 

@@ -40,6 +40,9 @@ var (
 	// Once TableInfoVersion updated. BR need to check compatibility with
 	// new TableInfoVersion. both snapshot restore and pitr need to be checked.
 	CURRENT_BACKUP_SUPPORT_TABLE_INFO_VERSION = model.TableInfoVersion5
+
+	// TiKVMinVersionSupportRewrite represents the min TiKV version that supports rewrite
+	TiKVMinVersionSupportRewrite = "6.6.0-alpha"
 )
 
 // NextMajorVersion returns the next major version.
@@ -188,7 +191,7 @@ func CheckVersionForDDL(s *metapb.Store, tikvVersion *semver.Version) error {
 
 // CheckVersionForKeyspaceBR checks whether the cluster is support Backup/Restore keyspace data.
 func CheckVersionForKeyspaceBR(_ *metapb.Store, tikvVersion *semver.Version) error {
-	requireVersion := semver.New("6.6.0-alpha")
+	requireVersion := semver.New(TiKVMinVersionSupportRewrite)
 	if tikvVersion.Compare(*requireVersion) < 0 {
 		return errors.Errorf("detected the old version of tidb cluster, require: >= 6.6.0, but got %s", tikvVersion.String())
 	}

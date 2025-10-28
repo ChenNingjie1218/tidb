@@ -36,6 +36,7 @@ import (
 	"github.com/pingcap/tidb/pkg/ddl"
 	"github.com/pingcap/tidb/pkg/domain"
 	"github.com/pingcap/tidb/pkg/infoschema"
+	"github.com/pingcap/tidb/pkg/keyspace"
 	"github.com/pingcap/tidb/pkg/kv"
 	"github.com/pingcap/tidb/pkg/meta/model"
 	pmodel "github.com/pingcap/tidb/pkg/parser/model"
@@ -76,6 +77,8 @@ const (
 	FlagWithPlacementPolicy = "with-tidb-placement-mode"
 	// FlagKeyspaceName corresponds to tidb config keyspace-name
 	FlagKeyspaceName = "keyspace-name"
+	// FlagLeaderDownload corresponds to tidb config leader-download
+	FlagLeaderDownload = "leader-download"
 
 	// FlagWaitTiFlashReady represents whether wait tiflash replica ready after table restored and checksumed.
 	FlagWaitTiFlashReady = "wait-tiflash-ready"
@@ -272,6 +275,8 @@ type RestoreConfig struct {
 	ProgressFile        string                `json:"progress-file" toml:"progress-file"`
 	TargetAZ            string                `json:"target-az" toml:"target-az"`
 	UseFSR              bool                  `json:"use-fsr" toml:"use-fsr"`
+	// LeaderDownload is used to only download sst file to leader
+	LeaderDownload bool `json:"leader-download" toml:"leader-download"`
 }
 
 // DefineRestoreFlags defines common flags for the restore tidb command.
@@ -282,6 +287,7 @@ func DefineRestoreFlags(flags *pflag.FlagSet) {
 	_ = flags.MarkHidden(flagNoSchema)
 	flags.String(FlagWithPlacementPolicy, "STRICT", "correspond to tidb global/session variable with-tidb-placement-mode")
 	flags.String(FlagKeyspaceName, "", "correspond to tidb config keyspace-name")
+	flags.Bool(FlagLeaderDownload, false, "correspond to tidb config leader-download")
 
 	flags.Bool(flagUseCheckpoint, true, "use checkpoint mode")
 	_ = flags.MarkHidden(flagUseCheckpoint)
@@ -401,6 +407,10 @@ func (cfg *RestoreConfig) ParseFromFlags(flags *pflag.FlagSet, skipCommonConfig 
 	cfg.KeyspaceName, err = flags.GetString(FlagKeyspaceName)
 	if err != nil {
 		return errors.Annotatef(err, "failed to get flag %s", FlagKeyspaceName)
+	}
+	cfg.LeaderDownload, err = flags.GetBool(FlagLeaderDownload)
+	if err != nil {
+		return errors.Annotatef(err, "failed to get flag %s", FlagLeaderDownload)
 	}
 	cfg.UseCheckpoint, err = flags.GetBool(flagUseCheckpoint)
 	if err != nil {
@@ -540,6 +550,8 @@ func configureRestoreClient(ctx context.Context, client *snapclient.SnapClient, 
 	if cfg.NoSchema {
 		client.EnableSkipCreateSQL()
 	}
+	client.SetLeaderDownload(cfg.LeaderDownload)
+	client.SetKeyspaceName(cfg.KeyspaceName)
 	client.SetBatchDdlSize(cfg.DdlBatchSize)
 	client.SetPlacementPolicyMode(cfg.WithPlacementPolicy)
 	client.SetWithSysTable(cfg.WithSysTable)
@@ -850,7 +862,7 @@ func runSnapshotRestore(c context.Context, mgr *conn.Mgr, g glue.Glue, cmdName s
 	}
 
 	importModeSwitcher := restore.NewImportModeSwitcher(mgr.GetPDClient(), cfg.Config.SwitchModeInterval, mgr.GetTLSConfig())
-	restoreSchedulers, schedulersConfig, err := restore.RestorePreWork(ctx, mgr, importModeSwitcher, cfg.Online, true)
+	restoreSchedulers, schedulersConfig, err := restore.RestorePreWork(ctx, mgr, importModeSwitcher, cfg.Online, true, client.IsKeyspaceMode())
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -865,7 +877,7 @@ func runSnapshotRestore(c context.Context, mgr *conn.Mgr, g glue.Glue, cmdName s
 		log.Info("start to remove the pd scheduler")
 		// run the post-work to avoid being stuck in the import
 		// mode or emptied schedulers.
-		restore.RestorePostWork(ctx, importModeSwitcher, restoreSchedulers, cfg.Online)
+		restore.RestorePostWork(ctx, importModeSwitcher, restoreSchedulers, cfg.Online, client.IsKeyspaceMode())
 		log.Info("finish removing pd scheduler")
 	}()
 
@@ -1070,7 +1082,7 @@ func runSnapshotRestore(c context.Context, mgr *conn.Mgr, g glue.Glue, cmdName s
 
 	// Do not reset timestamp if we are doing incremental restore, because
 	// we are not allowed to decrease timestamp.
-	if !client.IsIncremental() {
+	if !client.IsIncremental() && keyspace.IsKeyspaceNameEmpty(cfg.KeyspaceName) {
 		if err = client.ResetTS(ctx, mgr.PdController); err != nil {
 			log.Error("reset pd TS failed", zap.Error(err))
 			return errors.Trace(err)
@@ -1088,7 +1100,7 @@ func runSnapshotRestore(c context.Context, mgr *conn.Mgr, g glue.Glue, cmdName s
 	// Redirect to log if there is no log file to avoid unreadable output.
 	updateCh := g.StartProgress(ctx, cmdName, progressLen, !cfg.LogProgress)
 	defer updateCh.Close()
-	placementRuleManager, err := snapclient.NewPlacementRuleManager(ctx, mgr.GetPDClient(), mgr.GetPDHTTPClient(), mgr.GetTLSConfig(), cfg.Online)
+	placementRuleManager, err := snapclient.NewPlacementRuleManager(ctx, mgr.GetPDClient(), mgr.GetPDHTTPClient(), mgr.GetTLSConfig(), cfg.Online, client.IsKeyspaceMode())
 	if err != nil {
 		return errors.Trace(err)
 	}

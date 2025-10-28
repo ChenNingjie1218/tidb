@@ -421,7 +421,7 @@ func (rc *SnapClient) restoreSSTFilesInternal(
 					updateCh.Inc()
 				}
 			}()
-			if importErr := rc.fileImporter.ImportSSTFiles(ectx, filesReplica, rc.cipher, rc.dom.Store().GetCodec().GetAPIVersion()); importErr != nil {
+			if importErr := rc.fileImporter.ImportSSTFiles(ectx, filesReplica, rc.cipher, rc.dom.Store().GetCodec().GetAPIVersion(), rc.leaderDownload); importErr != nil {
 				return errors.Trace(importErr)
 			}
 

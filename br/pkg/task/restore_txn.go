@@ -93,11 +93,11 @@ func RunRestoreTxn(c context.Context, g glue.Glue, cmdName string, cfg *Config) 
 	}
 
 	importModeSwitcher := restore.NewImportModeSwitcher(mgr.GetPDClient(), cfg.SwitchModeInterval, mgr.GetTLSConfig())
-	restoreSchedulers, _, err := restore.RestorePreWork(ctx, mgr, importModeSwitcher, false, true)
+	restoreSchedulers, _, err := restore.RestorePreWork(ctx, mgr, importModeSwitcher, false, true, client.IsKeyspaceMode())
 	if err != nil {
 		return errors.Trace(err)
 	}
-	defer restore.RestorePostWork(ctx, importModeSwitcher, restoreSchedulers, false)
+	defer restore.RestorePostWork(ctx, importModeSwitcher, restoreSchedulers, false, client.IsKeyspaceMode())
 
 	err = client.WaitForFilesRestored(ctx, files, updateCh)
 	if err != nil {

@@ -36,6 +36,7 @@ go_library(
         "//pkg/bindinfo",
         "//pkg/domain",
         "//pkg/domain/infosync",
+        "//pkg/keyspace",
         "//pkg/kv",
         "//pkg/meta",
         "//pkg/meta/model",

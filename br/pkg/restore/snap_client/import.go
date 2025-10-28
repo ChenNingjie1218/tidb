@@ -308,6 +308,7 @@ func (importer *SnapFileImporter) ImportSSTFiles(
 	filesGroup []TableIDWithFiles,
 	cipher *backuppb.CipherInfo,
 	apiVersion kvrpcpb.APIVersion,
+	leaderDownload bool,
 ) error {
 	// Rewrite the start key and end key of file to scan regions
 	startKey, endKey, err := importer.getKeyRangeForFiles(filesGroup)
@@ -329,7 +330,7 @@ func (importer *SnapFileImporter) ImportSSTFiles(
 		for _, regionInfo := range regionInfos {
 			info := regionInfo
 			// Try to download file.
-			downloadMetas, errDownload := importer.download(ctx, info, filesGroup, cipher, apiVersion)
+			downloadMetas, errDownload := importer.download(ctx, info, filesGroup, cipher, apiVersion, leaderDownload)
 			if errDownload != nil {
 				log.Warn("download file failed, retry later",
 					logutil.Region(info.Region),
@@ -341,7 +342,7 @@ func (importer *SnapFileImporter) ImportSSTFiles(
 			log.Debug("download file done", zap.Stringer("take", time.Since(start)),
 				logutil.Key("start", startKey), logutil.Key("end", endKey))
 			start = time.Now()
-			if errIngest := importer.ingest(ctx, info, downloadMetas); errIngest != nil {
+			if errIngest := importer.ingest(ctx, info, downloadMetas, leaderDownload); errIngest != nil {
 				log.Warn("ingest file failed, retry later",
 					logutil.Key("start", startKey),
 					logutil.Key("end", endKey),
@@ -455,6 +456,7 @@ func (importer *SnapFileImporter) download(
 	filesGroup []TableIDWithFiles,
 	cipher *backuppb.CipherInfo,
 	apiVersion kvrpcpb.APIVersion,
+	leaderDownload bool,
 ) ([]*import_sstpb.SSTMeta, error) {
 	var downloadMetas []*import_sstpb.SSTMeta
 	errDownload := utils.WithRetry(ctx, func() error {
@@ -463,7 +465,7 @@ func (importer *SnapFileImporter) download(
 		if importer.kvMode == Raw || importer.kvMode == Txn {
 			downloadMetas, e = importer.downloadRawKVSST(ctx, regionInfo, filesGroup, cipher, apiVersion)
 		} else {
-			downloadMetas, e = importer.downloadSST(ctx, regionInfo, filesGroup, cipher, apiVersion)
+			downloadMetas, e = importer.downloadSST(ctx, regionInfo, filesGroup, cipher, apiVersion, leaderDownload)
 		}
 
 		failpoint.Inject("restore-storage-error", func(val failpoint.Value) {
@@ -480,7 +482,7 @@ func (importer *SnapFileImporter) download(
 			if importer.kvMode == Raw || importer.kvMode == Txn {
 				downloadMetas, e = importer.downloadRawKVSST(ctx, regionInfo, filesGroup, nil, apiVersion)
 			} else {
-				downloadMetas, e = importer.downloadSST(ctx, regionInfo, filesGroup, nil, apiVersion)
+				downloadMetas, e = importer.downloadSST(ctx, regionInfo, filesGroup, nil, apiVersion, leaderDownload)
 			}
 		}
 		if e != nil {
@@ -561,6 +563,7 @@ func (importer *SnapFileImporter) downloadSST(
 	filesGroup []TableIDWithFiles,
 	cipher *backuppb.CipherInfo,
 	apiVersion kvrpcpb.APIVersion,
+	leaderDownload bool,
 ) ([]*import_sstpb.SSTMeta, error) {
 	var mu sync.Mutex
 	downloadMetasMap := make(map[string]import_sstpb.SSTMeta)
@@ -585,6 +588,10 @@ func (importer *SnapFileImporter) downloadSST(
 	eg, ectx := errgroup.WithContext(ctx)
 	for _, p := range regionInfo.Region.GetPeers() {
 		peer := p
+		if leaderDownload && p.String() != regionInfo.Leader.String() {
+			log.Debug("leader-download is true, current peer not leader, skip download on current peer")
+			continue
+		}
 		eg.Go(func() error {
 			tokenCh := importer.downloadTokensMap.acquireTokenCh(peer.GetStoreId(), importer.concurrencyPerStore)
 			select {
@@ -734,6 +741,7 @@ func (importer *SnapFileImporter) ingest(
 	ctx context.Context,
 	info *split.RegionInfo,
 	downloadMetas []*import_sstpb.SSTMeta,
+	leaderDownload bool,
 ) error {
 	if len(downloadMetas) == 0 {
 		return nil
@@ -758,6 +766,11 @@ func (importer *SnapFileImporter) ingest(
 		case errPb == nil:
 			return nil
 		case errPb.NotLeader != nil:
+			// If LeaderDownload is true, when leader changed, it will need to retry download.
+			if leaderDownload {
+				return errors.Trace(berrors.ErrKVNotLeader)
+			}
+
 			// If error is `NotLeader`, update the region info and retry
 			var newInfo *split.RegionInfo
 			if newLeader := errPb.GetNotLeader().GetLeader(); newLeader != nil {

@@ -49,6 +49,7 @@ import (
 	"github.com/pingcap/tidb/br/pkg/utils"
 	"github.com/pingcap/tidb/br/pkg/version"
 	"github.com/pingcap/tidb/pkg/domain"
+	"github.com/pingcap/tidb/pkg/keyspace"
 	"github.com/pingcap/tidb/pkg/kv"
 	"github.com/pingcap/tidb/pkg/meta"
 	"github.com/pingcap/tidb/pkg/meta/model"
@@ -149,6 +150,11 @@ type SnapClient struct {
 	// checkpoint information for snapshot restore
 	checkpointRunner   *checkpoint.CheckpointRunner[checkpoint.RestoreKeyType, checkpoint.RestoreValueType]
 	checkpointChecksum map[int64]*checkpoint.ChecksumItem
+
+	// leaderdown is true means it's just download on leader
+	leaderDownload bool
+	// Target keyspace's name for the data restoration.
+	keyspaceName string
 }
 
 // NewRestoreClient returns a new RestoreClient.
@@ -260,6 +266,12 @@ func (rc *SnapClient) GetRewriteMode() RewriteMode {
 
 // SetPlacementPolicyMode to policy mode.
 func (rc *SnapClient) SetPlacementPolicyMode(withPlacementPolicy string) {
+	if rc.IsKeyspaceMode() {
+		log.Info("ignore placement policy when keyspaceName is set", zap.String("mode", rc.policyMode))
+		rc.policyMode = ignorePlacementPolicyMode
+		return
+	}
+
 	switch strings.ToUpper(withPlacementPolicy) {
 	case strictPlacementPolicyMode:
 		rc.policyMode = strictPlacementPolicyMode
@@ -1081,7 +1093,7 @@ func (rc *SnapClient) WaitForFilesRestored(ctx context.Context, files []*backupp
 					log.Info("import sst files done", logutil.Files(files))
 					updateCh.Inc()
 				}()
-				return rc.fileImporter.ImportSSTFiles(ectx, []TableIDWithFiles{{Files: []*backuppb.File{fileReplica}, RewriteRules: restoreutils.EmptyRewriteRule()}}, rc.cipher, rc.backupMeta.ApiVersion)
+				return rc.fileImporter.ImportSSTFiles(ectx, []TableIDWithFiles{{Files: []*backuppb.File{fileReplica}, RewriteRules: restoreutils.EmptyRewriteRule()}}, rc.cipher, rc.backupMeta.ApiVersion, rc.leaderDownload)
 			})
 	}
 	if err := eg.Wait(); err != nil {
@@ -1117,4 +1129,19 @@ func (rc *SnapClient) RestoreRaw(
 		logutil.Key("endKey", endKey),
 	)
 	return nil
+}
+
+// SetLeaderDownload set whether just download on leader.
+func (rc *SnapClient) SetLeaderDownload(leaderDownload bool) {
+	rc.leaderDownload = leaderDownload
+}
+
+// SetKeyspaceName set the keyspace name for the restore client.
+func (rc *SnapClient) SetKeyspaceName(keyspaceName string) {
+	rc.keyspaceName = keyspaceName
+}
+
+// IsKeyspaceMode indicates whether BR is restoring a specific keyspace's data.
+func (rc *SnapClient) IsKeyspaceMode() bool {
+	return !keyspace.IsKeyspaceNameEmpty(rc.keyspaceName)
 }

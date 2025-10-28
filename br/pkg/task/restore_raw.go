@@ -152,11 +152,11 @@ func RunRestoreRaw(c context.Context, g glue.Glue, cmdName string, cfg *RestoreR
 	}
 
 	importModeSwitcher := restore.NewImportModeSwitcher(mgr.GetPDClient(), cfg.SwitchModeInterval, mgr.GetTLSConfig())
-	restoreSchedulers, _, err := restore.RestorePreWork(ctx, mgr, importModeSwitcher, cfg.Online, true)
+	restoreSchedulers, _, err := restore.RestorePreWork(ctx, mgr, importModeSwitcher, cfg.Online, true, client.IsKeyspaceMode())
 	if err != nil {
 		return errors.Trace(err)
 	}
-	defer restore.RestorePostWork(ctx, importModeSwitcher, restoreSchedulers, cfg.Online)
+	defer restore.RestorePostWork(ctx, importModeSwitcher, restoreSchedulers, cfg.Online, client.IsKeyspaceMode())
 
 	err = client.RestoreRaw(ctx, cfg.StartKey, cfg.EndKey, files, updateCh)
 	if err != nil {

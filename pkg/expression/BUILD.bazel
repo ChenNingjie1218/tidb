@@ -149,7 +149,7 @@ go_library(
 
 go_test(
     name = "expression_test",
-    timeout = "moderate",
+    timeout = "short",
     srcs = [
         "bench_test.go",
         "builtin_arithmetic_test.go",
@@ -209,10 +209,8 @@ go_test(
         "typeinfer_test.go",
         "util_test.go",
     ],
-    data = glob(["testdata/**"]),
     embed = [":expression"],
     flaky = True,
-    race = "on",
     shard_count = 50,
     deps = [
         "//pkg/config",

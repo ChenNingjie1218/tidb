@@ -17,6 +17,7 @@ package executor
 import (
 	"context"
 	"strconv"
+	"time"
 
 	"github.com/pingcap/failpoint"
 	"github.com/pingcap/tidb/pkg/distsql"
@@ -30,6 +31,12 @@ import (
 	"github.com/pingcap/tidb/pkg/util/ranger"
 	"github.com/pingcap/tipb/go-tipb"
 	"go.uber.org/zap"
+)
+
+const (
+	// The maximum retry time is 180s = 90 * 2s.
+	maxRetryCount = 90
+	retryInterval = 2 * time.Second
 )
 
 var _ exec.Executor = &ChecksumTableExec{}
@@ -61,7 +68,7 @@ func (e *ChecksumTableExec) Open(ctx context.Context) error {
 	taskCh := make(chan *checksumTask, len(tasks))
 	resultCh := make(chan *checksumResult, len(tasks))
 	for i := 0; i < concurrency; i++ {
-		go e.checksumWorker(taskCh, resultCh)
+		go e.checksumWorker(ctx, taskCh, resultCh)
 	}
 
 	for _, task := range tasks {
@@ -134,14 +141,25 @@ func (e *ChecksumTableExec) handleResult(result *checksumResult) {
 	table.handleResponse(result.response)
 }
 
-func (e *ChecksumTableExec) checksumWorker(taskCh <-chan *checksumTask, resultCh chan<- *checksumResult) {
+func (e *ChecksumTableExec) checksumWorker(ctx context.Context, taskCh <-chan *checksumTask, resultCh chan<- *checksumResult) {
 	for task := range taskCh {
 		result := &checksumResult{
 			tableID:         task.tableID,
 			physicalTableID: task.physicalTableID,
 			indexID:         task.indexID,
 		}
-		result.response, result.err = e.handleChecksumRequest(task.request)
+	LOOP:
+		for range maxRetryCount {
+			result.response, result.err = e.handleChecksumRequest(task.request)
+			if result.err == nil {
+				break
+			}
+			select {
+			case <-ctx.Done():
+				break LOOP
+			case <-time.After(retryInterval):
+			}
+		}
 		resultCh <- result
 	}
 }

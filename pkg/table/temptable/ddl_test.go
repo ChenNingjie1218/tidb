@@ -20,6 +20,7 @@ import (
 
 	"github.com/pingcap/tidb/pkg/infoschema"
 	"github.com/pingcap/tidb/pkg/kv"
+	"github.com/pingcap/tidb/pkg/meta"
 	"github.com/pingcap/tidb/pkg/meta/model"
 	pmodel "github.com/pingcap/tidb/pkg/parser/model"
 	"github.com/pingcap/tidb/pkg/parser/mysql"
@@ -224,4 +225,38 @@ func newMockTable(tblName string) *model.TableInfo {
 
 func newMockSchema(schemaName string) *model.DBInfo {
 	return &model.DBInfo{ID: 10, Name: pmodel.NewCIStr(schemaName), State: model.StatePublic}
+}
+
+func TestTableIDAllocter(t *testing.T) {
+	store, err := mockstore.NewMockStore()
+	require.NoError(t, err)
+	defer func() { require.NoError(t, store.Close()) }()
+
+	var orgNextGlobalID int64
+	ctx := kv.WithInternalSourceType(context.Background(), kv.InternalTxnCacheTable)
+	err = kv.RunInNewTxn(ctx, store, true, func(ctx context.Context, txn kv.Transaction) error {
+		m := meta.NewMutator(txn)
+		orgNextGlobalID, err = m.GetGlobalID()
+		return err
+	})
+	require.NoError(t, err)
+
+	alloctor := &tblIDAllocator{step: 1}
+	id, err := alloctor.Next(store)
+	require.NoError(t, err)
+	require.Equal(t, orgNextGlobalID+1, id)
+
+	alloctor = &tblIDAllocator{step: 10}
+	id, err = alloctor.Next(store)
+	require.NoError(t, err)
+	require.Equal(t, orgNextGlobalID+2, id)
+
+	var curNextGlobalID int64
+	err = kv.RunInNewTxn(ctx, store, true, func(ctx context.Context, txn kv.Transaction) error {
+		m := meta.NewMutator(txn)
+		curNextGlobalID, err = m.GetGlobalID()
+		return err
+	})
+	require.NoError(t, err)
+	require.Equal(t, orgNextGlobalID+11, curNextGlobalID)
 }

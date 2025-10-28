@@ -38,6 +38,7 @@ go_library(
         "//pkg/store/copr",
         "//pkg/store/driver",
         "//pkg/store/mockstore",
+        "//pkg/table/temptable",
         "//pkg/tidbmanager",
         "//pkg/tidbworker",
         "//pkg/util",

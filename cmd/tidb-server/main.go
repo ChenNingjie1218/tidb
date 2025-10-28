@@ -63,6 +63,7 @@ import (
 	"github.com/pingcap/tidb/pkg/store/copr"
 	"github.com/pingcap/tidb/pkg/store/driver"
 	"github.com/pingcap/tidb/pkg/store/mockstore"
+	"github.com/pingcap/tidb/pkg/table/temptable"
 	"github.com/pingcap/tidb/pkg/tidbmanager"
 	"github.com/pingcap/tidb/pkg/tidbworker"
 	"github.com/pingcap/tidb/pkg/util"
@@ -422,7 +423,11 @@ func main() {
 		}
 		keyspace.SetUsernamePolicy(keyspace.NewPrefixPolicy(keyspaceMeta.GetName()))
 	}
+
 	// Serverless ===================
+	updateConfigForServerless(keyspaceMeta)
+	temptable.InitGloablTemporaryTableIDAllocator()
+
 	err = setupExternalStorage(keyspaceMeta)
 	terror.MustNil(err)
 

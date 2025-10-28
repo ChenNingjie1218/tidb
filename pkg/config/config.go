@@ -432,6 +432,9 @@ type Config struct {
 	// It's a temporary solution for index advisor and may be removed in the future.
 	EnableUnredactLogger bool `toml:"enable-unredact-logger" json:"enable-unredact-logger"`
 
+	// TempTableIDAllocatorStep is used to set the step of temp table id allocator.
+	TempTableIDAllocatorStep map[string]int `toml:"temp-table-id-allocator-step" json:"temp-table-id-allocator-step"`
+
 	// MaxImportDataSize is used to limit the max data size of the import into.
 	MaxImportDataSize int64 `toml:"max-import-data-size" json:"max-import-data-size"`
 

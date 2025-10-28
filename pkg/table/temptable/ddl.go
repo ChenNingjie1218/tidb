@@ -17,9 +17,12 @@ package temptable
 import (
 	"bytes"
 	"context"
+	"sync"
 
 	"github.com/pingcap/errors"
+	"github.com/pingcap/tidb/pkg/config"
 	"github.com/pingcap/tidb/pkg/infoschema"
+	"github.com/pingcap/tidb/pkg/keyspace"
 	"github.com/pingcap/tidb/pkg/kv"
 	"github.com/pingcap/tidb/pkg/meta"
 	"github.com/pingcap/tidb/pkg/meta/autoid"
@@ -31,8 +34,63 @@ import (
 	"github.com/pingcap/tidb/pkg/table"
 	"github.com/pingcap/tidb/pkg/table/tables"
 	"github.com/pingcap/tidb/pkg/tablecodec"
+	"github.com/pingcap/tidb/pkg/util/logutil"
 	"github.com/tikv/client-go/v2/tikv"
+	"go.uber.org/zap"
 )
+
+const (
+	// defaultTableIDStep is the default step of table ID allocator
+	defaultTableIDStep = 1
+	// maxTableIDStep is the max step of table ID allocator
+	maxTableIDStep = 32
+	// minTableIDStep is the min step of table ID allocator
+	minTableIDStep = 1
+)
+
+var globalTblIDAllocator = &tblIDAllocator{
+	mu:   sync.Mutex{},
+	step: defaultTableIDStep,
+	cur:  0,
+	end:  0,
+}
+
+type tblIDAllocator struct {
+	mu sync.Mutex
+
+	step int
+	// cur is the current table ID,
+	// end is the end table ID,
+	// that is [cur, end) is the range of table IDs that can be allocated.
+	cur int64
+	end int64
+}
+
+func (a *tblIDAllocator) Next(store kv.Storage) (id int64, err error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if a.cur == a.end {
+		ctx := kv.WithInternalSourceType(context.Background(), kv.InternalTxnCacheTable)
+		err = kv.RunInNewTxn(ctx, store, true, func(ctx context.Context, txn kv.Transaction) error {
+			m := meta.NewMutator(txn)
+			origID, err := m.AdvanceGlobalIDs(a.step)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			a.cur = origID + 1
+			a.end = a.cur + int64(a.step)
+			return nil
+		})
+		if err != nil {
+			return 0, err
+		}
+	}
+
+	id = a.cur
+	a.cur++
+	return id, nil
+}
 
 // TemporaryTableDDL is an interface providing ddl operations for temporary table
 type TemporaryTableDDL interface {
@@ -162,20 +220,12 @@ func newTemporaryTableFromTableInfo(sctx sessionctx.Context, tbInfo *model.Table
 	// Local temporary table uses a real table ID.
 	// We could mock a table ID, but the mocked ID might be identical to an existing
 	// real table, and then we'll get into trouble.
-	ctx := kv.WithInternalSourceType(context.Background(), kv.InternalTxnCacheTable)
-	err := kv.RunInNewTxn(ctx, sctx.GetStore(), true, func(ctx context.Context, txn kv.Transaction) error {
-		m := meta.NewMutator(txn)
-		tblID, err := m.GenGlobalID()
-		if err != nil {
-			return errors.Trace(err)
-		}
-		tbInfo.ID = tblID
-		tbInfo.State = model.StatePublic
-		return nil
-	})
+	tblID, err := globalTblIDAllocator.Next(sctx.GetStore())
 	if err != nil {
 		return nil, err
 	}
+	tbInfo.ID = tblID
+	tbInfo.State = model.StatePublic
 
 	// AutoID is allocated in mocked..
 	alloc := autoid.NewAllocatorFromTempTblInfo(tbInfo)
@@ -191,4 +241,21 @@ func GetTemporaryTableDDL(sctx sessionctx.Context) TemporaryTableDDL {
 	return &temporaryTableDDL{
 		sctx: sctx,
 	}
+}
+
+// InitGloablTemporaryTableIDAllocator initializes the global table ID allocator
+func InitGloablTemporaryTableIDAllocator() {
+	keyspaceName := keyspace.GetKeyspaceNameBySettings()
+	if len(keyspaceName) > 0 {
+		if step, ok := config.GetGlobalConfig().TempTableIDAllocatorStep[keyspaceName]; ok {
+			if step > maxTableIDStep {
+				step = maxTableIDStep
+			}
+			if step < minTableIDStep {
+				step = minTableIDStep
+			}
+			globalTblIDAllocator.step = step
+		}
+	}
+	logutil.BgLogger().Info("init global tblIDAlloctor", zap.Int("step", globalTblIDAllocator.step))
 }

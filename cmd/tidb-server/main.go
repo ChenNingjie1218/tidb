@@ -451,6 +451,7 @@ func main() {
 			config.GetGlobalConfig().TiFlashComputeAutoScalerType,
 			config.GetGlobalConfig().TiFlashComputeAutoScalerAddr,
 			config.GetGlobalConfig().AutoScalerClusterID,
+			keyspaceID,
 			config.GetGlobalConfig().IsTiFlashComputeFixedPool)
 		mainErrHandler(err)
 	}

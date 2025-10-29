@@ -16,6 +16,7 @@ package tiflashcompute
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -132,9 +133,10 @@ func getAutoScalerType(typ string) int {
 }
 
 // InitGlobalTopoFetcher init globalTopoFetcher if is in disaggregated-tiflash mode. It's not thread-safe.
-func InitGlobalTopoFetcher(typ string, addr string, clusterID string, isFixedPool bool) (err error) {
+func InitGlobalTopoFetcher(typ string, addr string, clusterID string,
+	resourceGroup uint32, isFixedPool bool) (err error) {
 	logutil.BgLogger().Info("init globalTopoFetcher", zap.Any("type", typ), zap.Any("addr", addr),
-		zap.Any("clusterID", clusterID), zap.Any("isFixedPool", isFixedPool))
+		zap.Any("clusterID", clusterID), zap.Any("isFixedPool", isFixedPool), zap.Any("resourceGroup", resourceGroup))
 	if clusterID == "" || addr == "" {
 		return errors.Errorf("ClusterID(%s) or AutoScaler(%s) addr is empty", clusterID, addr)
 	}
@@ -144,7 +146,7 @@ func InitGlobalTopoFetcher(typ string, addr string, clusterID string, isFixedPoo
 	case MockASType:
 		globalTopoFetcher = NewMockAutoScalerFetcher(addr)
 	case AWSASType:
-		globalTopoFetcher = NewAWSAutoScalerFetcher(addr, clusterID, isFixedPool)
+		globalTopoFetcher = NewAWSAutoScalerFetcher(addr, clusterID, resourceGroup, isFixedPool)
 	case GCPASType:
 		err = errors.Errorf("topo fetch not implemented yet(%s)", typ)
 	case TestASType:
@@ -299,9 +301,10 @@ type AWSTopoFetcher struct {
 	}
 	// AWS AutoScaler addr.
 	// These should be init when TiDB start, all single threaded, no need to lock.
-	addr        string
-	clusterID   string
-	isFixedPool bool
+	addr          string
+	clusterID     string
+	resourceGroup string
+	isFixedPool   bool
 }
 
 type resumeAndGetTopologyResult struct {
@@ -313,12 +316,13 @@ type resumeAndGetTopologyResult struct {
 }
 
 // NewAWSAutoScalerFetcher create a new AWSTopoFetcher.
-func NewAWSAutoScalerFetcher(addr string, clusterID string, isFixed bool) *AWSTopoFetcher {
+func NewAWSAutoScalerFetcher(addr string, clusterID string, resourceGroup uint32, isFixed bool) *AWSTopoFetcher {
 	f := &AWSTopoFetcher{}
 	f.mu.topo = make([]string, 0, 8)
 	f.mu.topoTS = -1
 	f.addr = addr
 	f.clusterID = clusterID
+	f.resourceGroup = fmt.Sprintf("%v", resourceGroup)
 	f.isFixedPool = isFixed
 	return f
 }
@@ -435,6 +439,7 @@ func (f *AWSTopoFetcher) fetchFixedPoolTopo() error {
 func (f *AWSTopoFetcher) fetchTopo(recovery RecoveryType, oriCNCnt int) error {
 	para := url.Values{}
 	para.Add("tidbclusterid", f.clusterID)
+	para.Add("resourcegroup", f.resourceGroup)
 
 	if recovery == RecoveryTypeMemLimit {
 		msg, err := recovery.toString()

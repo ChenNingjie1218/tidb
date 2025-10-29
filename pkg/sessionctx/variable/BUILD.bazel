@@ -47,6 +47,7 @@ go_library(
         "//pkg/util/dbterror",
         "//pkg/util/dbterror/plannererrors",
         "//pkg/util/disk",
+        "//pkg/util/errmsg",
         "//pkg/util/execdetails",
         "//pkg/util/gctuner",
         "//pkg/util/intest",

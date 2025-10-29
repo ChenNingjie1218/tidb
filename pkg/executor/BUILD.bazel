@@ -217,6 +217,7 @@ go_library(
         "//pkg/util/deadlockhistory",
         "//pkg/util/disk",
         "//pkg/util/disttask",
+        "//pkg/util/errmsg",
         "//pkg/util/execdetails",
         "//pkg/util/external",
         "//pkg/util/filter",

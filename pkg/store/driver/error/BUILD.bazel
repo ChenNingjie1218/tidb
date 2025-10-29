@@ -11,6 +11,7 @@ go_library(
         "//pkg/parser/terror",
         "//pkg/util/dbterror",
         "//pkg/util/dbterror/exeerrors",
+        "//pkg/util/errmsg",
         "//pkg/util/sqlkiller",
         "@com_github_pingcap_errors//:errors",
         "@com_github_tikv_client_go_v2//error",

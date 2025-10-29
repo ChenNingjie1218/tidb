@@ -45,6 +45,7 @@ import (
 	_ "github.com/pingcap/tidb/pkg/types/parser_driver" // for parser driver
 	"github.com/pingcap/tidb/pkg/util"
 	"github.com/pingcap/tidb/pkg/util/collate"
+	"github.com/pingcap/tidb/pkg/util/errmsg"
 	"github.com/pingcap/tidb/pkg/util/gctuner"
 	"github.com/pingcap/tidb/pkg/util/intest"
 	"github.com/pingcap/tidb/pkg/util/logutil"
@@ -1243,7 +1244,7 @@ var defaultSysVars = []*SysVar{
 		}, Validation: func(vars *SessionVars, normalizedValue string, originalValue string, scope ScopeFlag) (string, error) {
 			// TiDB Cloud serverless can not execute set command for require_secure_transport.
 			if vars.StmtCtx.StmtType == "Set" {
-				return "", errors.New("require_secure_transport can not be set")
+				return "", errmsg.WithRequireSecureTransportErrTag(errors.New("require_secure_transport can not be set"))
 			}
 			return normalizedValue, nil
 		},

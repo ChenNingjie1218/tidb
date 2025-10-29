@@ -32,6 +32,7 @@ import (
 	"github.com/pingcap/tidb/pkg/sessionctx/variable"
 	"github.com/pingcap/tidb/pkg/types"
 	"github.com/pingcap/tidb/pkg/util/chunk"
+	"github.com/pingcap/tidb/pkg/util/errmsg"
 	"github.com/pingcap/tidb/pkg/util/vitess"
 	"github.com/pingcap/tipb/go-tipb"
 )
@@ -166,7 +167,7 @@ func (b *builtinSleepSig) evalInt(ctx EvalContext, row chunk.Row) (int64, bool, 
 	}
 
 	if val > maxSleepSeconds {
-		return 0, false, errIncorrectArgs.GenWithStack("sleep() argument is greater than %v", maxSleepSeconds)
+		return 0, false, errmsg.WithMaxSleepSecondsErrTag(errIncorrectArgs.GenWithStack("sleep() argument is greater than %v", maxSleepSeconds))
 	}
 
 	if isKilled := doSleep(val, vars); isKilled {

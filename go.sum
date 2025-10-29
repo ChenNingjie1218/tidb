@@ -1704,8 +1704,8 @@ github.com/tidbcloud/aws-shared-provider/pkg/tidbworker/clientv2 v0.0.0-20240929
 github.com/tidbcloud/aws-shared-provider/pkg/tidbworker/clientv2 v0.0.0-20240929071820-0c047349cbf9/go.mod h1:0XTZzZYKKJJs5Trjmt3Eg7R+YEnqkEAjVPsXSUEW4dA=
 github.com/tidbcloud/aws-shared-provider/pkg/tidbworker/proto v0.0.0-20240929071820-0c047349cbf9 h1:6PllvxeZh5SA6oo0tWH+yfGs6IBIgGTzMpmDeO5rLU0=
 github.com/tidbcloud/aws-shared-provider/pkg/tidbworker/proto v0.0.0-20240929071820-0c047349cbf9/go.mod h1:n8YxMuMgic91v9WOQvs88CUbOiJLZRZqSCuMIkyuefw=
-github.com/tidbcloud/client-go-cse/v2 v2.0.0-20251023031251-386c20743ea7 h1:S1rwykku9C8K3HdupumSyLPPzM6RKa9s5r07WsHTkC8=
-github.com/tidbcloud/client-go-cse/v2 v2.0.0-20251023031251-386c20743ea7/go.mod h1:iPyjnXZw4s7qfhzSFegUXxXY4FHDyEFGhZGl+HiVGao=
+github.com/tidbcloud/client-go-cse/v2 v2.0.0-20251029081423-f4d7de306918 h1:TOU6gYMV1O5VTPZMIoqV0yW+VrnEuHefmje0uy+2Mwg=
+github.com/tidbcloud/client-go-cse/v2 v2.0.0-20251029081423-f4d7de306918/go.mod h1:iPyjnXZw4s7qfhzSFegUXxXY4FHDyEFGhZGl+HiVGao=
 github.com/tidbcloud/kvproto v0.0.0-20250916081355-a2c1af80452d h1:ddDVnF4oBoh3SDZ/cBlxj26uesvTWXYJwvZ2O14i+UU=
 github.com/tidbcloud/kvproto v0.0.0-20250916081355-a2c1af80452d/go.mod h1:rXxWk2UnwfUhLXha1jxRWPADw9eMZGWEWCg92Tgmb/8=
 github.com/tidbcloud/pd-cse/client v0.0.0-20251022143944-3405eeea5ee9 h1:r/NGNXJjM9VdLOnop34WMKv5k+StCYvhg6C17zlf1r0=

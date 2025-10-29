@@ -471,6 +471,10 @@ func (b *Backend) CloseEngine(ctx context.Context, cfg *backend.EngineConfig, en
 		return true
 	})
 
+	if err == nil {
+		engine.writers.Clear()
+	}
+
 	return err
 }
 

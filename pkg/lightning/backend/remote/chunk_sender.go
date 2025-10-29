@@ -212,11 +212,17 @@ func (c *chunkSender) chunkSenderLoop(ctx context.Context) {
 				}
 				c.err = c.putChunkToRemote(ctx, chunk)
 				if c.err != nil {
+					c.e.logger.Error("put chunk error",
+						zap.Uint64("sender", c.id),
+						zap.Error(c.err))
 					return
 				}
 			} else {
 				c.err = c.sendFlushToRemote(ctx)
 				if c.err != nil {
+					c.e.logger.Error("flush chunk error",
+						zap.Uint64("sender", c.id),
+						zap.Error(c.err))
 					return
 				}
 				task.done(0)
@@ -228,6 +234,9 @@ func (c *chunkSender) chunkSenderLoop(ctx context.Context) {
 			}
 			c.err = c.putEmptyChunk(ctx)
 			if c.err != nil {
+				c.e.logger.Error("flush empty chunk error",
+					zap.Uint64("sender", c.id),
+					zap.Error(c.err))
 				return
 			}
 		}

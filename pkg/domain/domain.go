@@ -1747,6 +1747,7 @@ func (do *Domain) InitDistTaskLoop() error {
 	if workerConfig.Enable &&
 		(workerConfig.Role == config.RoleDDLWorker ||
 			workerConfig.Role == config.RoleBatchWorker ||
+			workerConfig.Role == config.RoleImportIntoWorker ||
 			workerConfig.Role == config.RoleSharedWorker) {
 		serverID = config.GetGlobalConfig().TiDBWorker.ExecID
 	}

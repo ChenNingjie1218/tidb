@@ -141,7 +141,7 @@ func (s *importStepExecutor) RunSubtask(ctx context.Context, subtask *proto.Subt
 
 	var dataEngine, indexEngine *backend.OpenedEngine
 	if s.tableImporter.IsLocalSort() || s.tableImporter.IsRemoteSort() {
-		dataEngine, err = s.tableImporter.OpenDataEngine(ctx, s.taskID, subtaskMeta.ID)
+		dataEngine, err = s.tableImporter.OpenDataEngine(ctx, s.taskID, subtaskMeta.ID, 0)
 		if err != nil {
 			return err
 		}
@@ -152,7 +152,7 @@ func (s *importStepExecutor) RunSubtask(ctx context.Context, subtask *proto.Subt
 		// Multiple index engines may suffer performance degradation due to range overlap.
 		// These issues will be alleviated after we integrate s3 sorter.
 		// engineID = -1, -2, -3, ...
-		indexEngine, err = s.tableImporter.OpenIndexEngine(ctx, s.taskID, common.IndexEngineID-subtaskMeta.ID)
+		indexEngine, err = s.tableImporter.OpenIndexEngine(ctx, s.taskID, common.IndexEngineID-subtaskMeta.ID, 0)
 		if err != nil {
 			return err
 		}

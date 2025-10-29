@@ -441,6 +441,9 @@ type Config struct {
 	// ExternalStorageConfig is config for external storage.
 	ExternalStorageConfig ExternalStorageConfig `toml:"external-storage-config" json:"external-storage-config"`
 
+	// FixedStorageSize is used for `import into from select`
+	FixedStorageSize int64 `toml:"fixed-storage-size" json:"fixed-storage-size"`
+
 	// CSE is the config collection for the cloud storage engine.
 	CSE CSE `toml:"cse" json:"cse"`
 }
@@ -1299,6 +1302,7 @@ var defaultConf = Config{
 		RoleExpiryWindow: 10 * time.Hour,
 		RoleDuration:     12 * time.Hour,
 	},
+	FixedStorageSize: 480 * 1024 * 1024 * 1024,
 }
 
 var (

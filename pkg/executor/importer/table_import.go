@@ -61,6 +61,7 @@ import (
 	"github.com/pingcap/tidb/pkg/util/sqlkiller"
 	"github.com/pingcap/tidb/pkg/util/syncutil"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/tikv/client-go/v2/oracle"
 	"github.com/tikv/client-go/v2/util"
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.uber.org/multierr"
@@ -466,7 +467,7 @@ func (ti *TableImporter) getTotalRawFileSize(indexCnt int64) int64 {
 }
 
 // OpenIndexEngine opens an index engine.
-func (ti *TableImporter) OpenIndexEngine(ctx context.Context, taskID int64, engineID int32) (*backend.OpenedEngine, error) {
+func (ti *TableImporter) OpenIndexEngine(ctx context.Context, taskID int64, engineID int32, dataSize int64) (*backend.OpenedEngine, error) {
 	if ti.IsRemoteSort() {
 		engineID = common.IndexEngineID
 	}
@@ -481,6 +482,9 @@ func (ti *TableImporter) OpenIndexEngine(ctx context.Context, taskID int64, engi
 		EngineID:          engineID,
 		TableInfo:         ti.tableInfo,
 		EstimatedDataSize: estimatedDataSize,
+	}
+	if dataSize != 0 {
+		idxEngineCfg.EstimatedDataSize = dataSize
 	}
 	// todo: getTotalRawFileSize returns size of all data files, but in distributed framework,
 	// we create one index engine for each engine, should reflect this in the future.
@@ -499,7 +503,7 @@ func (ti *TableImporter) OpenIndexEngine(ctx context.Context, taskID int64, engi
 }
 
 // OpenDataEngine opens a data engine.
-func (ti *TableImporter) OpenDataEngine(ctx context.Context, taskID int64, engineID int32) (*backend.OpenedEngine, error) {
+func (ti *TableImporter) OpenDataEngine(ctx context.Context, taskID int64, engineID int32, dataSize int64) (*backend.OpenedEngine, error) {
 	if ti.IsRemoteSort() {
 		engineID = 0
 	}
@@ -508,6 +512,9 @@ func (ti *TableImporter) OpenDataEngine(ctx context.Context, taskID int64, engin
 		EngineID:          engineID,
 		TableInfo:         ti.tableInfo,
 		EstimatedDataSize: ti.getTotalRawFileSize(int64(1)),
+	}
+	if dataSize != 0 {
+		dataEngineCfg.EstimatedDataSize = dataSize
 	}
 	// todo: support checking IsRowOrdered later.
 	// also see test result here: https://github.com/pingcap/tidb/pull/47147
@@ -693,12 +700,21 @@ func (ti *TableImporter) ImportSelectedRows(ctx context.Context, se sessionctx.C
 		}
 	}()
 
-	// TODO(zzm): get taskID
-	dataEngine, err = ti.OpenDataEngine(ctx, 1, 1)
+	physical, logical, err := se.GetStore().(tidbkv.StorageWithPD).GetPDClient().GetTS(ctx)
 	if err != nil {
 		return nil, err
 	}
-	indexEngine, err = ti.OpenIndexEngine(ctx, 1, common.IndexEngineID)
+	taskID := int64(oracle.ComposeTS(physical, logical))
+	if taskID < 0 {
+		taskID = -taskID
+	}
+
+	fixedStorageSize := tidb.GetGlobalConfig().FixedStorageSize
+	dataEngine, err = ti.OpenDataEngine(ctx, taskID, 1, fixedStorageSize)
+	if err != nil {
+		return nil, err
+	}
+	indexEngine, err = ti.OpenIndexEngine(ctx, taskID, common.IndexEngineID, fixedStorageSize)
 	if err != nil {
 		return nil, err
 	}
@@ -707,7 +723,7 @@ func (ti *TableImporter) ImportSelectedRows(ctx context.Context, se sessionctx.C
 		mu       sync.Mutex
 		checksum = verify.NewKVGroupChecksumWithKeyspace(ti.keyspace)
 	)
-	eg, egCtx := tidbutil.NewErrorGroupWithRecoverWithCtx(ctx)
+	eg := tidbutil.NewErrorGroupWithRecover()
 	for i := 0; i < ti.ThreadCnt; i++ {
 		eg.Go(func() error {
 			chunkCheckpoint := checkpoints.ChunkCheckpoint{}
@@ -717,7 +733,7 @@ func (ti *TableImporter) ImportSelectedRows(ctx context.Context, se sessionctx.C
 				defer mu.Unlock()
 				checksum.Add(chunkChecksum)
 			}()
-			return ProcessChunk(egCtx, &chunkCheckpoint, ti, dataEngine, indexEngine, ti.logger, chunkChecksum)
+			return ProcessChunk(ctx, &chunkCheckpoint, ti, dataEngine, indexEngine, ti.logger, chunkChecksum)
 		})
 	}
 	if err = eg.Wait(); err != nil {
@@ -737,8 +753,12 @@ func (ti *TableImporter) ImportSelectedRows(ctx context.Context, se sessionctx.C
 		}
 		return nil, err
 	}
-	// TODO(zzm): support remote backend
-	dataKVCount := ti.backend.(*local.Backend).GetImportedKVCount(closedDataEngine.GetUUID())
+	var dataKVCount int64
+	if lbc, ok := ti.backend.(*local.Backend); ok {
+		dataKVCount = lbc.GetImportedKVCount(closedDataEngine.GetUUID())
+	} else if rbc, ok := ti.backend.(*remote.Backend); ok {
+		dataKVCount = rbc.GetImportedKVCount(closedDataEngine.GetUUID())
+	}
 
 	closedIndexEngine, err := indexEngine.Close(ctx)
 	if err != nil {

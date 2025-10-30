@@ -3501,7 +3501,7 @@ var defaultSysVars = []*SysVar{
 			return (*SetPDClientDynamicOption.Load())(TiDBTSOClientRPCMode, val)
 		},
 	},
-	{Scope: ScopeGlobal, Name: TiDBExpEmbedJinaAPIKey, Value: "", Type: TypeStr, SetGlobal: func(ctx context.Context, vars *SessionVars, s string) error {
+	{Scope: ScopeGlobal, Name: TiDBExpEmbedJinaAIAPIKey, Value: "", Type: TypeStr, SetGlobal: func(ctx context.Context, vars *SessionVars, s string) error {
 		EmbedJinaAPIKey.Store(s)
 		return nil
 	}, GetGlobal: func(ctx context.Context, vars *SessionVars) (string, error) {
@@ -3512,6 +3512,30 @@ var defaultSysVars = []*SysVar{
 		return nil
 	}, GetGlobal: func(ctx context.Context, vars *SessionVars) (string, error) {
 		return maskEmbedAPIKey(EmbedOpenAIAPIKey.Load()), nil
+	}},
+	{Scope: ScopeGlobal, Name: TiDBExpEmbedCohereAPIKey, Value: "", Type: TypeStr, SetGlobal: func(ctx context.Context, vars *SessionVars, s string) error {
+		EmbedCohereAPIKey.Store(s)
+		return nil
+	}, GetGlobal: func(ctx context.Context, vars *SessionVars) (string, error) {
+		return maskEmbedAPIKey(EmbedCohereAPIKey.Load()), nil
+	}},
+	{Scope: ScopeGlobal, Name: TiDBExpEmbedHuggingFaceAPIKey, Value: "", Type: TypeStr, SetGlobal: func(ctx context.Context, vars *SessionVars, s string) error {
+		EmbedHuggingFaceAPIKey.Store(s)
+		return nil
+	}, GetGlobal: func(ctx context.Context, vars *SessionVars) (string, error) {
+		return maskEmbedAPIKey(EmbedHuggingFaceAPIKey.Load()), nil
+	}},
+	{Scope: ScopeGlobal, Name: TiDBExpEmbedNvidiaNIMAPIKey, Value: "", Type: TypeStr, SetGlobal: func(ctx context.Context, vars *SessionVars, s string) error {
+		EmbedNvidiaNIMAPIKey.Store(s)
+		return nil
+	}, GetGlobal: func(ctx context.Context, vars *SessionVars) (string, error) {
+		return maskEmbedAPIKey(EmbedNvidiaNIMAPIKey.Load()), nil
+	}},
+	{Scope: ScopeGlobal, Name: TiDBExpEmbedGeminiAPIKey, Value: "", Type: TypeStr, SetGlobal: func(ctx context.Context, vars *SessionVars, s string) error {
+		EmbedGeminiAPIKey.Store(s)
+		return nil
+	}, GetGlobal: func(ctx context.Context, vars *SessionVars) (string, error) {
+		return maskEmbedAPIKey(EmbedGeminiAPIKey.Load()), nil
 	}},
 }
 

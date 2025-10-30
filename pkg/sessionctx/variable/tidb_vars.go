@@ -1242,10 +1242,18 @@ const (
 	// TiDBTSOClientRPCMode controls how the TSO client performs the TSO RPC requests. It internally controls the
 	// concurrency of the RPC. This variable provides an approach to tune the latency of getting timestamps from PD.
 	TiDBTSOClientRPCMode = "tidb_tso_client_rpc_mode"
-	// TiDBExpEmbedJinaAPIKey is the API key to use when calling JINA embedding API.
-	TiDBExpEmbedJinaAPIKey = "tidb_exp_embed_jina_api_key"
+	// TiDBExpEmbedJinaAIAPIKey is the API key to use when calling JINA embedding API.
+	TiDBExpEmbedJinaAIAPIKey = "tidb_exp_embed_jina_ai_api_key"
 	// TiDBExpEmbedOpenAIAPIKey is the API key to use when calling OpenAI embedding API.
 	TiDBExpEmbedOpenAIAPIKey = "tidb_exp_embed_openai_api_key"
+	// TiDBExpEmbedCohereAPIKey is the API key to use when calling Cohere embedding API.
+	TiDBExpEmbedCohereAPIKey = "tidb_exp_embed_cohere_api_key"
+	// TiDBExpEmbedHuggingFaceAPIKey is the API key to use when calling HuggingFace embedding API.
+	TiDBExpEmbedHuggingFaceAPIKey = "tidb_exp_embed_huggingface_api_key"
+	// TiDBExpEmbedNvidiaNIMAPIKey is the API key to use when calling Nvidia NIM embedding API.
+	TiDBExpEmbedNvidiaNIMAPIKey = "tidb_exp_embed_nvidia_nim_api_key"
+	// TiDBExpEmbedGeminiAPIKey is the API key to use when calling Gemini embedding API.
+	TiDBExpEmbedGeminiAPIKey = "tidb_exp_embed_gemini_api_key"
 )
 
 // TiDB intentional limits
@@ -1736,8 +1744,12 @@ var (
 	IgnoreInlistPlanDigest          = atomic.NewBool(DefTiDBIgnoreInlistPlanDigest)
 	TxnEntrySizeLimit               = atomic.NewUint64(DefTiDBTxnEntrySizeLimit)
 	// Embedding related global variables
-	EmbedJinaAPIKey   = atomic.NewString("")
-	EmbedOpenAIAPIKey = atomic.NewString("")
+	EmbedJinaAPIKey        = atomic.NewString("")
+	EmbedOpenAIAPIKey      = atomic.NewString("")
+	EmbedCohereAPIKey      = atomic.NewString("")
+	EmbedHuggingFaceAPIKey = atomic.NewString("")
+	EmbedNvidiaNIMAPIKey   = atomic.NewString("")
+	EmbedGeminiAPIKey      = atomic.NewString("")
 
 	SchemaCacheSize           = atomic.NewUint64(DefTiDBSchemaCacheSize)
 	SchemaCacheSizeOriginText = atomic.NewString(strconv.Itoa(DefTiDBSchemaCacheSize))

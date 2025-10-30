@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package openai
+package nvidia
 
 import (
 	"bytes"
@@ -29,11 +29,11 @@ import (
 )
 
 const (
-	// DefaultAPIBaseURL is the default base URL for OpenAI embeddings API.
-	DefaultAPIBaseURL = "https://api.openai.com/v1/embeddings"
+	// DefaultAPIBaseURL is the default base URL for NVIDIA NIM embeddings API.
+	DefaultAPIBaseURL = "https://integrate.api.nvidia.com/v1/embeddings"
 )
 
-// Embedder is for OpenAI embeddings.
+// Embedder is for NVIDIA NIM embeddings.
 type Embedder struct {
 	client http.Client
 	cfg    EmbedderConfig
@@ -41,7 +41,7 @@ type Embedder struct {
 
 var _ base.Embedder = (*Embedder)(nil)
 
-// EmbedderConfig holds the configuration for OpenAIEmbedder.
+// EmbedderConfig holds the configuration for NvidiaEmbedder.
 type EmbedderConfig struct {
 	GetAPIKey        func() string
 	GetBaseURL       func() string
@@ -49,8 +49,8 @@ type EmbedderConfig struct {
 	ErrUnauthorized  error // The error to return when API key is invalid
 }
 
-// NewOpenAIEmbedder creates a new OpenAIEmbedder instance with the provided configuration.
-func NewOpenAIEmbedder(cfg EmbedderConfig) *Embedder {
+// NewNvidiaEmbedder creates a new NvidiaEmbedder instance with the provided configuration.
+func NewNvidiaEmbedder(cfg EmbedderConfig) *Embedder {
 	return &Embedder{
 		client: http.Client{},
 		cfg:    cfg,
@@ -60,7 +60,8 @@ func NewOpenAIEmbedder(cfg EmbedderConfig) *Embedder {
 // CreateEmbeddings creates embeddings for the given texts using the specified model.
 // CreateEmbeddings implements base.Embedder
 func (e *Embedder) CreateEmbeddings(ctx context.Context, model string, texts []string, opts map[string]any) ([][]float32, error) {
-	// ref: https://platform.openai.com/docs/api-reference/embeddings/create
+	// ref: https://docs.api.nvidia.com/nim/reference/baai-bge-m3-invoke
+	// Note: response does not always follow the ref.
 	if len(texts) == 0 {
 		return [][]float32{}, nil
 	}
@@ -82,7 +83,7 @@ func (e *Embedder) CreateEmbeddings(ctx context.Context, model string, texts []s
 		if e.cfg.ErrMissingAPIKey != nil {
 			return nil, e.cfg.ErrMissingAPIKey
 		}
-		return nil, fmt.Errorf("API key is not configured for OpenAI")
+		return nil, fmt.Errorf("API key is not configured for NVIDIA NIM")
 	}
 	var baseURL string
 	if e.cfg.GetBaseURL != nil {
@@ -116,22 +117,30 @@ func (e *Embedder) CreateEmbeddings(ctx context.Context, model string, texts []s
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		logutil.BgLogger().Error("OpenAI API request failed",
+		logutil.BgLogger().Error("NVIDIA NIM API request failed",
 			zap.Int("status", resp.StatusCode),
 			zap.String("body", string(body)),
 		)
-		if resp.StatusCode == http.StatusUnauthorized {
+		if resp.StatusCode == http.StatusForbidden {
 			if e.cfg.ErrUnauthorized != nil {
 				return nil, e.cfg.ErrUnauthorized
 			}
-			return nil, fmt.Errorf("OpenAI returns status unauthorized, check API key")
+			return nil, fmt.Errorf("NVIDIA NIM returns status forbidden, check API key")
+		}
+		if resp.StatusCode == http.StatusNotFound {
+			return nil, fmt.Errorf("NVIDIA NIM model '%s' does not exist or is not available", model)
 		}
 		// Try to unmarshal an error response if available
 		var errResp ErrorResponse
-		if err := json.Unmarshal(body, &errResp); err == nil && errResp.Error.Message != "" {
-			return nil, fmt.Errorf("OpenAI: %s", errResp.Error.Message)
+		if err := json.Unmarshal(body, &errResp); err == nil {
+			if errResp.Detail != "" {
+				return nil, fmt.Errorf("NVIDIA NIM: %s", errResp.Detail)
+			}
+			if errResp.Error != "" {
+				return nil, fmt.Errorf("NVIDIA NIM: %s", errResp.Error)
+			}
 		}
-		return nil, fmt.Errorf("OpenAI: status code %d", resp.StatusCode)
+		return nil, fmt.Errorf("NVIDIA NIM: status code %d", resp.StatusCode)
 	}
 
 	var respObj Response

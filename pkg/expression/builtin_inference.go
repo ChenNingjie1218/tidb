@@ -17,6 +17,7 @@ package expression
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/pingcap/tidb/pkg/expression/expropt"
 	"github.com/pingcap/tidb/pkg/expression/sessionexpr"
@@ -30,20 +31,28 @@ var (
 )
 
 var (
-	_ builtinFunc = &builtinEmbedTextSig{}
+	_ builtinFunc = &BuiltinEmbedTextSig{}
 )
 
 type embedTextFunctionClass struct {
 	baseFunctionClass
 }
 
-type builtinEmbedTextSig struct {
+// BuiltinEmbedTextSig is the signature for the `EMBED_TEXT` function.
+type BuiltinEmbedTextSig struct {
 	baseBuiltinFunc
 	expropt.SessionVarsPropReader
+
+	// IsFromVecSearch indicates whether this function is used with a vector search
+	// (comes from VEC_EMBED_XXX_DISTANCE).
+	// If true, the function will respect json options with @search suffix.
+	// If false, json options with @search suffix will be ignored.
+	IsFromVecSearch bool
 }
 
-func (b *builtinEmbedTextSig) Clone() builtinFunc {
-	newSig := &builtinEmbedTextSig{}
+// Clone implements builtinFunc interface.
+func (b *BuiltinEmbedTextSig) Clone() builtinFunc {
+	newSig := &BuiltinEmbedTextSig{}
 	newSig.cloneFrom(&b.baseBuiltinFunc)
 	return newSig
 }
@@ -67,12 +76,15 @@ func (c *embedTextFunctionClass) getFunction(ctx BuildContext, args []Expression
 	if err != nil {
 		return nil, err
 	}
-	sig := &builtinEmbedTextSig{baseBuiltinFunc: bf}
+	sig := &BuiltinEmbedTextSig{
+		baseBuiltinFunc: bf,
+		IsFromVecSearch: false,
+	}
 	// sig.setPbCode(tipb.ScalarFuncSig_EmbedTextSig)
 	return sig, nil
 }
 
-func (b *builtinEmbedTextSig) evalVectorFloat32(ctx EvalContext, row chunk.Row) (res types.VectorFloat32, isNull bool, err error) {
+func (b *BuiltinEmbedTextSig) evalVectorFloat32(ctx EvalContext, row chunk.Row) (res types.VectorFloat32, isNull bool, err error) {
 	model, isNull, err := b.args[0].EvalString(ctx, row)
 	if isNull || err != nil {
 		return types.ZeroVectorFloat32, isNull, err
@@ -87,11 +99,29 @@ func (b *builtinEmbedTextSig) evalVectorFloat32(ctx EvalContext, row chunk.Row) 
 		if err != nil {
 			return types.ZeroVectorFloat32, false, err
 		}
-		if !isNull {
+		if !isNull && len(options) > 0 {
 			// Parse the options (which must be a JSON string) into a map
 			err := json.Unmarshal([]byte(options), &opts)
 			if err != nil {
 				return types.ZeroVectorFloat32, false, fmt.Errorf("EMBED_TEXT expects options in JSON format")
+			}
+			// Special treatment for options with @search suffix:
+			// - If this function is used in a vector search context (i.e., VEC_EMBED_XXX_DISTANCE),
+			//   @search options will take effect.
+			// - Otherwise, @search options will be ignored.
+			//
+			// To avoid mutating the map while iterating, we collect the keys first.
+			searchOpts := make([]string, 0, len(opts))
+			for k := range opts {
+				if strings.HasSuffix(k, "@search") {
+					searchOpts = append(searchOpts, k)
+				}
+			}
+			for _, k := range searchOpts {
+				if b.IsFromVecSearch {
+					opts[strings.TrimSuffix(k, "@search")] = opts[k]
+				}
+				delete(opts, k)
 			}
 		}
 	}
@@ -115,6 +145,7 @@ func (b *builtinEmbedTextSig) evalVectorFloat32(ctx EvalContext, row chunk.Row) 
 	return embeddingVec, false, nil
 }
 
-func (b *builtinEmbedTextSig) RequiredOptionalEvalProps() OptionalEvalPropKeySet {
+// RequiredOptionalEvalProps implements RequiredOptionalEvalProps interface.
+func (b *BuiltinEmbedTextSig) RequiredOptionalEvalProps() OptionalEvalPropKeySet {
 	return b.SessionVarsPropReader.RequiredOptionalEvalProps()
 }

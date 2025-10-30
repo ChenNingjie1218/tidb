@@ -177,7 +177,7 @@ func TestJinaEmbedder_UnauthorizedAPIKey(t *testing.T) {
 
 	require.Nil(t, embeddings)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "check API key")
+	require.ErrorContains(t, err, "check API key")
 }
 
 func TestJinaEmbedder_InvalidModel(t *testing.T) {
@@ -201,7 +201,7 @@ func TestJinaEmbedder_InvalidModel(t *testing.T) {
 
 	require.Nil(t, embeddings)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "JinaAI: Model jina-embeddings-v2-small-enx not found")
+	require.ErrorContains(t, err, "JinaAI: Model jina-embeddings-v2-small-enx not found")
 }
 
 func TestJinaEmbedder_EmptyTexts(t *testing.T) {

@@ -12,10 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package openai
+package nvidia
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -24,8 +25,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestOpenAIEmbedder_Success(t *testing.T) {
-	// Mock successful response from real Jina API
+func TestNvidiaEmbedder_Success(t *testing.T) {
+	// Mock successful response from Nvidia NIM API
 	mockResponse := `
     {
       "object": "list",
@@ -56,10 +57,10 @@ func TestOpenAIEmbedder_Success(t *testing.T) {
           "embedding": "57uJvmuWor7Zn0o+adtgPt1OlD5osRC/TzTUvgBgGD6aNfI9qEi3vg=="
         }
       ],
-      "model": "text-embedding-3-small",
+      "model": "baai/bge-m3",
       "usage": {
-        "prompt_tokens": 7,
-        "total_tokens": 7
+        "prompt_tokens": 18,
+        "total_tokens": 18
       }
     }`
 
@@ -74,7 +75,7 @@ func TestOpenAIEmbedder_Success(t *testing.T) {
 		body, err := io.ReadAll(r.Body)
 		require.NoError(t, err)
 		require.JSONEq(t, `{
-			"model": "text-embedding-3-small",
+			"model": "baai/bge-m3",
 			"input": ["hello world", "test text", "sample input", "more text", "last item"],
 			"encoding_format": "base64"
 		}`, string(body))
@@ -86,13 +87,13 @@ func TestOpenAIEmbedder_Success(t *testing.T) {
 	defer server.Close()
 
 	// Create embedder with mock server URL
-	embedder := NewOpenAIEmbedder(EmbedderConfig{
+	embedder := NewNvidiaEmbedder(EmbedderConfig{
 		GetAPIKey:  func() string { return "test-api-key" },
 		GetBaseURL: func() string { return server.URL },
 	})
 
 	texts := []string{"hello world", "test text", "sample input", "more text", "last item"}
-	embeddings, err := embedder.CreateEmbeddings(context.Background(), "text-embedding-3-small", texts, nil)
+	embeddings, err := embedder.CreateEmbeddings(context.Background(), "baai/bge-m3", texts, nil)
 
 	require.NoError(t, err)
 	require.Len(t, embeddings, 5)
@@ -113,16 +114,16 @@ func TestOpenAIEmbedder_Success(t *testing.T) {
 	})
 }
 
-func TestOpenAIEmbedder_WithOptions(t *testing.T) {
+func TestNvidiaEmbedder_WithOptions(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Verify request body
 		body, err := io.ReadAll(r.Body)
 		require.NoError(t, err)
 		require.JSONEq(t, `{
-			"model": "text-embedding-3-small",
+			"model": "baai/bge-m3",
 			"input": ["test"],
 			"encoding_format": "base64",
-			"my_opt": "abc"
+			"input_type": "query"
 		}`, string(body))
 
 		mockResponse := `
@@ -135,7 +136,7 @@ func TestOpenAIEmbedder_WithOptions(t *testing.T) {
           "embedding": "oTwEP2H/Kz4Jwho/Gf2RPvl5lb3N1IU+z+t6Pb9Sej5h/6u+UXO5vQ=="
         }
       ],
-      "model": "text-embedding-3-small",
+      "model": "baai/bge-m3",
       "usage": {
         "prompt_tokens": 7,
         "total_tokens": 7
@@ -148,13 +149,13 @@ func TestOpenAIEmbedder_WithOptions(t *testing.T) {
 	}))
 	defer server.Close()
 
-	embedder := NewOpenAIEmbedder(EmbedderConfig{
+	embedder := NewNvidiaEmbedder(EmbedderConfig{
 		GetAPIKey:  func() string { return "test-api-key" },
 		GetBaseURL: func() string { return server.URL },
 	})
 
-	embeddings, err := embedder.CreateEmbeddings(context.Background(), "text-embedding-3-small", []string{"test"}, map[string]any{
-		"my_opt": "abc",
+	embeddings, err := embedder.CreateEmbeddings(context.Background(), "baai/bge-m3", []string{"test"}, map[string]any{
+		"input_type": "query",
 	})
 
 	require.NoError(t, err)
@@ -164,85 +165,127 @@ func TestOpenAIEmbedder_WithOptions(t *testing.T) {
 	})
 }
 
-func TestOpenAIEmbedder_UnauthorizedAPIKey(t *testing.T) {
+func TestNvidiaEmbedder_UnauthorizedAPIKey(t *testing.T) {
 	mockResponse := `{
-    "error": {
-        "message": "Incorrect API key provided: sk-proj-xxx. You can find your API key at https://platform.openai.com/account/api-keys.",
-        "type": "invalid_request_error",
-        "param": null,
-        "code": "invalid_api_key"
-    }
+    "status": 403,
+    "title": "Forbidden",
+    "detail": "Authorization failed"
 }`
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.WriteHeader(http.StatusForbidden)
 		w.Write([]byte(mockResponse))
 	}))
 	defer server.Close()
 
-	embedder := NewOpenAIEmbedder(EmbedderConfig{
+	embedder := NewNvidiaEmbedder(EmbedderConfig{
 		GetAPIKey:  func() string { return "invalid-api-key" },
 		GetBaseURL: func() string { return server.URL },
 	})
 
 	texts := []string{"hello world"}
-	embeddings, err := embedder.CreateEmbeddings(context.Background(), "text-embedding-3-small", texts, nil)
+	embeddings, err := embedder.CreateEmbeddings(context.Background(), "baai/bge-m3", texts, nil)
 
 	require.Nil(t, embeddings)
 	require.Error(t, err)
 	require.ErrorContains(t, err, "check API key")
 }
 
-func TestOpenAIEmbedder_InvalidModel(t *testing.T) {
-	// Mock model not found response from real Jina API
-	mockResponse := `
-{
-    "error": {
-        "message": "The model 'text-embedding-3x' does not exist or you do not have access to it.",
-        "type": "invalid_request_error",
-        "param": null,
-        "code": "model_not_found"
-    }
-}`
-
+func TestNvidiaEmbedder_InvalidModel(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusNotFound)
-		w.Write([]byte(mockResponse))
+		w.Write([]byte("404 page not found"))
 	}))
 	defer server.Close()
 
-	embedder := NewOpenAIEmbedder(EmbedderConfig{
+	embedder := NewNvidiaEmbedder(EmbedderConfig{
 		GetAPIKey:  func() string { return "valid-api-key" },
 		GetBaseURL: func() string { return server.URL },
 	})
 
 	texts := []string{"hello world"}
-	embeddings, err := embedder.CreateEmbeddings(context.Background(), "text-embedding-3x", texts, nil)
+	embeddings, err := embedder.CreateEmbeddings(context.Background(), "baai/bge-m3xxxx", texts, nil)
 
 	require.Nil(t, embeddings)
 	require.Error(t, err)
-	require.ErrorContains(t, err, "model 'text-embedding-3x' does not exist")
+	require.ErrorContains(t, err, "model 'baai/bge-m3xxxx' does not exist")
 }
 
-func TestOpenAIEmbedder_EmptyTexts(t *testing.T) {
-	embedder := NewOpenAIEmbedder(EmbedderConfig{
+func TestNvidiaEmbedder_BadRequest(t *testing.T) {
+	mockResponse := `{
+    "error": "The model expects an input_type from one of 'passage' or 'query' but none was provided."
+}`
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(mockResponse))
+	}))
+	defer server.Close()
+
+	embedder := NewNvidiaEmbedder(EmbedderConfig{
+		GetAPIKey:  func() string { return "valid-api-key" },
+		GetBaseURL: func() string { return server.URL },
+	})
+
+	texts := []string{"hello world"}
+	embeddings, err := embedder.CreateEmbeddings(context.Background(), "nvidia/embed-qa-4", texts, nil)
+
+	require.Nil(t, embeddings)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "input_type")
+}
+
+func TestNvidiaEmbedder_EmptyTexts(t *testing.T) {
+	embedder := NewNvidiaEmbedder(EmbedderConfig{
 		GetAPIKey:  func() string { return "test-api-key" },
 		GetBaseURL: func() string { return "http://mock-url" },
 	})
 
-	embeddings, err := embedder.CreateEmbeddings(context.Background(), "text-embedding-3-small", []string{}, nil)
+	embeddings, err := embedder.CreateEmbeddings(context.Background(), "baai/bge-m3", []string{}, nil)
 	require.NoError(t, err)
 	require.Len(t, embeddings, 0)
 }
 
-func TestOpenAIEmbedder_NoModel(t *testing.T) {
-	embedder := NewOpenAIEmbedder(EmbedderConfig{
+func TestNvidiaEmbedder_NoModel(t *testing.T) {
+	embedder := NewNvidiaEmbedder(EmbedderConfig{
 		GetAPIKey:  func() string { return "test-api-key" },
 		GetBaseURL: func() string { return "http://mock-url" },
 	})
 	embeddings, err := embedder.CreateEmbeddings(context.Background(), "", []string{"test"}, nil)
 	require.Nil(t, embeddings)
 	require.Error(t, err)
+}
+
+func TestNvidiaEmbedder_MissingAPIKey(t *testing.T) {
+	customErr := fmt.Errorf("custom missing API key error")
+	embedder := NewNvidiaEmbedder(EmbedderConfig{
+		GetAPIKey:        func() string { return "" },
+		GetBaseURL:       func() string { return "http://mock-url" },
+		ErrMissingAPIKey: customErr,
+	})
+	embeddings, err := embedder.CreateEmbeddings(context.Background(), "baai/bge-m3", []string{"test"}, nil)
+	require.Nil(t, embeddings)
+	require.Equal(t, customErr, err)
+}
+
+func TestNvidiaEmbedder_CustomUnauthorizedError(t *testing.T) {
+	customErr := fmt.Errorf("custom unauthorized error")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		w.Write([]byte(`{"detail": "Authorization failed"}`))
+	}))
+	defer server.Close()
+
+	embedder := NewNvidiaEmbedder(EmbedderConfig{
+		GetAPIKey:       func() string { return "invalid-key" },
+		GetBaseURL:      func() string { return server.URL },
+		ErrUnauthorized: customErr,
+	})
+
+	embeddings, err := embedder.CreateEmbeddings(context.Background(), "baai/bge-m3", []string{"test"}, nil)
+	require.Nil(t, embeddings)
+	require.Equal(t, customErr, err)
 }

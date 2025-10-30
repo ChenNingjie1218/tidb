@@ -17,10 +17,8 @@ package jina
 import (
 	"bytes"
 	"context"
-	"encoding/binary"
 	"fmt"
 	"io"
-	"math"
 	"net/http"
 	"sort"
 
@@ -62,6 +60,7 @@ func NewJinaEmbedder(cfg EmbedderConfig) *Embedder {
 // CreateEmbeddings creates embeddings for the given texts using the specified model.
 // CreateEmbeddings implements base.Embedder
 func (e *Embedder) CreateEmbeddings(ctx context.Context, model string, texts []string, opts map[string]any) ([][]float32, error) {
+	// ref: https://jina.ai/embeddings/
 	if len(texts) == 0 {
 		return [][]float32{}, nil
 	}
@@ -147,16 +146,13 @@ func (e *Embedder) CreateEmbeddings(ctx context.Context, model string, texts []s
 	}
 	embeddings := make([][]float32, len(respObj.Data))
 	for row, item := range respObj.Data {
-		if len(item.Embedding)%4 != 0 {
-			return nil, fmt.Errorf("embedding data for index %d is not valid", item.Index)
+		// item.Embedding is []byte. During JSON unmarshal,
+		// it is already base64 decoded by Golang from base64.
+		e, err := base.DecodeFloat32ArrayBytes(item.Embedding)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode embedding for index %d", item.Index)
 		}
-		dims := len(item.Embedding) / 4
-		embeddings[row] = make([]float32, dims)
-		for i := 0; i < dims; i++ {
-			bytes := item.Embedding[i*4 : (i+1)*4]
-			bits := binary.LittleEndian.Uint32(bytes)
-			embeddings[row][i] = math.Float32frombits(bits)
-		}
+		embeddings[row] = e
 	}
 	return embeddings, nil
 }

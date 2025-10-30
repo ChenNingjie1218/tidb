@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/pingcap/tidb/pkg/inference/embedding/base"
 )
@@ -46,6 +47,18 @@ func (m *Embedder) CreateEmbeddings(ctx context.Context, model string, texts []s
 		// Also act as an error trigger.
 		return nil, fmt.Errorf("unknown model %s", model)
 	}
+
+	// Let's just be strict about the options passed in.
+	allowedOptions := map[string]bool{
+		"plus":  true,
+		"delay": true,
+	}
+	for opt := range opts {
+		if !allowedOptions[opt] {
+			return nil, fmt.Errorf("unknown option %s", opt)
+		}
+	}
+
 	plus := 0.0
 	if opts != nil {
 		if p, ok := opts["plus"]; ok {
@@ -53,6 +66,19 @@ func (m *Embedder) CreateEmbeddings(ctx context.Context, model string, texts []s
 				plus = plusVal
 			} else {
 				return nil, fmt.Errorf("invalid type for 'plus' option: %T", p)
+			}
+		}
+
+		// Simulate remote call delays.
+		if delay, ok := opts["delay"]; ok {
+			if delayVal, ok := delay.(string); ok {
+				dur, err := time.ParseDuration(delayVal)
+				if err != nil {
+					return nil, fmt.Errorf("invalid delay duration: %s", delayVal)
+				}
+				time.Sleep(dur)
+			} else {
+				return nil, fmt.Errorf("invalid type for 'delay' option: %T", delay)
 			}
 		}
 	}

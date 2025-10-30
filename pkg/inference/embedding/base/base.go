@@ -16,6 +16,9 @@ package base
 
 import (
 	"context"
+	"encoding/binary"
+	"fmt"
+	"math"
 )
 
 // Embedder is an interface for embedding providers.
@@ -23,4 +26,19 @@ type Embedder interface {
 	// CreateEmbeddings generates embeddings for the given texts using the specified model and options.
 	// Different implementations requires different options types. Options can be nil if not needed.
 	CreateEmbeddings(ctx context.Context, model string, texts []string, opts map[string]any) ([][]float32, error)
+}
+
+// DecodeFloat32ArrayBytes decodes bytes of an float32 array in little endian into a float32 slice.
+func DecodeFloat32ArrayBytes(item []byte) ([]float32, error) {
+	if len(item)%4 != 0 {
+		return nil, fmt.Errorf("invalid embedding data")
+	}
+	dims := len(item) / 4
+	embeddings := make([]float32, dims)
+	for i := range dims {
+		bytes := item[i*4 : (i+1)*4]
+		bits := binary.LittleEndian.Uint32(bytes)
+		embeddings[i] = math.Float32frombits(bits)
+	}
+	return embeddings, nil
 }

@@ -508,6 +508,9 @@ func checkGeneratedColumn(ctx *metabuild.Context, schemaName pmodel.CIStr, table
 				if err := checkIllegalFn4Generated(colDef.Name.Name.L, typeColumn, option.Expr); err != nil {
 					return errors.Trace(err)
 				}
+				if err := checkGeneratedColForAutoEmbedding(colDef.Name.Name.L, option.Expr, option.Stored); err != nil {
+					return errors.Trace(err)
+				}
 			}
 		}
 		if containsColumnOption(colDef, ast.ColumnOptionAutoIncrement) {
@@ -548,6 +551,35 @@ func checkGeneratedColumn(ctx *metabuild.Context, schemaName pmodel.CIStr, table
 			return errors.Trace(err)
 		}
 	}
+
+	// CSE only: check if a generated column is generated from another auto-embedding columns.
+	// This is forbidden because we will always evaluates auto-embedding columns at last in parallel
+	// so that auto-embedding columns cannot be used as a dependency of another generated column.
+	// TODO: Currently this restriction applies to both STORED and VIRTUAL columns.
+	// Actually for VIRTUAL columns it should be fine. We could support it later.
+	{
+		autoEmbeddingCols := make(map[string]struct{})
+		for _, colDef := range colDefs {
+			for _, option := range colDef.Options {
+				if option.Tp == ast.ColumnOptionGenerated {
+					if expression.IsAutoEmbedFnCallAST(option.Expr) {
+						autoEmbeddingCols[colDef.Name.Name.L] = struct{}{}
+					}
+				}
+			}
+		}
+		for colName, colInfo := range colName2Generation {
+			if !colInfo.generated {
+				continue
+			}
+			for key := range colInfo.dependences {
+				if _, ok := autoEmbeddingCols[key]; ok {
+					return dbterror.ErrUnsupportedOnGeneratedColumn.GenWithStack("generated column on an auto-embedding column is not supported: column '%s' is generated from '%s'", colName, key)
+				}
+			}
+		}
+	}
+
 	return nil
 }
 

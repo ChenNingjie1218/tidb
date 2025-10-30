@@ -67,13 +67,13 @@ func TestEmbedFunction(t *testing.T) {
 	tk := testkit.NewTestKit(t, store)
 	tk.MustExec("use test")
 
-	tk.MustQuery("select @@global.tidb_exp_embed_jina_api_key").Check(testkit.Rows(""))
-	tk.MustExec("set @@global.tidb_exp_embed_jina_api_key = 'test_key'")
-	tk.MustQuery("select @@global.tidb_exp_embed_jina_api_key").Check(testkit.Rows("******_key"))
-	tk.MustExec("set @@global.tidb_exp_embed_jina_api_key = 'abc'")
-	tk.MustQuery("select @@global.tidb_exp_embed_jina_api_key").Check(testkit.Rows("******"))
-	tk.MustExec("set @@global.tidb_exp_embed_jina_api_key = ''")
-	tk.MustQuery("select @@global.tidb_exp_embed_jina_api_key").Check(testkit.Rows(""))
+	tk.MustQuery("select @@global.tidb_exp_embed_jina_ai_api_key").Check(testkit.Rows(""))
+	tk.MustExec("set @@global.tidb_exp_embed_jina_ai_api_key = 'test_key'")
+	tk.MustQuery("select @@global.tidb_exp_embed_jina_ai_api_key").Check(testkit.Rows("******_key"))
+	tk.MustExec("set @@global.tidb_exp_embed_jina_ai_api_key = 'abc'")
+	tk.MustQuery("select @@global.tidb_exp_embed_jina_ai_api_key").Check(testkit.Rows("******"))
+	tk.MustExec("set @@global.tidb_exp_embed_jina_ai_api_key = ''")
+	tk.MustQuery("select @@global.tidb_exp_embed_jina_ai_api_key").Check(testkit.Rows(""))
 
 	err := tk.QueryToErr("select embed_text('text-embedding-3', 'hello world')")
 	require.ErrorContains(t, err, "model name must be in format")
@@ -90,6 +90,10 @@ func TestEmbedFunction(t *testing.T) {
 	// Test with options
 	tk.MustQuery(`select embed_text('mock/json', '[1, 3,  4]', '{"plus":0.1}')`).
 		Check(testkit.Rows("[1.1,3.1,4.1]"))
+	tk.MustQuery(`select embed_text('mock/json', '[1, 3,  4]', '')`).
+		Check(testkit.Rows("[1,3,4]"))
+	tk.MustQuery(`select embed_text('mock/json', '[1, 3,  4]', NULL)`).
+		Check(testkit.Rows("[1,3,4]"))
 	err = tk.QueryToErr(`select embed_text('mock/json', '[1, 3,  4]', '{invalid_json}')`)
 	require.ErrorContains(t, err, "EMBED_TEXT expects options in JSON format")
 
@@ -119,6 +123,262 @@ func TestEmbedFunction(t *testing.T) {
 	tk.MustExec("insert into t values (1, '[1,2,3]', DEFAULT)")
 	tk.MustQuery("select * from t").Check(testkit.Rows(
 		"1 [1,2,3] [1,2,3]",
+	))
+
+	tk.MustExec("update t set text = '[4,5,6]' where id = 1")
+	tk.MustQuery("select * from t").Check(testkit.Rows(
+		"1 [4,5,6] [4,5,6]",
+	))
+
+	err = tk.ExecToErr("update t set vec = '[1,2,3]' where id = 1")
+	require.ErrorContains(t, err, "The value specified for generated column 'vec' in table 't' is not allowed")
+}
+
+func TestEmbedFunctionOptionModifier(t *testing.T) {
+	store := testkit.CreateMockStore(t)
+	tk := testkit.NewTestKit(t, store)
+	tk.MustExec("use test")
+
+	// @search modifier without a vector search
+	tk.MustQuery(`select embed_text('mock/json', '[1, 3,  4]', '{"plus":0.1}')`).
+		Check(testkit.Rows("[1.1,3.1,4.1]"))
+	tk.MustQuery(`select embed_text('mock/json', '[1, 3,  4]', '{"plus@search":0.1}')`).
+		Check(testkit.Rows("[1,3,4]"))
+
+	// @search modifier within a vector search
+	tk.MustExec(`
+		CREATE TABLE t(
+			id INT PRIMARY KEY,
+			text TEXT,
+			vec VECTOR(3) GENERATED ALWAYS AS (embed_text('mock/json', text, '{"plus":0.1,"plus@search":0.2}')) STORED
+		);
+	`)
+	tk.MustExec("insert into t values (1, '[1,2,3]', DEFAULT)")
+	tk.MustQuery("select * from t").Check(testkit.Rows(
+		`1 [1,2,3] [1.1,2.1,3.1]`,
+	))
+	tk.MustQuery("explain format = 'brief' select VEC_EMBED_COSINE_DISTANCE(vec, '[1,2,3]') from t").Check(testkit.Rows(
+		`Projection 10000.00 root  vec_cosine_distance(test.t.vec, [1.2,2.2,3.2])->Column#4`,
+		`└─TableReader 10000.00 root  data:TableFullScan`,
+		`  └─TableFullScan 10000.00 cop[tikv] table:t keep order:false, stats:pseudo`,
+	))
+}
+
+func TestAutoEmbeddingInQuery(t *testing.T) {
+	store := testkit.CreateMockStore(t)
+	tk := testkit.NewTestKit(t, store)
+	tk.MustExec("use test")
+	tk.MustExec(`
+
+	CREATE TABLE t(
+		id INT PRIMARY KEY,
+		text TEXT,
+		vec VECTOR(3) GENERATED ALWAYS AS (embed_text('mock/json', text)) STORED
+	);
+
+	`)
+
+	// Arg ordering should be kept
+	tk.MustQuery("explain format = 'brief' select VEC_EMBED_COSINE_DISTANCE(vec, '[1,2,3]') from t").Check(testkit.Rows(
+		`Projection 10000.00 root  vec_cosine_distance(test.t.vec, [1,2,3])->Column#4`,
+		`└─TableReader 10000.00 root  data:TableFullScan`,
+		`  └─TableFullScan 10000.00 cop[tikv] table:t keep order:false, stats:pseudo`,
+	))
+
+	// Query arg could be a column
+	tk.MustQuery("explain format = 'brief' select VEC_EMBED_COSINE_DISTANCE(vec, text) from t").Check(testkit.Rows(
+		`Projection 10000.00 root  vec_cosine_distance(test.t.vec, embed_text(mock/json, test.t.text))->Column#4`,
+		`└─TableReader 10000.00 root  data:TableFullScan`,
+		`  └─TableFullScan 10000.00 cop[tikv] table:t keep order:false, stats:pseudo`,
+	))
+
+	// Query arg could be a complicated expression
+	tk.MustQuery("explain format = 'brief' select VEC_EMBED_COSINE_DISTANCE(vec, repeat(text, 10)) from t").Check(testkit.Rows(
+		`Projection 10000.00 root  vec_cosine_distance(test.t.vec, embed_text(mock/json, repeat(test.t.text, 10)))->Column#4`,
+		`└─TableReader 10000.00 root  data:TableFullScan`,
+		`  └─TableFullScan 10000.00 cop[tikv] table:t keep order:false, stats:pseudo`,
+	))
+
+	// ====== OK: Generated expr could be complicated, as long as model name is constant ======
+	tk.MustExec(`DROP TABLE t`)
+	tk.MustExec(`
+
+	CREATE TABLE t(
+		id INT PRIMARY KEY,
+		title TEXT,
+		body TEXT,
+		vec VECTOR(3) GENERATED ALWAYS AS (embed_text('mock/json', title+body)) STORED
+	);
+
+	`)
+
+	tk.MustQuery("explain format = 'brief' select VEC_EMBED_COSINE_DISTANCE(vec, '[1,2,3]') from t").Check(testkit.Rows(
+		`Projection 10000.00 root  vec_cosine_distance(test.t.vec, [1,2,3])->Column#5`,
+		`└─TableReader 10000.00 root  data:TableFullScan`,
+		`  └─TableFullScan 10000.00 cop[tikv] table:t keep order:false, stats:pseudo`,
+	))
+
+	// ====== OK: Support json opts and multiple auto-embedding columns ======
+	tk.MustExec(`DROP TABLE t`)
+	tk.MustExec(`
+
+	CREATE TABLE t(
+		id INT PRIMARY KEY,
+		title TEXT,
+		body TEXT,
+		vec1 VECTOR(3) GENERATED ALWAYS AS (embed_text('mock/json', title+body, '{"plus":1}')) STORED,
+		vec2 VECTOR(3) GENERATED ALWAYS AS (embed_text('mock/json', title, '{"plus":2}')) STORED,
+		vec3 VECTOR(3) GENERATED ALWAYS AS (embed_text('mock/json', body, '{"plus":3}')) STORED
+	);
+
+	`)
+
+	tk.MustQuery("explain format = 'brief' select VEC_EMBED_COSINE_DISTANCE(vec1, '[1,2,3]') from t").Check(testkit.Rows(
+		`Projection 10000.00 root  vec_cosine_distance(test.t.vec1, [2,3,4])->Column#7`,
+		`└─TableReader 10000.00 root  data:TableFullScan`,
+		`  └─TableFullScan 10000.00 cop[tikv] table:t keep order:false, stats:pseudo`,
+	))
+	tk.MustQuery("explain format = 'brief' select VEC_EMBED_COSINE_DISTANCE(vec2, 'abcdef') from t").Check(testkit.Rows(
+		`Projection 10000.00 root  vec_cosine_distance(test.t.vec2, embed_text(mock/json, abcdef, {"plus":2}))->Column#7`,
+		`└─TableReader 10000.00 root  data:TableFullScan`,
+		`  └─TableFullScan 10000.00 cop[tikv] table:t keep order:false, stats:pseudo`,
+	))
+	tk.MustQuery("explain format = 'brief' select VEC_EMBED_COSINE_DISTANCE(vec3, 'foo') from t").Check(testkit.Rows(
+		`Projection 10000.00 root  vec_cosine_distance(test.t.vec3, embed_text(mock/json, foo, {"plus":3}))->Column#7`,
+		`└─TableReader 10000.00 root  data:TableFullScan`,
+		`  └─TableFullScan 10000.00 cop[tikv] table:t keep order:false, stats:pseudo`,
+	))
+	tk.MustQuery(`explain format = 'brief' select
+		VEC_EMBED_COSINE_DISTANCE(vec1, 'foo'),
+		VEC_EMBED_COSINE_DISTANCE(vec2, 'bar'),
+		VEC_EMBED_COSINE_DISTANCE(vec3, 'box')
+	from t`).Check(testkit.Rows(
+		`Projection 10000.00 root  vec_cosine_distance(test.t.vec1, embed_text(mock/json, foo, {"plus":1}))->Column#7, vec_cosine_distance(test.t.vec2, embed_text(mock/json, bar, {"plus":2}))->Column#8, vec_cosine_distance(test.t.vec3, embed_text(mock/json, box, {"plus":3}))->Column#9`,
+		`└─TableReader 10000.00 root  data:TableFullScan`,
+		`  └─TableFullScan 10000.00 cop[tikv] table:t keep order:false, stats:pseudo`,
+	))
+
+	// ====== OK: In WHERE or ORDER BY ======
+
+	tk.MustExec(`DROP TABLE t`)
+	tk.MustExec(`
+
+	CREATE TABLE t(
+		id INT PRIMARY KEY,
+		title TEXT,
+		body TEXT,
+		vec VECTOR(3) GENERATED ALWAYS AS (embed_text('mock/json', title+body)) STORED
+	);
+
+	`)
+	tk.MustQuery("explain format = 'brief' select * from t where VEC_EMBED_COSINE_DISTANCE(vec, '[1,2,3]') < 0.5").Check(testkit.Rows(
+		`TableReader 8000.00 root  data:Selection`,
+		`└─Selection 8000.00 cop[tikv]  lt(vec_cosine_distance(test.t.vec, [1,2,3]), 0.5)`,
+		`  └─TableFullScan 10000.00 cop[tikv] table:t keep order:false, stats:pseudo`,
+	))
+	tk.MustQuery("explain format = 'brief' select VEC_EMBED_COSINE_DISTANCE(vec, '[1,2,3]') as distance from t where VEC_EMBED_COSINE_DISTANCE(vec, '[1,2,3]') < 0.5").Check(testkit.Rows(
+		`Projection 8000.00 root  vec_cosine_distance(test.t.vec, [1,2,3])->Column#5`,
+		`└─TableReader 8000.00 root  data:Selection`,
+		`  └─Selection 8000.00 cop[tikv]  lt(vec_cosine_distance(test.t.vec, [1,2,3]), 0.5)`,
+		`    └─TableFullScan 10000.00 cop[tikv] table:t keep order:false, stats:pseudo`,
+	))
+	tk.MustQuery("explain format = 'brief' select VEC_EMBED_COSINE_DISTANCE(vec, '[1,2,3]') as distance from t order by distance limit 10").Check(testkit.Rows(
+		`Projection 10.00 root  vec_cosine_distance(test.t.vec, [1,2,3])->Column#5`,
+		`└─TopN 10.00 root  Column#6, offset:0, count:10`,
+		`  └─TableReader 10.00 root  data:TopN`,
+		`    └─TopN 10.00 cop[tikv]  Column#6, offset:0, count:10`,
+		`      └─Projection 10.00 cop[tikv]  test.t.vec, vec_cosine_distance(test.t.vec, [1,2,3])->Column#6`,
+		`        └─TableFullScan 10000.00 cop[tikv] table:t keep order:false, stats:pseudo`,
+	))
+
+	// ====== Below are failure cases ======
+
+	tk.MustExec(`DROP TABLE t`)
+	tk.MustExec(`
+
+	CREATE TABLE t(
+		id INT PRIMARY KEY,
+		text TEXT,
+		vec VECTOR(3) GENERATED ALWAYS AS (embed_text('mock/json', text)) STORED,
+		vec2 VECTOR(5),
+		vec3 VECTOR(3) GENERATED ALWAYS AS (REPEAT('abc', 1)) STORED,
+		text2 TEXT GENERATED ALWAYS AS (REPEAT(text, 10)) STORED
+	);
+
+	`)
+
+	// Invalid arg number
+	err := tk.ExecToErr("explain format = 'brief' select VEC_EMBED_COSINE_DISTANCE(vec) from t")
+	require.ErrorContains(t, err, "Incorrect parameter count")
+
+	err = tk.ExecToErr("explain format = 'brief' select VEC_EMBED_COSINE_DISTANCE('[1,2,3]', vec) from t")
+	require.ErrorContains(t, err, "VEC_EMBED_COSINE_DISTANCE() first argument must be a vector embedding column generated by EMBED_TEXT()")
+
+	// Passing not a column
+	err = tk.ExecToErr("explain format = 'brief' select VEC_EMBED_COSINE_DISTANCE('[1,2,3]', 'def') from t")
+	require.ErrorContains(t, err, "first argument must be a vector embedding column generated by EMBED_TEXT()")
+
+	// Passing a not generated column
+	err = tk.ExecToErr("explain format = 'brief' select VEC_EMBED_COSINE_DISTANCE(id, '[1,2,3]') from t")
+	require.ErrorContains(t, err, "first argument must be a vector embedding column generated by EMBED_TEXT()")
+	err = tk.ExecToErr("explain format = 'brief' select VEC_EMBED_COSINE_DISTANCE(text, '[1,2,3]') from t")
+	require.ErrorContains(t, err, "first argument must be a vector embedding column generated by EMBED_TEXT()")
+
+	// Passing a generated but not vector column
+	err = tk.ExecToErr("explain format = 'brief' select VEC_EMBED_COSINE_DISTANCE(text2, '[1,2,3]') from t")
+	require.ErrorContains(t, err, "first argument must be a vector embedding column generated by EMBED_TEXT()")
+
+	// Passing a vector but not generated column
+	err = tk.ExecToErr("explain format = 'brief' select VEC_EMBED_COSINE_DISTANCE(vec2, '[1,2,3]') from t")
+	require.ErrorContains(t, err, "first argument must be a vector embedding column generated by EMBED_TEXT()")
+
+	// Passing a vector generated column but not a TEXT_EMBED expr
+	err = tk.ExecToErr("explain format = 'brief' select VEC_EMBED_COSINE_DISTANCE(vec3, '[1,2,3]') from t")
+	require.ErrorContains(t, err, "only generated column using EMBED_TEXT() are allowed")
+}
+
+func TestAutoEmbeddingWithVectorIndex(t *testing.T) {
+	require.NoError(t, failpoint.Enable("github.com/pingcap/tidb/pkg/ddl/MockCheckColumnarReplicaAvailability", `return(1)`))
+	defer func() {
+		err := failpoint.Disable("github.com/pingcap/tidb/pkg/ddl/MockCheckColumnarReplicaAvailability")
+		require.NoError(t, err)
+	}()
+	store, _ := testkit.CreateMockStoreAndDomainWithSchemaLease(t, 200*time.Millisecond, mockstore.WithMockTiFlash(1))
+	tk := testkit.NewTestKit(t, store)
+	tk.MustExec("USE test;")
+	tk.MustExec(`
+
+	CREATE TABLE t(
+		id INT PRIMARY KEY,
+		title TEXT,
+		body TEXT,
+		vec VECTOR(3) GENERATED ALWAYS AS (embed_text('mock/json', title+body)) STORED,
+		VECTOR INDEX  ((VEC_COSINE_DISTANCE(vec)))
+	);
+
+	`)
+	tbl, _ := domain.GetDomain(tk.Session()).InfoSchema().TableByName(context.Background(), pmodel.NewCIStr("test"), pmodel.NewCIStr("t"))
+	tbl.Meta().TiFlashReplica = &model.TiFlashReplicaInfo{
+		Count:     1,
+		Available: true,
+	}
+
+	tk.MustQuery("explain format = 'brief' select VEC_EMBED_COSINE_DISTANCE(vec, '[1,2,3]') as distance from t order by distance limit 10").Check(testkit.Rows(
+		`Projection 10.00 root  vec_cosine_distance(test.t.vec, [1,2,3])->Column#5`,
+		`└─TopN 10.00 root  Column#8, offset:0, count:10`,
+		`  └─TableReader 10.00 root  MppVersion: 2, data:ExchangeSender`,
+		`    └─ExchangeSender 10.00 mpp[tiflash]  ExchangeType: PassThrough`,
+		`      └─TopN 10.00 mpp[tiflash]  Column#8, offset:0, count:10`,
+		`        └─Projection 10.00 mpp[tiflash]  test.t.vec, vec_cosine_distance(test.t.vec, [1,2,3])->Column#8`,
+		`          └─TableFullScan 10.00 mpp[tiflash] table:t, index:vector_index(vec) keep order:false, stats:pseudo, annIndex:COSINE(vec..[1,2,3], limit:10)`,
+	))
+	tk.MustQuery("explain format = 'brief' select id from t order by VEC_EMBED_COSINE_DISTANCE(vec, '[1,2,3]') limit 10").Check(testkit.Rows(
+		`TopN 10.00 root  Column#8, offset:0, count:10`,
+		`└─TableReader 10.00 root  MppVersion: 2, data:ExchangeSender`,
+		`  └─ExchangeSender 10.00 mpp[tiflash]  ExchangeType: PassThrough`,
+		`    └─TopN 10.00 mpp[tiflash]  Column#8, offset:0, count:10`,
+		`      └─Projection 10.00 mpp[tiflash]  test.t.id, vec_cosine_distance(test.t.vec, [1,2,3])->Column#8`,
+		`        └─TableFullScan 10.00 mpp[tiflash] table:t, index:vector_index(vec) keep order:false, stats:pseudo, annIndex:COSINE(vec..[1,2,3], limit:10)`,
 	))
 }
 
@@ -347,6 +607,366 @@ func TestFTSIndexSyntax(t *testing.T) {
 	tk.MustExec("alter table t1 add FULLTEXT INDEX (body) ADD_COLUMNAR_REPLICA_ON_DEMAND")
 	tk.MustQuery("show create table t1").Check(testkit.Rows("t1 CREATE TABLE `t1` (\n  `title` text DEFAULT NULL,\n  `body` text DEFAULT NULL,\n  FULLTEXT INDEX `body`(`body`) WITH PARSER STANDARD\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin"))
 	tk.MustExec("alter table t1 drop index body")
+}
+
+func TestAutoEmbeddingInDDL(t *testing.T) {
+	store := testkit.CreateMockStore(t)
+	tk := testkit.NewTestKit(t, store)
+	tk.MustExec("use test")
+
+	err := tk.ExecToErr(`
+		CREATE TABLE t(
+			id INT PRIMARY KEY,
+			text TEXT,
+			vec VECTOR(3) GENERATED ALWAYS AS (embed_text('mock/json', text, '{"delay": "1s"}')) STORED,
+			vec2 TEXT GENERATED ALWAYS AS (vec + "foo") STORED
+		);
+	`)
+	require.ErrorContains(t, err, "generated column on an auto-embedding column is not supported")
+
+	err = tk.ExecToErr(`
+		CREATE TABLE t(
+			id INT PRIMARY KEY,
+			text TEXT,
+			vec VECTOR(3) GENERATED ALWAYS AS (embed_text('mock/json', text, '{"delay": "1s"}') + 1) STORED
+		);
+	`)
+	require.ErrorContains(t, err, "EMBED_TEXT() function must be the top-level function call in generated column expression")
+
+	err = tk.ExecToErr(`
+		CREATE TABLE t(
+			id INT PRIMARY KEY,
+			text TEXT,
+			vec VECTOR(3) GENERATED ALWAYS AS (embed_text('mock/json', text, '{"delay": "1s"}')) VIRTUAL
+		);
+	`)
+	require.ErrorContains(t, err, "EMBED_TEXT() can be only used as stored generated column")
+
+	err = tk.ExecToErr(`
+		CREATE TABLE t(
+			id INT PRIMARY KEY,
+			text TEXT,
+			vec VECTOR(3) GENERATED ALWAYS AS (embed_text(CONCAT('mock', 'json'), text, '{"delay": "1s"}')) STORED
+		);
+	`)
+	require.ErrorContains(t, err, "EMBED_TEXT() only accepts model name using string constant")
+
+	tk.MustExec(`
+		CREATE TABLE t(
+			id INT PRIMARY KEY,
+			text TEXT
+		);
+	`)
+	err = tk.ExecToErr(`
+		ALTER TABLE t ADD COLUMN vec VECTOR(3) GENERATED ALWAYS AS (embed_text('mock/json', text, '{"delay": "1s"}')) STORED;
+	`)
+	// This is not a restriction from auto-embedding, just a general restriction for generated columns
+	require.ErrorContains(t, err, "'Adding generated stored column through ALTER TABLE' is not supported for generated columns")
+
+	err = tk.ExecToErr(`
+		ALTER TABLE t ADD COLUMN vec VECTOR(3) GENERATED ALWAYS AS (embed_text('mock/json', text, '{"delay": "1s"}')) VIRTUAL;
+	`)
+	require.ErrorContains(t, err, "EMBED_TEXT() can be only used as stored generated column")
+
+	err = tk.ExecToErr(`
+		ALTER TABLE t ADD COLUMN vec VECTOR(3) GENERATED ALWAYS AS (embed_text('mock/json', text, '{"delay": "1s"}') + 1) VIRTUAL;
+	`)
+	require.ErrorContains(t, err, "EMBED_TEXT() function must be the top-level function call in generated column expression")
+
+	tk.MustExec(`DROP TABLE t`)
+
+	// TODO: We could allow VIRTUAL generated columns on auto-embedding columns, but it is not implemented yet.
+	err = tk.ExecToErr(`
+		CREATE TABLE t(
+			id INT PRIMARY KEY,
+			text TEXT,
+			vec VECTOR(3) GENERATED ALWAYS AS (embed_text('mock/json', text)) STORED,
+			vec2 TEXT GENERATED ALWAYS AS (CONCAT(vec, "foo")) VIRTUAL
+		);
+	`)
+	require.ErrorContains(t, err, "generated column on an auto-embedding column is not supported")
+}
+
+func TestAutoEmbeddingInsert(t *testing.T) {
+	store := testkit.CreateMockStore(t)
+	tk := testkit.NewTestKit(t, store)
+	tk.MustExec("use test")
+	tk.MustExec(`
+		CREATE TABLE t(
+			id INT PRIMARY KEY,
+			text TEXT,
+			vec VECTOR(3) GENERATED ALWAYS AS (embed_text('mock/json', text, '{"delay": "1s"}')) STORED
+		);
+	`)
+
+	start := time.Now()
+	tk.MustExec(`
+		INSERT INTO t VALUES
+			(1, '[1,2,3]', DEFAULT),
+			(2, '[4,5,6]', DEFAULT),
+			(3, '[7,8,9]', DEFAULT),
+			(4, '[1,2,3]', DEFAULT),
+			(5, '[4,5,6]', DEFAULT),
+			(6, NULL, DEFAULT);
+	`)
+
+	require.GreaterOrEqual(t, time.Since(start), 1*time.Second) // Delay is effective
+	require.Less(t, time.Since(start), 3*time.Second)           // Make sure we have successfully batched the embedding calls
+
+	tk.MustQuery("select * from t").Check(testkit.Rows(
+		"1 [1,2,3] [1,2,3]",
+		"2 [4,5,6] [4,5,6]",
+		"3 [7,8,9] [7,8,9]",
+		"4 [1,2,3] [1,2,3]",
+		"5 [4,5,6] [4,5,6]",
+		"6 <nil> <nil>",
+	))
+
+	// INSERT INTO SELECT
+	tk.MustExec(`
+		CREATE TABLE t2(
+			id INT PRIMARY KEY,
+			text TEXT,
+			vec VECTOR(3) GENERATED ALWAYS AS (embed_text('mock/json', text, '{"delay": "1s", "plus": 1}')) STORED
+		);
+	`)
+	start = time.Now()
+	tk.MustExec(`
+		INSERT INTO t2 (id, text)
+		SELECT id, text FROM t;
+	`)
+	require.GreaterOrEqual(t, time.Since(start), 1*time.Second) // Delay is effective
+	require.Less(t, time.Since(start), 3*time.Second)           // Make sure we have successfully batched the embedding calls
+	tk.MustQuery("select * from t2").Check(testkit.Rows(
+		"1 [1,2,3] [2,3,4]",
+		"2 [4,5,6] [5,6,7]",
+		"3 [7,8,9] [8,9,10]",
+		"4 [1,2,3] [2,3,4]",
+		"5 [4,5,6] [5,6,7]",
+		"6 <nil> <nil>",
+	))
+
+	// Test with an insert that has some failures
+	err := tk.ExecToErr(`
+		INSERT INTO t VALUES
+			(7, '[10,11,12]', DEFAULT),
+			(8, '[13,14,15]', DEFAULT),
+			(9, 'abc', DEFAULT);
+	`)
+	require.ErrorContains(t, err, "invalid character")
+
+	err = tk.ExecToErr(`
+		INSERT INTO t VALUES
+			(7, '[10,11,12]', DEFAULT),
+			(8, '[13,14,15,16]', DEFAULT);
+	`)
+	require.ErrorContains(t, err, "vector has 4 dimensions, does not fit VECTOR(3)")
+
+	tk.MustQuery("select * from t").Check(testkit.Rows(
+		"1 [1,2,3] [1,2,3]",
+		"2 [4,5,6] [4,5,6]",
+		"3 [7,8,9] [7,8,9]",
+		"4 [1,2,3] [1,2,3]",
+		"5 [4,5,6] [4,5,6]",
+		"6 <nil> <nil>",
+	))
+
+	// Insert by specifying column names
+	tk.MustExec(`
+		INSERT INTO t (id, text) VALUES (10, '[16,17,18]'), (11, '[19,20,21]');
+	`)
+	tk.MustQuery("select * from t").Check(testkit.Rows(
+		"1 [1,2,3] [1,2,3]",
+		"2 [4,5,6] [4,5,6]",
+		"3 [7,8,9] [7,8,9]",
+		"4 [1,2,3] [1,2,3]",
+		"5 [4,5,6] [4,5,6]",
+		"6 <nil> <nil>",
+		"10 [16,17,18] [16,17,18]",
+		"11 [19,20,21] [19,20,21]",
+	))
+
+	// Check NOT NULL constraint
+	tk.MustExec(`DROP TABLE t`)
+	tk.MustExec(`
+		CREATE TABLE t(
+			id INT PRIMARY KEY,
+			text TEXT,
+			vec VECTOR(3) GENERATED ALWAYS AS (embed_text('mock/json', text)) STORED NOT NULL
+		);
+	`)
+	tk.MustExec(`
+		INSERT INTO t VALUES
+			(1, '[1,2,3]', DEFAULT),
+			(2, '[4,5,6]', DEFAULT);
+	`)
+	tk.MustQuery("select * from t").Check(testkit.Rows(
+		"1 [1,2,3] [1,2,3]",
+		"2 [4,5,6] [4,5,6]",
+	))
+	err = tk.ExecToErr(`
+		INSERT INTO t VALUES
+			(3, NULL, DEFAULT),
+			(4, '[7,8,9]', DEFAULT);
+	`)
+	require.ErrorContains(t, err, "VECTOR column 'vec' cannot be null")
+
+	tk.MustQuery("select * from t").Check(testkit.Rows(
+		"1 [1,2,3] [1,2,3]",
+		"2 [4,5,6] [4,5,6]",
+	))
+
+	// Complex case: The auto-embedding column is generated based on a default value.
+	tk.MustExec(`DROP TABLE t`)
+	tk.MustExec(`
+		CREATE TABLE t(
+			id INT PRIMARY KEY,
+			text VARCHAR(100) DEFAULT '[1,2,3]',
+			vec VECTOR(3) GENERATED ALWAYS AS (embed_text('mock/json', text)) STORED
+		);
+	`)
+	tk.MustExec(`
+		INSERT INTO t VALUES (1, DEFAULT, DEFAULT), (2, '[4,5,6]', DEFAULT), (3, NULL, DEFAULT);
+	`)
+	tk.MustQuery("select * from t").Check(testkit.Rows(
+		"1 [1,2,3] [1,2,3]",
+		"2 [4,5,6] [4,5,6]",
+		"3 <nil> <nil>",
+	))
+
+	// Complex case: The auto-embedding column is generated based on another generated column.
+	tk.MustExec(`DROP TABLE t`)
+	tk.MustExec(`
+		CREATE TABLE t(
+			id INT PRIMARY KEY,
+			text1 TEXT,
+			text2 TEXT,
+			text3 TEXT GENERATED ALWAYS AS (CONCAT(text1, text2)) STORED,
+			vec VECTOR(3) GENERATED ALWAYS AS (embed_text('mock/json', text3)) STORED,
+			text4 TEXT GENERATED ALWAYS AS (REPEAT(text1, 2)) STORED
+		);
+	`)
+	tk.MustExec(`
+		INSERT INTO t VALUES (1, '[1,', '2,3]', DEFAULT, DEFAULT, DEFAULT);
+	`)
+	tk.MustQuery("select * from t").Check(testkit.Rows(
+		"1 [1, 2,3] [1,2,3] [1,2,3] [1,[1,",
+	))
+
+	// Some even more complex INSERT (ON DUPLICATE KEY UPDATE)
+	// Note: Due to https://github.com/pingcap/tidb/issues/62303, we will test some simple cases.
+	tk.MustExec(`DROP TABLE t`)
+	tk.MustExec(`
+		CREATE TABLE t(
+			id INT PRIMARY KEY,
+			text1 TEXT,
+			text2 TEXT,
+			text3 TEXT GENERATED ALWAYS AS (CONCAT(text1, text2)) STORED,
+			vec VECTOR(3) GENERATED ALWAYS AS (embed_text('mock/json', CONCAT(text1, text2))) STORED,
+			text4 TEXT GENERATED ALWAYS AS (REPEAT(text1, 2)) STORED
+		);
+	`)
+	tk.MustExec(`
+		INSERT INTO t VALUES (1, '[1,', '2,3]', DEFAULT, DEFAULT, DEFAULT);
+	`)
+	tk.MustExec(`
+		INSERT INTO t (id, text1, text2) VALUES (1, '[5,', '7,8]')
+		ON DUPLICATE KEY UPDATE text1 = '[5,', text2 = '9,10]';
+	`)
+	tk.MustQuery("select * from t").Check(testkit.Rows(
+		"1 [5, 9,10] [5,9,10] [5,9,10] [5,[5,",
+	))
+	tk.MustExec(`
+		INSERT INTO t (id, text1, text2) VALUES (1, '[100,', '1,2]')
+		ON DUPLICATE KEY UPDATE text1 = '[105,';
+	`)
+	tk.MustQuery("select * from t").Check(testkit.Rows(
+		"1 [105, 9,10] [105,9,10] [105,9,10] [105,[105,",
+	))
+}
+
+func TestAutoEmbeddingUpdate(t *testing.T) {
+	store := testkit.CreateMockStore(t)
+	tk := testkit.NewTestKit(t, store)
+	tk.MustExec("use test")
+	tk.MustExec(`
+		CREATE TABLE t(
+			id INT PRIMARY KEY,
+			text TEXT,
+			vec VECTOR(3) GENERATED ALWAYS AS (embed_text('mock/json', text, '{"delay": "1s"}')) STORED,
+			non_vec TEXT
+		);
+	`)
+
+	start := time.Now()
+	tk.MustExec(`
+		INSERT INTO t VALUES
+			(1, '[1,2,3]', DEFAULT, 'foo'),
+			(2, '[4,5,6]', DEFAULT, 'bar'),
+			(3, '[7,8,9]', DEFAULT, 'baz'),
+			(4, '[1,2,3]', DEFAULT, 'qux'),
+			(5, '[4,5,6]', DEFAULT, 'quux'),
+			(6, NULL, DEFAULT, 'corge');
+	`)
+	require.GreaterOrEqual(t, time.Since(start), 1*time.Second) // Delay is effective
+	require.Less(t, time.Since(start), 3*time.Second)           // Make sure we have successfully batched the embedding calls
+
+	tk.MustQuery("select * from t").Check(testkit.Rows(
+		"1 [1,2,3] [1,2,3] foo",
+		"2 [4,5,6] [4,5,6] bar",
+		"3 [7,8,9] [7,8,9] baz",
+		"4 [1,2,3] [1,2,3] qux",
+		"5 [4,5,6] [4,5,6] quux",
+		"6 <nil> <nil> corge",
+	))
+
+	start = time.Now()
+	tk.MustExec(`
+		UPDATE t SET non_vec = 'updated';
+	`)
+	require.Less(t, time.Since(start), 1*time.Second) // Auto-embedding should not be involved in this update
+
+	tk.MustQuery("select * from t").Check(testkit.Rows(
+		"1 [1,2,3] [1,2,3] updated",
+		"2 [4,5,6] [4,5,6] updated",
+		"3 [7,8,9] [7,8,9] updated",
+		"4 [1,2,3] [1,2,3] updated",
+		"5 [4,5,6] [4,5,6] updated",
+		"6 <nil> <nil> updated",
+	))
+}
+
+func TestAutoEmbeddingLatencyInSelect(t *testing.T) {
+	store := testkit.CreateMockStore(t)
+	tk := testkit.NewTestKit(t, store)
+	tk.MustExec("use test")
+	tk.MustExec(`
+		CREATE TABLE t(
+			id INT PRIMARY KEY,
+			text TEXT,
+			vec VECTOR(3) GENERATED ALWAYS AS (embed_text('mock/json', text, '{"delay": "1s"}')) STORED
+		);
+	`)
+
+	start := time.Now()
+	tk.MustQuery(`
+		explain format = 'brief'
+		select
+			VEC_EMBED_COSINE_DISTANCE(vec, '[1,2,3]') AS d1,
+			VEC_EMBED_COSINE_DISTANCE(vec, '[1,2,3]') AS d2,
+			VEC_EMBED_COSINE_DISTANCE(vec, '[1,2,3]') AS d3
+		from t
+			order by VEC_EMBED_COSINE_DISTANCE(vec, '[1,2,3]') limit 10
+	`).Check(testkit.Rows(
+		`Projection 10.00 root  vec_cosine_distance(test.t.vec, [1,2,3])->Column#7, vec_cosine_distance(test.t.vec, [1,2,3])->Column#8, vec_cosine_distance(test.t.vec, [1,2,3])->Column#9`,
+		`└─TopN 10.00 root  Column#10, offset:0, count:10`,
+		`  └─TableReader 10.00 root  data:TopN`,
+		`    └─TopN 10.00 cop[tikv]  Column#10, offset:0, count:10`,
+		`      └─Projection 10.00 cop[tikv]  test.t.vec, vec_cosine_distance(test.t.vec, [1,2,3])->Column#10`,
+		`        └─TableFullScan 10000.00 cop[tikv] table:t keep order:false, stats:pseudo`,
+	))
+	require.GreaterOrEqual(t, time.Since(start), 1*time.Second) // Delay is effective
+	require.Less(t, time.Since(start), 3*time.Second)           // Make sure we have successfully cached the embedding calls when it occurs in multiple places
 }
 
 func TestVectorLong(t *testing.T) {

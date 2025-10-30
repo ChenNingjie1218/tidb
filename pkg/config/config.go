@@ -441,6 +441,9 @@ type Config struct {
 	// ExternalStorageConfig is config for external storage.
 	ExternalStorageConfig ExternalStorageConfig `toml:"external-storage-config" json:"external-storage-config"`
 
+	// HostedEmbedding is used to control the hosted embedding service. (CSE only)
+	HostedEmbedding HostedEmbedding `toml:"hosted-embedding" json:"hosted-embedding"`
+
 	// FixedStorageSize is used for `import into from select`
 	FixedStorageSize int64 `toml:"fixed-storage-size" json:"fixed-storage-size"`
 
@@ -1091,6 +1094,20 @@ type Experimental struct {
 	EnableNewCharset bool `toml:"enable-new-charset" json:"-"`
 }
 
+// HostedEmbedding is the config for TiDB Cloud hosted embedding provider (tidbcloud_free/ prefix in EMBED_TEXT).
+type HostedEmbedding struct {
+	// Enabled indicates whether the hosted embedding service is enabled.
+	// When enabled, tidbcloud_free/ prefix in EMBED_TEXT will be supported.
+	Enabled bool `toml:"enabled" json:"enabled"`
+
+	// APIEndpoint is the endpoint for the hosted embedding service.
+	// e.g. https://xxxxx.com
+	APIEndpoint string `toml:"api-endpoint" json:"api-endpoint"`
+
+	// APIKeyPath is the path to the Bearer API key file for accessing the hosted embedding service.
+	APIKeyPath string `toml:"api-key-path" json:"api-key-path"`
+}
+
 var defTiKVCfg = tikvcfg.DefaultConfig()
 var defaultConf = Config{
 	Host:                         DefHost,
@@ -1302,6 +1319,11 @@ var defaultConf = Config{
 		RoleExpiryWindow: 10 * time.Hour,
 		RoleDuration:     12 * time.Hour,
 	},
+
+	HostedEmbedding: HostedEmbedding{
+		Enabled: false,
+	},
+
 	FixedStorageSize: 480 * 1024 * 1024 * 1024,
 }
 

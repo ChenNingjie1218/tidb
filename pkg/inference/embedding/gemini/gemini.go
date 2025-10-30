@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package openai
+package gemini
 
 import (
 	"bytes"
@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"sort"
 
 	"github.com/go-json-experiment/json"
 	"github.com/pingcap/tidb/pkg/inference/embedding/base"
@@ -29,11 +28,11 @@ import (
 )
 
 const (
-	// DefaultAPIBaseURL is the default base URL for OpenAI embeddings API.
-	DefaultAPIBaseURL = "https://api.openai.com/v1/embeddings"
+	// DefaultAPIBaseURL is the default base URL for Gemini embeddings API.
+	DefaultAPIBaseURL = "https://generativelanguage.googleapis.com/v1beta/models"
 )
 
-// Embedder is for OpenAI embeddings.
+// Embedder is for Gemini embeddings.
 type Embedder struct {
 	client http.Client
 	cfg    EmbedderConfig
@@ -41,16 +40,15 @@ type Embedder struct {
 
 var _ base.Embedder = (*Embedder)(nil)
 
-// EmbedderConfig holds the configuration for OpenAIEmbedder.
+// EmbedderConfig holds the configuration for GeminiEmbedder.
 type EmbedderConfig struct {
 	GetAPIKey        func() string
 	GetBaseURL       func() string
 	ErrMissingAPIKey error // The error to return when API key is missing
-	ErrUnauthorized  error // The error to return when API key is invalid
 }
 
-// NewOpenAIEmbedder creates a new OpenAIEmbedder instance with the provided configuration.
-func NewOpenAIEmbedder(cfg EmbedderConfig) *Embedder {
+// NewGeminiEmbedder creates a new GeminiEmbedder instance with the provided configuration.
+func NewGeminiEmbedder(cfg EmbedderConfig) *Embedder {
 	return &Embedder{
 		client: http.Client{},
 		cfg:    cfg,
@@ -60,18 +58,23 @@ func NewOpenAIEmbedder(cfg EmbedderConfig) *Embedder {
 // CreateEmbeddings creates embeddings for the given texts using the specified model.
 // CreateEmbeddings implements base.Embedder
 func (e *Embedder) CreateEmbeddings(ctx context.Context, model string, texts []string, opts map[string]any) ([][]float32, error) {
-	// ref: https://platform.openai.com/docs/api-reference/embeddings/create
+	// ref: https://ai.google.dev/api/rest/v1beta/models/batchEmbedContents
 	if len(texts) == 0 {
 		return [][]float32{}, nil
 	}
 	if model == "" {
 		return nil, fmt.Errorf("model name is required")
 	}
-	req := Request{
-		Model:          model,
-		Input:          texts,
-		EncodingFormat: "base64",
-		OtherOptions:   opts,
+
+	// Construct requests array
+	requests := make([]Request, len(texts))
+	for i, text := range texts {
+		var r = &requests[i]
+		r.Model = fmt.Sprintf("models/%s", model)
+		r.Content.Parts = []struct {
+			Text string `json:"text"`
+		}{{Text: text}}
+		r.OtherOptions = opts
 	}
 
 	var apiKey string
@@ -82,8 +85,9 @@ func (e *Embedder) CreateEmbeddings(ctx context.Context, model string, texts []s
 		if e.cfg.ErrMissingAPIKey != nil {
 			return nil, e.cfg.ErrMissingAPIKey
 		}
-		return nil, fmt.Errorf("API key is not configured for OpenAI")
+		return nil, fmt.Errorf("API key is not configured for Gemini")
 	}
+
 	var baseURL string
 	if e.cfg.GetBaseURL != nil {
 		baseURL = e.cfg.GetBaseURL()
@@ -92,17 +96,21 @@ func (e *Embedder) CreateEmbeddings(ctx context.Context, model string, texts []s
 		baseURL = DefaultAPIBaseURL
 	}
 
-	jsonData, err := json.Marshal(req)
+	// Construct the full URL with model and endpoint
+	fullURL := fmt.Sprintf("%s/%s:batchEmbedContents", baseURL, model)
+
+	jsonData, err := json.Marshal(BatchRequest{Requests: requests})
 	if err != nil {
 		return nil, fmt.Errorf("unexpected marshal request error: %w", err)
 	}
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", baseURL, bytes.NewBuffer(jsonData))
+
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", fullURL, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create HTTP request: %w", err)
 	}
 
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+apiKey)
+	httpReq.Header.Set("x-goog-api-key", apiKey)
 
 	resp, err := e.client.Do(httpReq)
 	if err != nil {
@@ -116,43 +124,30 @@ func (e *Embedder) CreateEmbeddings(ctx context.Context, model string, texts []s
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		logutil.BgLogger().Error("OpenAI API request failed",
+		logutil.BgLogger().Error("Gemini API request failed",
 			zap.Int("status", resp.StatusCode),
 			zap.String("body", string(body)),
 		)
-		if resp.StatusCode == http.StatusUnauthorized {
-			if e.cfg.ErrUnauthorized != nil {
-				return nil, e.cfg.ErrUnauthorized
-			}
-			return nil, fmt.Errorf("OpenAI returns status unauthorized, check API key")
-		}
-		// Try to unmarshal an error response if available
 		var errResp ErrorResponse
 		if err := json.Unmarshal(body, &errResp); err == nil && errResp.Error.Message != "" {
-			return nil, fmt.Errorf("OpenAI: %s", errResp.Error.Message)
+			return nil, fmt.Errorf("%s: %s", "Gemini", errResp.Error.Message)
 		}
-		return nil, fmt.Errorf("OpenAI: status code %d", resp.StatusCode)
+		return nil, fmt.Errorf("%s: status code %d", "Gemini", resp.StatusCode)
 	}
 
-	var respObj Response
+	var respObj BatchResponse
 	if err := json.Unmarshal(body, &respObj); err != nil {
 		return nil, fmt.Errorf("unexpected unmarshal response error: %w", err)
 	}
-	sort.Slice(respObj.Data, func(i, j int) bool {
-		return respObj.Data[i].Index < respObj.Data[j].Index
-	})
-	if len(respObj.Data) != len(texts) {
-		return nil, fmt.Errorf("response data length %d does not match input texts length %d", len(respObj.Data), len(texts))
+
+	if len(respObj.Embeddings) != len(texts) {
+		return nil, fmt.Errorf("response embeddings length %d does not match input texts length %d", len(respObj.Embeddings), len(texts))
 	}
-	embeddings := make([][]float32, len(respObj.Data))
-	for row, item := range respObj.Data {
-		// item.Embedding is []byte. During JSON unmarshal,
-		// it is already base64 decoded by Golang from base64.
-		e, err := base.DecodeFloat32ArrayBytes(item.Embedding)
-		if err != nil {
-			return nil, fmt.Errorf("failed to decode embedding for index %d", item.Index)
-		}
-		embeddings[row] = e
+
+	embeddings := make([][]float32, len(respObj.Embeddings))
+	for i, embedding := range respObj.Embeddings {
+		embeddings[i] = embedding.Values
 	}
+
 	return embeddings, nil
 }

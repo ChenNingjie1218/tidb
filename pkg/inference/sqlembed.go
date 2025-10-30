@@ -18,16 +18,26 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/dgraph-io/ristretto"
+	"github.com/pingcap/tidb/pkg/config"
 	"github.com/pingcap/tidb/pkg/inference/embedding/batcher"
+	"github.com/pingcap/tidb/pkg/inference/embedding/cohere"
+	"github.com/pingcap/tidb/pkg/inference/embedding/gemini"
+	"github.com/pingcap/tidb/pkg/inference/embedding/huggingface"
 	"github.com/pingcap/tidb/pkg/inference/embedding/jina"
 	"github.com/pingcap/tidb/pkg/inference/embedding/mock"
+	"github.com/pingcap/tidb/pkg/inference/embedding/nvidia"
 	"github.com/pingcap/tidb/pkg/inference/embedding/openai"
+	"github.com/pingcap/tidb/pkg/inference/embedding/tidbcloud"
+	"github.com/pingcap/tidb/pkg/metrics"
 	"github.com/pingcap/tidb/pkg/sessionctx/variable"
 	"github.com/pingcap/tidb/pkg/util/intest"
+	"github.com/pingcap/tidb/pkg/util/logutil"
+	"go.uber.org/zap"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -47,22 +57,67 @@ type EmbedFn struct {
 	cache    *ristretto.Cache
 }
 
+const (
+	errMissingAPI   = "%s API key is not configured, to configure the API key: SET @@GLOBAL.%s='<API_KEY>'"
+	errUnauthorized = "%s returns status unauthorized, check your API key. To reconfigure a new API key: SET @@GLOBAL.%s='<API_KEY>'"
+)
+
 // NewEmbedFn creates a new EmbedFn instance.
 func NewEmbedFn() *EmbedFn {
-	configureJinaAPIKey := fmt.Sprintf("SET @@GLOBAL.%s='<API_KEY>'", strings.ToUpper(variable.TiDBExpEmbedJinaAPIKey))
-	configureOpenAIAPIKey := fmt.Sprintf("SET @@GLOBAL.%s='<API_KEY>'", strings.ToUpper(variable.TiDBExpEmbedOpenAIAPIKey))
-
 	embedder := batcher.NewBatchEmbedder()
-	embedder.RegisterEmbedder("jina", jina.NewJinaEmbedder(jina.EmbedderConfig{
+	embedder.RegisterEmbedder("jina_ai", jina.NewJinaEmbedder(jina.EmbedderConfig{
 		GetAPIKey:        func() string { return variable.EmbedJinaAPIKey.Load() },
-		ErrMissingAPIKey: fmt.Errorf("JinaAI API key is not configured, to configure the API key: %s", configureJinaAPIKey),
-		ErrUnauthorized:  fmt.Errorf("JinaAI returns status unauthorized, check your JinaAI API key. To reconfigure a new API key: %s", configureJinaAPIKey),
+		ErrMissingAPIKey: fmt.Errorf(errMissingAPI, "JinaAI", strings.ToUpper(variable.TiDBExpEmbedJinaAIAPIKey)),
+		ErrUnauthorized:  fmt.Errorf(errUnauthorized, "JinaAI", strings.ToUpper(variable.TiDBExpEmbedJinaAIAPIKey)),
 	}))
 	embedder.RegisterEmbedder("openai", openai.NewOpenAIEmbedder(openai.EmbedderConfig{
 		GetAPIKey:        func() string { return variable.EmbedOpenAIAPIKey.Load() },
-		ErrMissingAPIKey: fmt.Errorf("OpenAI API key is not configured, to configure the API key: %s", configureOpenAIAPIKey),
-		ErrUnauthorized:  fmt.Errorf("OpenAI returns status unauthorized, check your OpenAI API key. To reconfigure a new API key: %s", configureOpenAIAPIKey),
+		ErrMissingAPIKey: fmt.Errorf(errMissingAPI, "OpenAI", strings.ToUpper(variable.TiDBExpEmbedOpenAIAPIKey)),
+		ErrUnauthorized:  fmt.Errorf(errUnauthorized, "OpenAI", strings.ToUpper(variable.TiDBExpEmbedOpenAIAPIKey)),
 	}))
+	embedder.RegisterEmbedder("cohere", cohere.NewCohereEmbedder(cohere.EmbedderConfig{
+		GetAPIKey:        func() string { return variable.EmbedCohereAPIKey.Load() },
+		ErrMissingAPIKey: fmt.Errorf(errMissingAPI, "Cohere", strings.ToUpper(variable.TiDBExpEmbedCohereAPIKey)),
+		ErrUnauthorized:  fmt.Errorf(errUnauthorized, "Cohere", strings.ToUpper(variable.TiDBExpEmbedCohereAPIKey)),
+	}))
+	embedder.RegisterEmbedder("huggingface", huggingface.NewHuggingFaceEmbedder(huggingface.EmbedderConfig{
+		GetAPIKey:        func() string { return variable.EmbedHuggingFaceAPIKey.Load() },
+		ErrMissingAPIKey: fmt.Errorf(errMissingAPI, "HuggingFace", strings.ToUpper(variable.TiDBExpEmbedHuggingFaceAPIKey)),
+		ErrUnauthorized:  fmt.Errorf(errUnauthorized, "HuggingFace", strings.ToUpper(variable.TiDBExpEmbedHuggingFaceAPIKey)),
+	}))
+	embedder.RegisterEmbedder("nvidia_nim", nvidia.NewNvidiaEmbedder(nvidia.EmbedderConfig{
+		GetAPIKey:        func() string { return variable.EmbedNvidiaNIMAPIKey.Load() },
+		ErrMissingAPIKey: fmt.Errorf(errMissingAPI, "NVIDIA NIM", strings.ToUpper(variable.TiDBExpEmbedNvidiaNIMAPIKey)),
+		ErrUnauthorized:  fmt.Errorf(errUnauthorized, "NVIDIA NIM", strings.ToUpper(variable.TiDBExpEmbedNvidiaNIMAPIKey)),
+	}))
+	embedder.RegisterEmbedder("gemini", gemini.NewGeminiEmbedder(gemini.EmbedderConfig{
+		GetAPIKey:        func() string { return variable.EmbedGeminiAPIKey.Load() },
+		ErrMissingAPIKey: fmt.Errorf(errMissingAPI, "Gemini", strings.ToUpper(variable.TiDBExpEmbedGeminiAPIKey)),
+		// ErrUnauthorized is not provided in gemini. The error message provided by Gemini API is sufficient enough.
+	}))
+	if config.GetGlobalConfig().HostedEmbedding.Enabled {
+		var apiKey string
+		if config.GetGlobalConfig().HostedEmbedding.APIKeyPath != "" {
+			d, err := os.ReadFile(config.GetGlobalConfig().HostedEmbedding.APIKeyPath)
+			if err != nil {
+				logutil.BgLogger().Error("Failed to read specified API key file for hosted embedding service, API key will not be attached",
+					zap.String("api-key-path", config.GetGlobalConfig().HostedEmbedding.APIKeyPath),
+					zap.Error(err))
+			} else {
+				apiKey = strings.TrimSpace(string(d))
+			}
+		}
+		embedder.RegisterEmbedder("tidbcloud_free", tidbcloud.NewTiDBCloudFreeEmbedder(tidbcloud.EmbedderConfig{
+			GetBillingID: func() string {
+				if metrics.ServerlessClusterID == "" {
+					return ""
+				}
+				return fmt.Sprintf("cluster_%s", metrics.ServerlessClusterID)
+			},
+			GetAPIKey:  func() string { return apiKey },
+			GetBaseURL: func() string { return config.GetGlobalConfig().HostedEmbedding.APIEndpoint },
+		}))
+	}
 	if intest.InTest {
 		embedder.RegisterEmbedder("mock", mock.NewMockEmbedder())
 	}

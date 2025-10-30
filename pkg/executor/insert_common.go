@@ -19,6 +19,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"sync"
 	"time"
 
 	"github.com/pingcap/errors"
@@ -48,6 +49,7 @@ import (
 	"github.com/pingcap/tidb/pkg/util/tracing"
 	"github.com/tikv/client-go/v2/txnkv/txnsnapshot"
 	"go.uber.org/zap"
+	"golang.org/x/sync/errgroup"
 )
 
 // InsertValues is the data to insert.
@@ -231,6 +233,10 @@ func insertRows(ctx context.Context, base insertCommon) (err error) {
 			if err != nil {
 				return err
 			}
+			rows, err = e.fillAutoEmbeddingDatum(ctx, rows)
+			if err != nil {
+				return err
+			}
 			if err = base.exec(ctx, rows); err != nil {
 				return err
 			}
@@ -248,6 +254,10 @@ func insertRows(ctx context.Context, base insertCommon) (err error) {
 	}
 	// Fill the batch allocated autoIDs.
 	rows, err = e.lazyAdjustAutoIncrementDatum(ctx, rows)
+	if err != nil {
+		return err
+	}
+	rows, err = e.fillAutoEmbeddingDatum(ctx, rows)
 	if err != nil {
 		return err
 	}
@@ -502,6 +512,10 @@ func insertRowsFromSelect(ctx context.Context, base insertCommon) error {
 				memUsageOfExtraCols = types.EstimatedMemUsage(extraColsInSel[0], len(extraColsInSel))
 				totalMemDelta += memUsageOfRows + memUsageOfExtraCols
 				e.Ctx().GetSessionVars().CurrInsertBatchExtraCols = extraColsInSel
+				rows, err = e.fillAutoEmbeddingDatum(ctx, rows)
+				if err != nil {
+					return err
+				}
 				if err = base.exec(ctx, rows); err != nil {
 					return err
 				}
@@ -521,6 +535,10 @@ func insertRowsFromSelect(ctx context.Context, base insertCommon) error {
 			memUsageOfExtraCols = types.EstimatedMemUsage(extraColsInSel[0], len(extraColsInSel))
 			memTracker.Consume(memUsageOfRows + memUsageOfExtraCols)
 			e.Ctx().GetSessionVars().CurrInsertBatchExtraCols = extraColsInSel
+		}
+		rows, err = e.fillAutoEmbeddingDatum(ctx, rows)
+		if err != nil {
+			return err
 		}
 		err = base.exec(ctx, rows)
 		if err != nil {
@@ -605,6 +623,89 @@ func (e *InsertValues) getColDefaultValue(idx int, col *table.Column) (d types.D
 	}
 
 	return defaultVal, nil
+}
+
+// CSE Only: This function evaluates the values of the auto-embedding columns by batch, and
+// then fills the values into the rows.
+// This function must be performed after other default columns are filled, so that the
+// auto-embedding columns can be evaluated based on the other columns' values.
+func (e *InsertValues) fillAutoEmbeddingDatum(ctx context.Context, rows [][]types.Datum) (
+	[][]types.Datum, error,
+) {
+	// Fast path: If there is no auto-embedding generated column at all, then we can skip this step.
+	{
+		if len(e.GenExprs) == 0 {
+			return rows, nil
+		}
+		hasAutoEmbeddingExpr := false
+		for _, col := range e.Table.Cols() {
+			if col.IsGenerated() && expression.IsAutoEmbedFnCallAST(col.GeneratedExpr.Internal()) {
+				hasAutoEmbeddingExpr = true
+				break
+			}
+		}
+		if !hasAutoEmbeddingExpr {
+			return rows, nil
+		}
+	}
+
+	rowCntInLoadData := uint64(0)
+	if e.Ctx().GetSessionVars().StmtCtx.InLoadDataStmt {
+		rowCntInLoadData = e.rowCount
+	}
+
+	// Note that EMBED_TEXT() will batch 16 values together, so here we are allowing
+	// 50 concurrent requests.
+	// TODO: Currently each expr takes one goroutine. We may want to optimize it later.
+	eg, egCtx := errgroup.WithContext(ctx)
+	eg.SetLimit(16 * 50)
+
+	rowMu := &sync.Mutex{}
+
+	for rowIdx, row := range rows {
+		gIdx := -1
+		for colIdx, gCol := range e.Table.Cols() {
+			if !gCol.IsGenerated() {
+				continue
+			}
+			gIdx++
+			if !expression.IsAutoEmbedFnCallAST(gCol.GeneratedExpr.Internal()) {
+				continue
+			}
+
+			// gIdx will be modified before goroutine starts, so we need to capture it into
+			// a new variable.
+			genExpr := e.GenExprs[gIdx]
+
+			eg.Go(func() error {
+				// The group will be cancelled if preior goroutine was already failed.
+				// In this case no need to start more work.
+				if egCtx.Err() != nil {
+					return context.Cause(egCtx)
+				}
+				sctx := e.Ctx()
+				evalCtx := sctx.GetExprCtx().GetEvalCtx()
+				val, err := genExpr.Eval(evalCtx, chunk.MutRowFromDatums(row).ToRow())
+				if e.Ctx().GetSessionVars().StmtCtx.HandleTruncate(err) != nil {
+					return err
+				}
+				rowMu.Lock()
+				rows[rowIdx][colIdx], err = table.CastValue(e.Ctx(), val, gCol.ToInfo(), false, false)
+				rowMu.Unlock()
+				if err = e.handleErr(gCol, &val, rowIdx, err); err != nil {
+					return err
+				}
+				return gCol.HandleBadNull(e.Ctx().GetSessionVars().StmtCtx.ErrCtx(), &row[colIdx], rowCntInLoadData)
+			})
+		}
+	}
+
+	err := eg.Wait()
+	if err != nil {
+		return nil, err
+	}
+
+	return rows, nil
 }
 
 // fillColValue fills the column value if it is not set in the insert statement.
@@ -717,6 +818,11 @@ func (e *InsertValues) fillRow(ctx context.Context, row []types.Datum, hasValue 
 	sc := sctx.GetSessionVars().StmtCtx
 	warnCnt := int(sc.WarningCount())
 	for i, gCol := range gCols {
+		// CSE only:
+		// Skip all auto-embedding generated columns. We will handle them later in a batch.
+		if expression.IsAutoEmbedFnCallAST(gCol.GeneratedExpr.Internal()) {
+			continue
+		}
 		colIdx := gCol.ColumnInfo.Offset
 		val, err := e.GenExprs[i].Eval(evalCtx, chunk.MutRowFromDatums(row).ToRow())
 		if err != nil && gCol.FieldType.IsArray() {

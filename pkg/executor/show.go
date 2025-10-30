@@ -867,24 +867,32 @@ func (e *ShowExec) fetchShowIndex() error {
 				ndv = colStats.NDV
 			}
 
+			// CSE only compatibility: Keep VECTOR indexes displayed as HNSW.
+			// In master branch this change has already been made effective.
+			indexType := idx.Meta().Tp.String()
+			if indexType == "VECTOR" {
+				indexType = "HNSW"
+				e.Ctx().GetSessionVars().StmtCtx.AppendWarning(fmt.Errorf("currently vector indexes are displayed as Index_Type=HNSW. The behavior will be changed to displaying as Index_Type=VECTOR in a release after Aug 1st, 2025"))
+			}
+
 			e.appendRow([]any{
-				tb.Meta().Name.O,       // Table
-				nonUniq,                // Non_unique
-				idx.Meta().Name.O,      // Key_name
-				i + 1,                  // Seq_in_index
-				colName,                // Column_name
-				"A",                    // Collation
-				ndv,                    // Cardinality
-				subPart,                // Sub_part
-				nil,                    // Packed
-				nullVal,                // Null
-				idx.Meta().Tp.String(), // Index_type
-				"",                     // Comment
-				idx.Meta().Comment,     // Index_comment
-				visible,                // Index_visible
-				expression,             // Expression
-				isClustered,            // Clustered
-				isGlobalIndex,          // Global_index
+				tb.Meta().Name.O,   // Table
+				nonUniq,            // Non_unique
+				idx.Meta().Name.O,  // Key_name
+				i + 1,              // Seq_in_index
+				colName,            // Column_name
+				"A",                // Collation
+				ndv,                // Cardinality
+				subPart,            // Sub_part
+				nil,                // Packed
+				nullVal,            // Null
+				indexType,          // Index_type
+				"",                 // Comment
+				idx.Meta().Comment, // Index_comment
+				visible,            // Index_visible
+				expression,         // Expression
+				isClustered,        // Clustered
+				isGlobalIndex,      // Global_index
 			})
 		}
 	}

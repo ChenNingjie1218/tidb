@@ -1108,7 +1108,7 @@ func TestCreateTableWithVectorIndex(t *testing.T) {
 		require.Equal(t, replicaCnt, tbl.Meta().TiFlashReplica.Count)
 		indexes := tbl.Meta().Indices
 		require.Equal(t, 2, len(indexes))
-		require.Equal(t, pmodel.IndexTypeHNSW, indexes[0].Tp)
+		require.Equal(t, pmodel.IndexTypeVector, indexes[0].Tp)
 		require.Equal(t, model.DistanceMetricCosine, indexes[0].VectorInfo.DistanceMetric)
 		require.Equal(t, "vector_index", tbl.Meta().Indices[0].Name.O)
 		require.Equal(t, "vector_index_2", tbl.Meta().Indices[1].Name.O)
@@ -1150,7 +1150,7 @@ func TestCreateTableWithVectorIndex(t *testing.T) {
 
 	// a vector index with invisible
 	tk.MustContainErrMsg("create table t(a int, b vector(3), vector index((VEC_COSINE_DISTANCE(b))) USING HNSW INVISIBLE)",
-		"Unsupported index option: INVISIBLE can not be used in columnar index")
+		"INVISIBLE can not be used in VECTOR INDEX")
 }
 
 func TestVectorColumnWithIndex(t *testing.T) {
@@ -1165,14 +1165,14 @@ func TestVectorColumnWithIndex(t *testing.T) {
 	tk.MustExec("use test")
 
 	tk.MustExec(`CREATE TABLE t(c INT)`)
-	tk.MustGetErrMsg(`ALTER TABLE t ADD INDEX idx (c) USING HNSW`, "[ddl:8200]Unsupported index option: HNSW can be only used in vector index")
-	tk.MustGetErrMsg(`CREATE INDEX idx USING HNSW ON t (c)`, "[ddl:8200]Unsupported index option: HNSW can be only used in vector index")
+	tk.MustGetErrMsg(`ALTER TABLE t ADD INDEX idx (c) USING HNSW`, "[ddl:8200]'USING HNSW' can be only used for VECTOR INDEX")
+	tk.MustGetErrMsg(`CREATE INDEX idx USING HNSW ON t (c)`, "[ddl:8200]'USING HNSW' can be only used for VECTOR INDEX")
 	tk.MustExec(`DROP TABLE t`)
 
 	tk.MustExec(`CREATE TABLE t(c VECTOR(5))`)
 	tk.MustGetErrMsg(`CREATE INDEX idx ON t (c)`, "[ddl:8200]Unsupported add columnar index: vector column only support add vector index")
-	tk.MustGetErrMsg(`ALTER TABLE t ADD VECTOR INDEX idx ((VEC_COSINE_DISTANCE(c))) USING BTREE`, "[ddl:8200]Unsupported index option: BTREE cannot be used in vector index")
-	tk.MustGetErrMsg(`CREATE VECTOR INDEX idx USING BTREE ON t ((VEC_COSINE_DISTANCE(c)))`, "[ddl:8200]Unsupported index option: BTREE cannot be used in vector index")
+	tk.MustGetErrMsg(`ALTER TABLE t ADD VECTOR INDEX idx ((VEC_COSINE_DISTANCE(c))) USING BTREE`, "[ddl:8200]'USING BTREE' is not supported for VECTOR INDEX")
+	tk.MustGetErrMsg(`CREATE VECTOR INDEX idx USING BTREE ON t ((VEC_COSINE_DISTANCE(c)))`, "[ddl:8200]'USING BTREE' is not supported for VECTOR INDEX")
 	tk.MustExec(`DROP TABLE t`)
 }
 
@@ -1211,9 +1211,9 @@ func TestAddVectorIndexSimple(t *testing.T) {
 		"Unsupported add columnar index: columnar replica must exist to create vector index")
 	tk.MustExec("alter table t set tiflash replica 2 location labels 'a','b';")
 	tk.MustContainErrMsg("alter table t add key idx(a) USING HNSW;",
-		"HNSW can be only used in vector index")
+		"'USING HNSW' can be only used for VECTOR INDEX")
 	tk.MustContainErrMsg("create index idx USING HNSW on t (a);",
-		"HNSW can be only used in vector index")
+		"'USING HNSW' can be only used for VECTOR INDEX")
 	// for a wrong column
 	tk.MustContainErrMsg("alter table t add vector index ((vec_cosine_distance(n))) USING HNSW;", "[schema:1054]Unknown column 'n' in 't'")
 	tk.MustContainErrMsg("create vector index idx USING HNSW on t ((vec_cosine_distance(n)));", "[schema:1054]Unknown column 'n' in 't'")
@@ -1275,7 +1275,7 @@ func TestAddVectorIndexSimple(t *testing.T) {
 	require.NoError(t, err)
 	indexes = tbl.Meta().Indices
 	require.Equal(t, 1, len(indexes))
-	require.Equal(t, pmodel.IndexTypeHNSW, indexes[0].Tp)
+	require.Equal(t, pmodel.IndexTypeVector, indexes[0].Tp)
 	require.Equal(t, model.DistanceMetricCosine, indexes[0].VectorInfo.DistanceMetric)
 	// test row count
 	jobs, err := getJobsBySQL(tk.Session(), "tidb_ddl_history", "order by job_id desc limit 1")
@@ -1339,7 +1339,7 @@ func TestAddVectorIndexSimple(t *testing.T) {
 	require.NoError(t, err)
 	indexes = tbl.Meta().Indices
 	require.Equal(t, 1, len(indexes))
-	require.Equal(t, pmodel.IndexTypeHNSW, indexes[0].Tp)
+	require.Equal(t, pmodel.IndexTypeVector, indexes[0].Tp)
 	require.Equal(t, model.DistanceMetricCosine, indexes[0].VectorInfo.DistanceMetric)
 	tk.MustQuery("select * from t;").Check(testkit.Rows("1 [1,2.1,3.3]"))
 	tk.MustQuery("show create table t").Check(testkit.Rows("t CREATE TABLE `t` (\n" +
@@ -1365,7 +1365,7 @@ func TestAddVectorIndexSimple(t *testing.T) {
 	require.Equal(t, 1, len(tbl.Meta().Indices))
 	idx := tbl.Meta().Indices[0]
 	require.Equal(t, "vector_index", idx.Name.O)
-	require.Equal(t, pmodel.IndexTypeHNSW, idx.Tp)
+	require.Equal(t, pmodel.IndexTypeVector, idx.Tp)
 	require.Equal(t, model.DistanceMetricL2, idx.VectorInfo.DistanceMetric)
 	tk.MustExec("alter table t add key vector_index_2(a);")
 	tk.MustExec("alter table t add vector index ((VEC_COSINE_DISTANCE(b))) USING HNSW;")

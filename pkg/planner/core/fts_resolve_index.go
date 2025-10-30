@@ -99,8 +99,8 @@ func (o *FullTextIndexResolverWhere) onEnterDataSource(v *FullTextIndexPlanVisit
 	//	SELECT ... FROM <TABLE>
 	//	WHERE FTS_MATCH_WORD(...)
 	//
-	//	Plan:   TableScan          -> Selection
-	//	Target: TableScan(→#Score) -> Selection(rest)
+	//	Input Plan:   DataSource          -> Selection
+	//	Target Plan:  DataSource(→#Score) -> Selection(rest)
 
 	// Extract FTS expr from the selection
 	parent0 := v.getParent(0)
@@ -236,9 +236,9 @@ func (o *FullTextIndexResolverTopN) onEnterDataSource(v *FullTextIndexPlanVisito
 	//	WHERE FTS_MATCH_WORD(...)
 	//	ORDER BY FTS_MATCH_WORD(...) LIMIT 10
 	//
-	//	Plan (Original):       TableScan          -> Selection(byScore()) -> TopN(by#Score)
-	//	Plan (After OptWhere): TableScan(→#Score) -> Selection(rest)      -> TopN(by→#Score2)
-	//	Target:                TableScan(→#Score) -> Selection(rest)      -> TopN(by#Score)
+	//	Input Plan (After ResolverWhere):
+	// 		DataSource(→#Score) -> Selection(rest)      -> TopN(by→#Score2)
+	// 		DataSource(→#Score)                         -> TopN(by→#Score2)
 
 	// It is possible that there is a Selection above logicalop.DataSource, or there may be no.
 	parent0 := v.getParent(0)
@@ -289,6 +289,98 @@ func (o *FullTextIndexResolverTopN) onEnterDataSource(v *FullTextIndexPlanVisito
 	return false, nil
 }
 
+// FullTextIndexResolverProjection must run after TopN rewrite
+type FullTextIndexResolverProjection struct{}
+
+// Name returns the name of this optimization rule.
+func (o *FullTextIndexResolverProjection) Name() string {
+	return "fts_resolve_index_projection"
+}
+
+// Optimize applies Projection optimization for full-text search queries.
+func (o *FullTextIndexResolverProjection) Optimize(ctx context.Context, plan base.LogicalPlan, opt *optimizetrace.LogicalOptimizeOp) (base.LogicalPlan, bool, error) {
+	if !plan.SCtx().GetSessionVars().StmtCtx.FTSFunctionIsUsed {
+		return plan, false, nil
+	}
+	visitor := &FullTextIndexPlanVisitor{
+		onEnterDataSource: o.onEnterDataSource,
+	}
+	isChanged, err := visitor.visit(plan)
+	return plan, isChanged, err
+}
+
+func (o *FullTextIndexResolverProjection) onEnterDataSource(v *FullTextIndexPlanVisitor, ds *logicalop.DataSource) (bool, error) {
+	// WHERE rewrite is not succeeded, just skip.
+	if ds.FtsPushDown == nil {
+		return false, nil
+	}
+
+	//	Input Plan (After ResolverTopN):
+	// 		DataSource              -> Projection  	             |  SELECT FTS_MATCH_WORD(..) FROM t WHERE FTS_MATCH_WORD(..)
+	// 		DataSource -> Selection -> Projection
+	// 		DataSource              -> TopN       -> Projection  |  SELECT FTS_MATCH_WORD(..) FROM t WHERE FTS_MATCH_WORD(..) ORDER BY FTS_MATCH_WORD(..) DESC LIMIT 10
+	// 		DataSource -> Selection -> TopN       -> Projection
+
+	// We only accept 4 patterns as above.
+
+	var planSelection *logicalop.LogicalSelection = nil
+	var planTopN *logicalop.LogicalTopN = nil
+	var planProjection *logicalop.LogicalProjection = nil
+
+	for i := len(v.parents) - 1; i >= 0; i-- {
+		stopHere := false
+		switch p := v.parents[i].(type) {
+		case *logicalop.LogicalSelection:
+			if planTopN != nil || planProjection != nil || planSelection != nil {
+				return false, nil
+			}
+			planSelection = p
+		case *logicalop.LogicalTopN:
+			if planTopN != nil || planProjection != nil {
+				return false, nil
+			}
+			planTopN = p
+		case *logicalop.LogicalProjection:
+			planProjection = p
+			stopHere = true
+		default:
+			return false, nil // Unsupported executor
+		}
+		if stopHere {
+			break
+		}
+	}
+	if planProjection == nil {
+		// No projection, just skip.
+		return false, nil
+	}
+
+	// The FTS() in SELECT must match the FTS() in WHERE. However we accept multiple FTS() in SELECT.
+	matchedProjections := make([]int, 0, len(planProjection.Exprs))
+	for i, expr := range planProjection.Exprs {
+		ftsInfo := expression.InterpretFullTextSearchExpr(expr)
+		if ftsInfo == nil {
+			continue
+		}
+		if ftsInfo.Column.ID != ds.FtsPushDown.Columns[0].ColumnId {
+			return false, plannererrors.ErrWrongUsage.FastGen("'FTS_MATCH_WORD()' in SELECT must match the one in WHERE")
+		}
+		if ftsInfo.Query != ds.FtsPushDown.QueryText {
+			return false, plannererrors.ErrWrongUsage.FastGen("'FTS_MATCH_WORD()' in SELECT must match the one in WHERE")
+		}
+		matchedProjections = append(matchedProjections, i)
+	}
+	if len(matchedProjections) == 0 {
+		return false, nil
+	}
+
+	// Replace the FTS expr with the score column.
+	for _, idx := range matchedProjections {
+		planProjection.Exprs[idx] = ds.Schema().Columns[len(ds.Schema().Columns)-1]
+	}
+	return true, nil
+}
+
 // FullTextIndexResolverRejectRemaining validates and rejects unsupported full-text search usage patterns.
 // Must run after TopN rewrite.
 type FullTextIndexResolverRejectRemaining struct{}
@@ -314,31 +406,31 @@ func (o *FullTextIndexResolverRejectRemaining) visit(plan base.LogicalPlan) erro
 	case *logicalop.LogicalProjection:
 		for _, expr := range p.Exprs {
 			if expression.ContainsFullTextSearchFn(expr) {
-				return plannererrors.ErrWrongUsage.FastGen("Currently 'FTS_MATCH_WORD()' cannot be used in SELECT fields. It can be used in WHERE and ORDER BY only")
+				return plannererrors.ErrWrongUsage.FastGen("Currently 'FTS_MATCH_WORD()' in SELECT must not be placed inside any other function or expression, and must be used with a corresponding 'FTS_MATCH_WORD()' in WHERE. A valid example: SELECT FTS_MATCH_WORD(...) FROM <TABLE> WHERE FTS_MATCH_WORD(...)")
 			}
 		}
 	case *logicalop.DataSource:
 		for _, item := range p.PushedDownConds {
 			if expression.ContainsFullTextSearchFn(item) {
-				return plannererrors.ErrWrongUsage.FastGen("Currently 'FTS_MATCH_WORD()' must be used alone. It cannot be placed inside any other function or expression as a parameter, or used multiple times. A valid example: SELECT * FROM <TABLE> WHERE FTS_MATCH_WORD(...)")
+				return plannererrors.ErrWrongUsage.FastGen("Currently 'FTS_MATCH_WORD()' in WHERE must be used alone. It cannot be placed inside any other function or expression as a parameter, or used multiple times. A valid example: SELECT ... FROM <TABLE> WHERE FTS_MATCH_WORD(...)")
 			}
 		}
 	case *logicalop.LogicalSelection:
 		for _, cond := range p.Conditions {
 			if expression.ContainsFullTextSearchFn(cond) {
-				return plannererrors.ErrWrongUsage.FastGen("Currently 'FTS_MATCH_WORD()' must be used alone. It cannot be placed inside any other function or expression as a parameter, or used multiple times. A valid example: SELECT * FROM <TABLE> WHERE FTS_MATCH_WORD(...)")
+				return plannererrors.ErrWrongUsage.FastGen("Currently 'FTS_MATCH_WORD()' in WHERE must be used alone. It cannot be placed inside any other function or expression as a parameter, or used multiple times. A valid example: SELECT ... FROM <TABLE> WHERE FTS_MATCH_WORD(...)")
 			}
 		}
 	case *logicalop.LogicalTopN:
 		for i, item := range p.ByItems {
 			if expression.ContainsFullTextSearchFn(item.Expr) {
 				if i > 0 {
-					return plannererrors.ErrWrongUsage.FastGen("FTS_MATCH_WORD() must be used as the first item in ORDER BY. A valid example: SELECT * FROM <TABLE> WHERE FTS_MATCH_WORD(...) ORDER BY FTS_MATCH_WORD(...) LIMIT ..")
+					return plannererrors.ErrWrongUsage.FastGen("FTS_MATCH_WORD() must be used as the first item in ORDER BY. A valid example: SELECT ... FROM <TABLE> WHERE FTS_MATCH_WORD(...) ORDER BY FTS_MATCH_WORD(...) LIMIT ..")
 				}
 				// Two possibilities that we still meet a FTS expr here:
 				// 1. There is no WHERE at all
 				// 2. There is a WHERE, but FTS in TopN cannot be pushed down
-				return plannererrors.ErrWrongUsage.FastGen("Unsupported 'FTS_MATCH_WORD()' usage. It must be used with a WHERE clause and must be used alone. A valid example: SELECT * FROM <TABLE> WHERE FTS_MATCH_WORD(...) ORDER BY FTS_MATCH_WORD(...) LIMIT ..")
+				return plannererrors.ErrWrongUsage.FastGen("Unsupported 'FTS_MATCH_WORD()' usage. It must be used with a WHERE clause and must be used alone. A valid example: SELECT ... FROM <TABLE> WHERE FTS_MATCH_WORD(...) ORDER BY FTS_MATCH_WORD(...) LIMIT ..")
 			}
 		}
 	case *logicalop.LogicalSort:

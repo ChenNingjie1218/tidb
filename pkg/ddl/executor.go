@@ -864,63 +864,6 @@ func checkTooLongForeignKey(fk pmodel.CIStr) error {
 	return nil
 }
 
-type checkIndexType int
-
-const (
-	checkIndexTypeNormal checkIndexType = iota
-	checkIndexTypeVector
-	checkIndexTypeFullText
-)
-
-func checkIndexTypeFromConstraintType(constraint ast.ConstraintType) checkIndexType {
-	switch constraint {
-	case ast.ConstraintVector:
-		return checkIndexTypeVector
-	case ast.ConstraintFulltext:
-		return checkIndexTypeFullText
-	default:
-		return checkIndexTypeNormal
-	}
-}
-
-func checkIndexTypeFromIndexKeyType(indexKeyType ast.IndexKeyType) checkIndexType {
-	switch indexKeyType {
-	case ast.IndexKeyTypeVector:
-		return checkIndexTypeVector
-	case ast.IndexKeyTypeFullText:
-		return checkIndexTypeFullText
-	default:
-		return checkIndexTypeNormal
-	}
-}
-
-func checkIndexOptions(indexType checkIndexType, indexOption *ast.IndexOption) error {
-	if indexOption == nil {
-		return nil
-	}
-	if indexType == checkIndexTypeFullText {
-		if !variable.EnableFullTextIndex.Load() && !config.GetGlobalConfig().ForceEnableFullTextIndex {
-			return dbterror.ErrUnsupportedIndexType.FastGen("Unsupported FULLTEXT index")
-		}
-		if indexOption.ParserName.L != "" && pmodel.GetFullTextParserTypeBySQLName(indexOption.ParserName.L) == pmodel.FullTextParserTypeInvalid {
-			return dbterror.ErrUnsupportedIndexType.FastGen("Unsupported index option: unsupported parser '%s'", indexOption.ParserName.O)
-		}
-	}
-	if indexOption.AddColumnarReplicaOnDemand > 0 && indexType != checkIndexTypeVector && indexType != checkIndexTypeFullText {
-		return dbterror.ErrUnsupportedIndexType.FastGen("Unsupported index option: ADD_COLUMNAR_REPLICA_ON_DEMAND can be only used in columnar index")
-	}
-	if indexOption.Tp == pmodel.IndexTypeHNSW && indexType != checkIndexTypeVector {
-		return dbterror.ErrUnsupportedIndexType.FastGen("Unsupported index option: HNSW can be only used in vector index")
-	}
-	if indexOption.Tp != pmodel.IndexTypeHNSW && indexType == checkIndexTypeVector {
-		return dbterror.ErrUnsupportedIndexType.FastGen("Unsupported index option: %s cannot be used in vector index", indexOption.Tp.String())
-	}
-	if indexOption.Visibility == ast.IndexVisibilityInvisible && (indexType == checkIndexTypeVector || indexType == checkIndexTypeFullText) {
-		return dbterror.ErrUnsupportedIndexType.FastGen("Unsupported index option: INVISIBLE can not be used in columnar index")
-	}
-	return nil
-}
-
 func getDefaultCollationForUTF8MB4(cs string, defaultUTF8MB4Coll string) string {
 	if cs == charset.CharsetUTF8MB4 {
 		return defaultUTF8MB4Coll
@@ -1867,12 +1810,6 @@ func (e *executor) AlterTable(ctx context.Context, sctx sessionctx.Context, stmt
 			err = e.ExchangeTablePartition(sctx, ident, spec)
 		case ast.AlterTableAddConstraint:
 			constr := spec.Constraint
-
-			err = checkIndexOptions(checkIndexTypeFromConstraintType(constr.Tp), constr.Option)
-			if err != nil {
-				return
-			}
-
 			switch spec.Constraint.Tp {
 			case ast.ConstraintKey, ast.ConstraintIndex:
 				err = e.createIndex(sctx, ident, ast.IndexKeyTypeNone, pmodel.NewCIStr(constr.Name),
@@ -1892,10 +1829,8 @@ func (e *executor) AlterTable(ctx context.Context, sctx sessionctx.Context, stmt
 				} else {
 					err = e.CreateCheckConstraint(sctx, ident, pmodel.NewCIStr(constr.Name), spec.Constraint)
 				}
-			case ast.ConstraintVector:
-				err = e.createColumnarIndex(sctx, ident, pmodel.NewCIStr(constr.Name), spec.Constraint.Keys, constr.Option, constr.IfNotExists, pmodel.ColumnarIndexTypeVector)
-			case ast.ConstraintFulltext:
-				err = e.createColumnarIndex(sctx, ident, pmodel.NewCIStr(constr.Name), spec.Constraint.Keys, constr.Option, constr.IfNotExists, pmodel.ColumnarIndexTypeFulltext)
+			case ast.ConstraintColumnar:
+				err = e.createColumnarIndex(sctx, ident, pmodel.NewCIStr(constr.Name), spec.Constraint.Keys, constr.Option, constr.IfNotExists)
 			default:
 				// Nothing to do now.
 			}
@@ -4801,11 +4736,7 @@ func checkTableTypeForColumnarIndex(tblInfo *model.TableInfo) error {
 }
 
 func (e *executor) createColumnarIndex(sctx sessionctx.Context, ti ast.Ident, indexName pmodel.CIStr,
-	indexPartSpecifications []*ast.IndexPartSpecification, indexOption *ast.IndexOption, ifNotExists bool, columnarIndexType pmodel.ColumnarIndexType) error {
-	if columnarIndexType == pmodel.ColumnarIndexTypeNA {
-		// This should not happen. Caller must explicitly pass an available columnar index type.
-		return dbterror.ErrUnsupportedAddColumnarIndex.FastGenByArgs("internal error, meet unassigned columnar index type")
-	}
+	indexPartSpecifications []*ast.IndexPartSpecification, indexOption *ast.IndexOption, ifNotExists bool) error {
 	schema, t, err := e.getSchemaAndTableByIdent(ti)
 	if err != nil {
 		return errors.Trace(err)
@@ -4814,6 +4745,18 @@ func (e *executor) createColumnarIndex(sctx sessionctx.Context, ti ast.Ident, in
 	tblInfo := t.Meta()
 	if err := checkTableTypeForColumnarIndex(tblInfo); err != nil {
 		return errors.Trace(err)
+	}
+
+	var columnarIndexType pmodel.ColumnarIndexType
+	switch indexOption.Tp {
+	// case model.IndexTypeInverted:
+	// 	columnarIndexType = model.ColumnarIndexTypeInverted
+	case pmodel.IndexTypeVector:
+		columnarIndexType = pmodel.ColumnarIndexTypeVector
+	case pmodel.IndexTypeFulltext:
+		columnarIndexType = pmodel.ColumnarIndexTypeFulltext
+	default:
+		return dbterror.ErrUnsupportedIndexType.GenWithStackByArgs(indexOption.Tp)
 	}
 
 	if indexOption.AddColumnarReplicaOnDemand == 0 {
@@ -4916,10 +4859,6 @@ func buildAddIndexJobWithoutTypeAndArgs(ctx sessionctx.Context, schema *model.DB
 
 func (e *executor) CreateIndex(ctx sessionctx.Context, stmt *ast.CreateIndexStmt) error {
 	ident := ast.Ident{Schema: stmt.Table.Schema, Name: stmt.Table.Name}
-	err := checkIndexOptions(checkIndexTypeFromIndexKeyType(stmt.KeyType), stmt.IndexOption)
-	if err != nil {
-		return errors.Trace(err)
-	}
 	return e.createIndex(ctx, ident, stmt.KeyType, pmodel.NewCIStr(stmt.IndexName),
 		stmt.IndexPartSpecifications, stmt.IndexOption, stmt.IfNotExists)
 }
@@ -4949,14 +4888,11 @@ func (*executor) addHypoIndexIntoCtx(ctx sessionctx.Context, schemaName, tableNa
 func (e *executor) createIndex(ctx sessionctx.Context, ti ast.Ident, keyType ast.IndexKeyType, indexName pmodel.CIStr,
 	indexPartSpecifications []*ast.IndexPartSpecification, indexOption *ast.IndexOption, ifNotExists bool) error {
 	// not support Spatial and FullText index
-	if keyType == ast.IndexKeyTypeSpatial {
+	switch keyType {
+	case ast.IndexKeyTypeSpatial:
 		return dbterror.ErrUnsupportedIndexType.GenWithStack("SPATIAL index is not supported")
-	}
-	if keyType == ast.IndexKeyTypeVector {
-		return e.createColumnarIndex(ctx, ti, indexName, indexPartSpecifications, indexOption, ifNotExists, pmodel.ColumnarIndexTypeVector)
-	}
-	if keyType == ast.IndexKeyTypeFullText {
-		return e.createColumnarIndex(ctx, ti, indexName, indexPartSpecifications, indexOption, ifNotExists, pmodel.ColumnarIndexTypeFulltext)
+	case ast.IndexKeyTypeColumnar:
+		return e.createColumnarIndex(ctx, ti, indexName, indexPartSpecifications, indexOption, ifNotExists)
 	}
 	unique := keyType == ast.IndexKeyTypeUnique
 	schema, t, err := e.getSchemaAndTableByIdent(ti)

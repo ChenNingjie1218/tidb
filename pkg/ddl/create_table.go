@@ -1062,7 +1062,7 @@ func setEmptyConstraintName(namesMap map[string]bool, constr *ast.Constraint) {
 		var colName string
 		for _, keyPart := range constr.Keys {
 			if keyPart.Expr != nil {
-				colName = getAnonymousIndexPrefix(constr.Tp == ast.ConstraintVector)
+				colName = getAnonymousIndexPrefix(constr.Option != nil && constr.Option.Tp == pmodel.IndexTypeVector)
 			}
 		}
 		if colName == "" {
@@ -1295,11 +1295,7 @@ func BuildTableInfo(
 	foreignKeyID := tbInfo.MaxForeignKeyID
 	for _, constr := range constraints {
 		var hiddenCols []*model.ColumnInfo
-		err = checkIndexOptions(checkIndexTypeFromConstraintType(constr.Tp), constr.Option)
-		if err != nil {
-			return nil, err
-		}
-		if constr.Tp != ast.ConstraintVector && constr.Tp != ast.ConstraintFulltext {
+		if constr.Tp != ast.ConstraintColumnar {
 			// Build hidden columns if necessary.
 			hiddenCols, err = buildHiddenColumnInfoWithCheck(ctx, constr.Keys, pmodel.NewCIStr(constr.Name), tbInfo, tblColumns)
 			if err != nil {
@@ -1381,10 +1377,15 @@ func BuildTableInfo(
 			indexName = mysql.PrimaryKeyName
 		case ast.ConstraintUniq, ast.ConstraintUniqKey, ast.ConstraintUniqIndex:
 			unique = true
-		case ast.ConstraintVector:
-			columnarIndexType = pmodel.ColumnarIndexTypeVector
-		case ast.ConstraintFulltext:
-			columnarIndexType = pmodel.ColumnarIndexTypeFulltext
+		case ast.ConstraintColumnar:
+			switch constr.Option.Tp {
+			case pmodel.IndexTypeVector:
+				columnarIndexType = pmodel.ColumnarIndexTypeVector
+			case pmodel.IndexTypeFulltext:
+				columnarIndexType = pmodel.ColumnarIndexTypeFulltext
+			default:
+				return nil, dbterror.ErrUnsupportedIndexType.GenWithStackByArgs(constr.Option.Tp)
+			}
 		}
 
 		// check constraint

@@ -98,6 +98,7 @@ var optRuleList = []base.LogicalOptRule{
 	&PredicateSimplification{},
 	&PushDownTopNOptimizer{},
 	&FullTextIndexResolverTopN{},
+	&FullTextIndexResolverProjection{},
 	&SyncWaitStatsLoadPoint{},
 	&JoinReOrderSolver{},
 	&ColumnPruner{}, // column pruning again at last, note it will mess up the results of buildKeySolver
@@ -306,6 +307,7 @@ func adjustOptimizationFlags(flag uint64, logic base.LogicalPlan) uint64 {
 	}
 	flag |= rule.FlagFullTextIndexResolveWhere
 	flag |= rule.FlagFullTextIndexResolveTopN
+	flag |= rule.FlagFullTextIndexResolveProjection
 	flag |= rule.FlagFullTextIndexResolveReject
 	flag |= rule.FlagCollectPredicateColumnsPoint
 	flag |= rule.FlagSyncWaitStatsLoadPoint

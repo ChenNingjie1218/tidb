@@ -39,6 +39,7 @@ const (
 	FlagPredicateSimplification
 	FlagPushDownTopN
 	FlagFullTextIndexResolveTopN
+	FlagFullTextIndexResolveProjection
 	FlagSyncWaitStatsLoadPoint
 	FlagJoinReOrder
 	FlagPruneColumnsAgain

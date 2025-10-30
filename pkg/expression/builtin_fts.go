@@ -17,6 +17,7 @@ package expression
 import (
 	"github.com/pingcap/errors"
 	"github.com/pingcap/tidb/pkg/expression/expropt"
+	"github.com/pingcap/tidb/pkg/parser/mysql"
 	"github.com/pingcap/tidb/pkg/types"
 	"github.com/pingcap/tidb/pkg/util/chunk"
 	"github.com/pingcap/tipb/go-tipb"
@@ -73,6 +74,9 @@ func (c *ftsMatchWordFunctionClass) getFunction(ctx BuildContext, args []Express
 	if err != nil {
 		return nil, err
 	}
+
+	bf.getRetTp().SetType(mysql.TypeFloat)
+	bf.getRetTp().AddFlag(mysql.NotNullFlag)
 
 	// Mark FTS function as used, so that optimizer can do some heavy checks later
 	// only for FTS.

@@ -62,6 +62,40 @@ import (
 	"github.com/tikv/client-go/v2/oracle"
 )
 
+func TestCSEVectorShowIndex(t *testing.T) {
+	store := testkit.CreateMockStoreWithSchemaLease(t, 1*time.Second, mockstore.WithMockTiFlash(2))
+	tk := testkit.NewTestKit(t, store)
+	tk.MustExec("use test")
+
+	tiflash := infosync.NewMockTiFlash()
+	infosync.SetMockTiFlash(tiflash)
+	defer func() {
+		tiflash.Lock()
+		tiflash.StatusServer.Close()
+		tiflash.Unlock()
+	}()
+
+	failpoint.Enable("github.com/pingcap/tidb/pkg/ddl/MockCheckColumnarIndexProcess", `return(1)`)
+	defer func() {
+		require.NoError(t, failpoint.Disable("github.com/pingcap/tidb/pkg/ddl/MockCheckColumnarIndexProcess"))
+	}()
+
+	tk.MustExec("create table t(id int primary key, vec vector(128), vector index ((VEC_COSINE_DISTANCE(vec))))")
+	tbl, _ := domain.GetDomain(tk.Session()).InfoSchema().TableByName(context.Background(), pmodel.NewCIStr("test"), pmodel.NewCIStr("t"))
+	tbl.Meta().TiFlashReplica = &model.TiFlashReplicaInfo{
+		Count:     1,
+		Available: true,
+	}
+
+	tk.MustQuery("show index from t").Check(testkit.Rows(
+		`t 0 PRIMARY 1 id A 0 <nil> <nil>  BTREE   YES <nil> YES NO`,
+		`t 1 vector_index 1 vec A 0 <nil> <nil> YES HNSW   YES <nil> NO NO`,
+	))
+	tk.MustQuery("SHOW WARNINGS").Check(testkit.Rows(
+		`Warning 1105 currently vector indexes are displayed as Index_Type=HNSW. The behavior will be changed to displaying as Index_Type=VECTOR in a release after Aug 1st, 2025`,
+	))
+}
+
 func TestEmbedFunction(t *testing.T) {
 	store := testkit.CreateMockStore(t)
 	tk := testkit.NewTestKit(t, store)
@@ -445,16 +479,19 @@ func TestFTSUnsupportedCases(t *testing.T) {
 		Available: true,
 	}
 
-	tk.MustContainErrMsg("explain select fts_match_word('hello', title) from t", "Currently 'FTS_MATCH_WORD()' cannot be used in SELECT fields")
-	tk.MustContainErrMsg("explain select fts_match_word('hello', title) from t where fts_match_word('hello', title)", "Currently 'FTS_MATCH_WORD()' cannot be used in SELECT fields")
+	tk.MustContainErrMsg("explain select fts_match_word('hello', title) from t", "Currently 'FTS_MATCH_WORD()' in SELECT must not be placed")
+	tk.MustQuery("explain select fts_match_word('hello', title) from t where fts_match_word('hello', title)")
+	tk.MustQuery("explain select fts_match_word('hello', title), fts_match_word('hello', title) from t where fts_match_word('hello', title)")
+	tk.MustContainErrMsg("explain select fts_match_word('hello', title)*2 from t where fts_match_word('hello', title)", "Currently 'FTS_MATCH_WORD()' in SELECT must not be placed")
+	tk.MustContainErrMsg("explain select fts_match_word('hello world', title) from t where fts_match_word('hello', title)", "'FTS_MATCH_WORD()' in SELECT must match the one in WHERE")
 
 	tk.MustQuery("explain select * from t where fts_match_word('hello', title)")
 	tk.MustQuery("explain select * from t where fts_match_word('hello', title) AND id > 10")
 	tk.MustContainErrMsg("explain select * from t where fts_match_word('hello', body)", "Full text search can only be used with a matching fulltext index")
-	tk.MustContainErrMsg("explain select * from t where fts_match_word('hello', body) OR id > 10", "Currently 'FTS_MATCH_WORD()' must be used alone")
-	tk.MustContainErrMsg("explain select * from t where fts_match_word('hello', title) OR id > 10", "Currently 'FTS_MATCH_WORD()' must be used alone")
-	tk.MustContainErrMsg("explain select * from t where fts_match_word('hello', title) > 0", "Currently 'FTS_MATCH_WORD()' must be used alone")
-	tk.MustContainErrMsg("explain select * from t where fts_match_word('hello', title) AND fts_match_word('hello body', title)", "Currently 'FTS_MATCH_WORD()' must be used alone")
+	tk.MustContainErrMsg("explain select * from t where fts_match_word('hello', body) OR id > 10", "Currently 'FTS_MATCH_WORD()' in WHERE must be used alone")
+	tk.MustContainErrMsg("explain select * from t where fts_match_word('hello', title) OR id > 10", "Currently 'FTS_MATCH_WORD()' in WHERE must be used alone")
+	tk.MustContainErrMsg("explain select * from t where fts_match_word('hello', title) > 0", "Currently 'FTS_MATCH_WORD()' in WHERE must be used alone")
+	tk.MustContainErrMsg("explain select * from t where fts_match_word('hello', title) AND fts_match_word('hello body', title)", "Currently 'FTS_MATCH_WORD()' in WHERE must be used alone")
 
 	tk.MustContainErrMsg("explain select * from t order by fts_match_word('hello', title) limit 10", "It must be used with a WHERE clause and must be used alone")
 	tk.MustContainErrMsg("explain select * from t order by fts_match_word('hello', title)", "Currently 'FTS_MATCH_WORD()' in ORDER BY without a LIMIT clause is not supported")
@@ -522,7 +559,7 @@ func TestFTSParser(t *testing.T) {
 	))
 	tk.MustExec("drop table tx")
 
-	tk.MustContainErrMsg("create table tx (a TEXT, FULLTEXT (a) WITH PARSER abc)", "unsupported parser 'abc'")
+	tk.MustContainErrMsg("create table tx (a TEXT, FULLTEXT (a) WITH PARSER abc)", "Unsupported parser 'abc'")
 }
 
 func TestFTSSyntax(t *testing.T) {
@@ -553,8 +590,7 @@ func TestFTSSyntax(t *testing.T) {
 
 	tk.MustQuery("select * from t where fts_match_word('hello', title)")
 	tk.MustQuery("select * from t where fts_match_word('hello', title) AND body = ''")
-	tk.MustContainErrMsg("select * from t where (fts_match_word('hello', title)) > 0", "Currently 'FTS_MATCH_WORD()' must be used alone")
-	tk.MustContainErrMsg("select (fts_match_word('hello', title)) AS score from t where fts_match_word('hello', title)", "Currently 'FTS_MATCH_WORD()' cannot be used in SELECT fields")
+	tk.MustContainErrMsg("select * from t where (fts_match_word('hello', title)) > 0", "Currently 'FTS_MATCH_WORD()' in WHERE must be used alone")
 	tk.MustContainErrMsg("select * from t where match() against ('hello')", `You have an error in your SQL syntax`)
 	tk.MustContainErrMsg("select * from t where match(title) against ('hello' in boolean mode)", `UnknownType: *ast.MatchAgainst`)
 	tk.MustContainErrMsg("select * from t where fts_match_word(title, body)", `match against a non-constant string`)
@@ -581,15 +617,16 @@ func TestFTSIndexSyntax(t *testing.T) {
 		require.NoError(t, failpoint.Disable("github.com/pingcap/tidb/pkg/ddl/MockCheckColumnarIndexProcess"))
 	}()
 
-	tk.MustContainErrMsg("create table t(title TEXT, body TEXT, FULLTEXT KEY (`title`, `body`))", `currently fulltext index only supports one column`)
-	tk.MustContainErrMsg("create table t(title TEXT, body TEXT, FULLTEXT KEY ((`title`)))", `fulltext index can not be defined using an expression`)
-	tk.MustContainErrMsg("create table t(title TEXT, body TEXT, FULLTEXT KEY (title(5)))", `fulltext index does not support prefix length`)
-	tk.MustContainErrMsg("create table t(title TEXT, body TEXT, FULLTEXT KEY (title DESC))", `fulltext index does not support DESC order`)
+	tk.MustContainErrMsg("create table t(title TEXT, body TEXT, FULLTEXT KEY (`title`, `body`))", `FULLTEXT index must specify one column name`)
+	tk.MustContainErrMsg("create table t(title TEXT, body TEXT, FULLTEXT KEY ((`title`)))", `FULLTEXT index must specify one column name`)
+	tk.MustContainErrMsg("create table t(title TEXT, body TEXT, FULLTEXT KEY (title(5)))", `FULLTEXT index does not support prefix length`)
+	tk.MustContainErrMsg("create table t(title TEXT, body TEXT, FULLTEXT KEY (title DESC))", `FULLTEXT index does not support DESC order`)
 	tk.MustContainErrMsg("create table t(title TEXT, body TEXT, c INT, FULLTEXT KEY (c))", `fulltext index can only be added on a string-like column`)
-	tk.MustContainErrMsg("create table t1(title TEXT, body TEXT, FULLTEXT KEY (title) WITH PARSER ngramx)", `unsupported parser`)
+	tk.MustContainErrMsg("create table t1(title TEXT, body TEXT, FULLTEXT KEY (title) WITH PARSER ngramx)", `Unsupported parser`)
 
 	tk.MustExec("create table t1(title TEXT, body TEXT, FULLTEXT KEY (title))")
 	tk.MustQuery("show create table t1").Check(testkit.Rows("t1 CREATE TABLE `t1` (\n  `title` text DEFAULT NULL,\n  `body` text DEFAULT NULL,\n  FULLTEXT INDEX `title`(`title`) WITH PARSER STANDARD\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin"))
+	tk.MustQuery("show index from t1").Check(testkit.Rows("t1 1 title 1 title A 0 <nil> <nil> YES FULLTEXT   YES <nil> NO NO"))
 	tk.MustExec("create table t2(title TEXT, body TEXT, FULLTEXT (title))")
 	tk.MustQuery("show create table t2").Check(testkit.Rows("t2 CREATE TABLE `t2` (\n  `title` text DEFAULT NULL,\n  `body` text DEFAULT NULL,\n  FULLTEXT INDEX `title`(`title`) WITH PARSER STANDARD\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin"))
 	tk.MustExec("create table t3(title TEXT, body TEXT, FULLTEXT KEY `idx` (title))")

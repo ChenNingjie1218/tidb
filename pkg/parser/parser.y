@@ -3838,8 +3838,7 @@ ConstraintElem:
 		}
 		if $7 != nil {
 			c.Option = $7.(*ast.IndexOption)
-		}
-		if c.Option == nil {
+		} else {
 			c.Option = &ast.IndexOption{}
 		}
 		$$ = c
@@ -4236,24 +4235,11 @@ CreateIndexStmt:
 			}
 		}
 
-		keyType := $2.(ast.IndexKeyType)
-		isVectorIndex := keyType == ast.IndexKeyTypeVector
-		if isVectorIndex && indexOption.Tp == model.IndexTypeInvalid {
-			indexOption.Tp = model.IndexTypeHNSW
-		}
-		partSpecs := $10.([]*ast.IndexPartSpecification)
-		if keyType == ast.IndexKeyTypeVector {
-			if len(partSpecs) != 1 || partSpecs[0].Expr == nil {
-				yylex.AppendError(ErrSyntax)
-				return 1
-			}
-		}
-
 		$$ = &ast.CreateIndexStmt{
 			IfNotExists:             $4.(bool),
 			IndexName:               $5,
 			Table:                   $8.(*ast.TableName),
-			IndexPartSpecifications: partSpecs,
+			IndexPartSpecifications: $10.([]*ast.IndexPartSpecification),
 			IndexOption:             indexOption,
 			KeyType:                 $2.(ast.IndexKeyType),
 			LockAlg:                 indexLockAndAlgorithm,
@@ -4336,7 +4322,7 @@ IndexKeyTypeOpt:
 	}
 |	"FULLTEXT"
 	{
-		$$ = ast.IndexKeyTypeFullText
+		$$ = ast.IndexKeyTypeFulltext
 	}
 |	"VECTOR"
 	{
@@ -12427,22 +12413,11 @@ ConstraintVectorIndex:
 
 		if $8 != nil {
 			c.Option = $8.(*ast.IndexOption)
+		} else {
+			c.Option = &ast.IndexOption{}
 		}
 		if indexType := $4.([]interface{})[1]; indexType != nil {
-			if c.Option == nil {
-				c.Option = &ast.IndexOption{}
-			}
 			c.Option.Tp = indexType.(model.IndexType)
-		}
-		if c.Option == nil {
-			c.Option = &ast.IndexOption{Tp: model.IndexTypeHNSW}
-		} else if c.Option.Tp == model.IndexTypeInvalid {
-			c.Option.Tp = model.IndexTypeHNSW
-		}
-
-		if len(c.Keys) != 1 || c.Keys[0].Expr == nil {
-			yylex.AppendError(ErrSyntax)
-			return 1
 		}
 		$$ = c
 	}

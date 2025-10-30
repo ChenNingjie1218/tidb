@@ -15230,8 +15230,7 @@ yynewstate:
 			}
 			if yyS[yypt-0].item != nil {
 				c.Option = yyS[yypt-0].item.(*ast.IndexOption)
-			}
-			if c.Option == nil {
+			} else {
 				c.Option = &ast.IndexOption{}
 			}
 			parser.yyVAL.item = c
@@ -15520,24 +15519,11 @@ yynewstate:
 				}
 			}
 
-			keyType := yyS[yypt-11].item.(ast.IndexKeyType)
-			isVectorIndex := keyType == ast.IndexKeyTypeVector
-			if isVectorIndex && indexOption.Tp == model.IndexTypeInvalid {
-				indexOption.Tp = model.IndexTypeHNSW
-			}
-			partSpecs := yyS[yypt-3].item.([]*ast.IndexPartSpecification)
-			if keyType == ast.IndexKeyTypeVector {
-				if len(partSpecs) != 1 || partSpecs[0].Expr == nil {
-					yylex.AppendError(ErrSyntax)
-					return 1
-				}
-			}
-
 			parser.yyVAL.statement = &ast.CreateIndexStmt{
 				IfNotExists:             yyS[yypt-9].item.(bool),
 				IndexName:               yyS[yypt-8].ident,
 				Table:                   yyS[yypt-5].item.(*ast.TableName),
-				IndexPartSpecifications: partSpecs,
+				IndexPartSpecifications: yyS[yypt-3].item.([]*ast.IndexPartSpecification),
 				IndexOption:             indexOption,
 				KeyType:                 yyS[yypt-11].item.(ast.IndexKeyType),
 				LockAlg:                 indexLockAndAlgorithm,
@@ -15613,7 +15599,7 @@ yynewstate:
 		}
 	case 398:
 		{
-			parser.yyVAL.item = ast.IndexKeyTypeFullText
+			parser.yyVAL.item = ast.IndexKeyTypeFulltext
 		}
 	case 399:
 		{
@@ -22039,22 +22025,11 @@ yynewstate:
 
 			if yyS[yypt-0].item != nil {
 				c.Option = yyS[yypt-0].item.(*ast.IndexOption)
+			} else {
+				c.Option = &ast.IndexOption{}
 			}
 			if indexType := yyS[yypt-4].item.([]interface{})[1]; indexType != nil {
-				if c.Option == nil {
-					c.Option = &ast.IndexOption{}
-				}
 				c.Option.Tp = indexType.(model.IndexType)
-			}
-			if c.Option == nil {
-				c.Option = &ast.IndexOption{Tp: model.IndexTypeHNSW}
-			} else if c.Option.Tp == model.IndexTypeInvalid {
-				c.Option.Tp = model.IndexTypeHNSW
-			}
-
-			if len(c.Keys) != 1 || c.Keys[0].Expr == nil {
-				yylex.AppendError(ErrSyntax)
-				return 1
 			}
 			parser.yyVAL.item = c
 		}

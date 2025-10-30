@@ -204,8 +204,12 @@ func (t IndexType) String() string {
 		return "RTREE"
 	case IndexTypeHypo:
 		return "HYPO"
+	case IndexTypeVector:
+		return "VECTOR"
 	case IndexTypeHNSW:
 		return "HNSW"
+	case IndexTypeFulltext:
+		return "FULLTEXT"
 	default:
 		return ""
 	}
@@ -218,7 +222,11 @@ const (
 	IndexTypeHash
 	IndexTypeRtree
 	IndexTypeHypo
+	IndexTypeVector
+	// IndexTypeHNSW is only used in AST.
+	// It will be rewritten into IndexTypeVector after preprocessor phase.
 	IndexTypeHNSW
+	IndexTypeFulltext
 )
 
 // ColumnarIndexType is the type of columnar index.

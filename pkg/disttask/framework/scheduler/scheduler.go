@@ -423,7 +423,7 @@ func (s *BaseScheduler) switch2NextStep() error {
 		return nil
 	}
 
-	nodes := s.nodeMgr.getNodes()
+	nodes := s.nodeMgr.getEnabledNodes(s.ctx, &task)
 	nodeIDs := filterByScope(nodes, task.TargetScope)
 	eligibleNodes, err := getEligibleNodes(s.ctx, s, nodeIDs)
 	if err != nil {

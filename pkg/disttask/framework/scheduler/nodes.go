@@ -23,6 +23,9 @@ import (
 	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/pkg/disttask/framework/proto"
 	llog "github.com/pingcap/tidb/pkg/lightning/log"
+	"github.com/pingcap/tidb/pkg/sessionctx/variable"
+	"github.com/pingcap/tidb/pkg/tidbworker"
+	disttaskutil "github.com/pingcap/tidb/pkg/util/disttask"
 	"github.com/pingcap/tidb/pkg/util/intest"
 	"go.uber.org/zap"
 )
@@ -157,6 +160,27 @@ func (nm *NodeManager) refreshNodes(ctx context.Context, taskMgr TaskManager, sl
 
 // GetNodes returns the nodes managed by the framework.
 // return a copy of the nodes.
+// getEnabledNodes returns the list of nodes for task, when tidbworker is enabled,
+// it will use tidbworker.SchedulerNodes() to get nodes.
+func (nm *NodeManager) getEnabledNodes(ctx context.Context, task *proto.Task) []proto.ManagedNode {
+	if task != nil && variable.EnableDistTask.Load() && tidbworker.IsBgTaskEnabled(ctx, string(task.Type)) {
+		serverInfos := tidbworker.SchedulerNodes(ctx, string(task.Type), task.ID)
+		nodes := make([]proto.ManagedNode, len(serverInfos))
+		for i, info := range serverInfos {
+			nodes[i] = proto.ManagedNode{
+				ID: disttaskutil.GenerateExecID(info),
+			}
+		}
+		return nodes
+	}
+	nodes := *nm.nodes.Load()
+	res := make([]proto.ManagedNode, len(nodes))
+	copy(res, nodes)
+	return res
+}
+
+// getNodes returns the list of nodes managed by the framework.
+// This method is deprecated, use getEnabledNodes instead.
 func (nm *NodeManager) getNodes() []proto.ManagedNode {
 	nodes := *nm.nodes.Load()
 	res := make([]proto.ManagedNode, len(nodes))

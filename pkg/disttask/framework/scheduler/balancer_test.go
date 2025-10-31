@@ -246,7 +246,7 @@ func TestBalanceOneTask(t *testing.T) {
 				slotMgr: slotMgr,
 			})
 			b.currUsedSlots = c.initUsedSlots
-			require.NoError(t, b.balanceSubtasks(ctx, mockScheduler, c.eligibleNodes))
+			require.NoError(t, b.balanceSubtasks(ctx, mockScheduler, c.eligibleNodes, slotMgr.getCapacity()))
 			require.Equal(t, c.expectedUsedSlots, b.currUsedSlots)
 			// c.subtasks is updated in-place
 			require.Equal(t, c.expectedSubtasks, c.subtasks)
@@ -266,12 +266,12 @@ func TestBalanceOneTask(t *testing.T) {
 			nodeMgr: newNodeManager(""),
 			slotMgr: slotMgr,
 		})
-		require.ErrorContains(t, b.balanceSubtasks(ctx, mockScheduler, []string{"tidb1"}), "mock error")
+		require.ErrorContains(t, b.balanceSubtasks(ctx, mockScheduler, []string{"tidb1"}, slotMgr.getCapacity()), "mock error")
 		require.True(t, ctrl.Satisfied())
 
 		mockScheduler.EXPECT().GetTask().Return(&proto.Task{TaskBase: proto.TaskBase{ID: 1}}).Times(2)
 		mockScheduler.EXPECT().GetEligibleInstances(gomock.Any(), gomock.Any()).Return(nil, nil)
-		require.ErrorContains(t, b.balanceSubtasks(ctx, mockScheduler, nil), "no eligible nodes to balance subtasks")
+		require.ErrorContains(t, b.balanceSubtasks(ctx, mockScheduler, nil, slotMgr.getCapacity()), "no eligible nodes to balance subtasks")
 		require.True(t, ctrl.Satisfied())
 	})
 
@@ -289,7 +289,7 @@ func TestBalanceOneTask(t *testing.T) {
 			nodeMgr: newNodeManager(""),
 			slotMgr: slotMgr,
 		})
-		require.ErrorContains(t, b.balanceSubtasks(ctx, mockScheduler, []string{"tidb1"}), "mock error")
+		require.ErrorContains(t, b.balanceSubtasks(ctx, mockScheduler, []string{"tidb1"}, slotMgr.getCapacity()), "mock error")
 		require.True(t, ctrl.Satisfied())
 
 		b.currUsedSlots = map[string]int{"tidb1": 0, "tidb2": 0}
@@ -301,7 +301,7 @@ func TestBalanceOneTask(t *testing.T) {
 		mockTaskMgr.EXPECT().UpdateSubtasksExecIDs(gomock.Any(), gomock.Any()).Return(errors.New("mock error2"))
 		mockScheduler.EXPECT().GetTask().Return(&proto.Task{TaskBase: proto.TaskBase{ID: 1}}).Times(2)
 		mockScheduler.EXPECT().GetEligibleInstances(gomock.Any(), gomock.Any()).Return(nil, nil)
-		require.ErrorContains(t, b.balanceSubtasks(ctx, mockScheduler, []string{"tidb1", "tidb2"}), "mock error2")
+		require.ErrorContains(t, b.balanceSubtasks(ctx, mockScheduler, []string{"tidb1", "tidb2"}, slotMgr.getCapacity()), "mock error2")
 		// not updated
 		require.Equal(t, map[string]int{"tidb1": 0, "tidb2": 0}, b.currUsedSlots)
 		require.True(t, ctrl.Satisfied())

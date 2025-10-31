@@ -54,7 +54,6 @@ import (
 	"github.com/pingcap/tidb/pkg/util/codec"
 	"github.com/pingcap/tidb/pkg/util/collate"
 	"github.com/pingcap/tidb/pkg/util/dbterror"
-	disttaskutil "github.com/pingcap/tidb/pkg/util/disttask"
 	"github.com/pingcap/tidb/pkg/util/logutil"
 	"github.com/pingcap/tidb/pkg/util/memory"
 	"github.com/pingcap/tidb/pkg/util/redact"
@@ -440,14 +439,6 @@ func (b batchSchedulerExtension) OnDone(_ context.Context, _ storage.TaskHandle,
 }
 
 func (b batchSchedulerExtension) GetEligibleInstances(ctx context.Context, task *proto.Task) ([]string, error) {
-	if variable.EnableDistTask.Load() && task != nil && tidbworker.IsBgTaskEnabled(ctx, string(task.Type)) {
-		serverInfos := tidbworker.SchedulerNodes(ctx, string(task.Type), task.ID)
-		execIDs := make([]string, 0, len(serverInfos))
-		for _, info := range serverInfos {
-			execIDs = append(execIDs, disttaskutil.GenerateExecID(info))
-		}
-		return execIDs, nil
-	}
 	return nil, nil
 }
 

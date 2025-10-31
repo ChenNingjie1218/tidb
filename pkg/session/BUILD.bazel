@@ -108,7 +108,6 @@ go_library(
         "//pkg/util/dbterror",
         "//pkg/util/dbterror/exeerrors",
         "//pkg/util/dbterror/plannererrors",
-        "//pkg/util/disttask",
         "//pkg/util/etcd",
         "//pkg/util/execdetails",
         "//pkg/util/intest",

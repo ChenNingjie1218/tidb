@@ -20,7 +20,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/tidb/pkg/config"
-	"github.com/pingcap/tidb/pkg/keyspace"
 	"github.com/pingcap/tidb/pkg/kv"
 	"github.com/pingcap/tidb/pkg/owner"
 	"github.com/pingcap/tidb/pkg/util/etcd"
@@ -68,7 +67,6 @@ func (om *ownerManager) Start(ctx context.Context, store kv.Storage) error {
 	if metaServiceCli == nil {
 		return errors.New("etcd client is nil, maybe the server is not started with PD")
 	}
-	etcd.SetEtcdCliByNamespace(etcdCli, keyspace.MakeKeyspaceEtcdNamespace(store.GetCodec()))
 	om.id = uuid.New().String()
 	om.etcdCli = etcdCli
 	om.ownerMgr = owner.NewOwnerManager(ctx, om.etcdCli, Prompt, om.id, DDLOwnerKey)

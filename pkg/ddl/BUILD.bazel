@@ -105,7 +105,6 @@ go_library(
         "//pkg/expression/exprstatic",
         "//pkg/infoschema",
         "//pkg/infoschema/context",
-        "//pkg/keyspace",
         "//pkg/kv",
         "//pkg/lightning/backend",
         "//pkg/lightning/backend/external",

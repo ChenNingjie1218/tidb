@@ -3024,7 +3024,7 @@ const (
 
 var (
 	// serverIDTTL should be LONG ENOUGH to avoid barbarically killing an on-going long-run SQL.
-	serverIDTTL = 12 * time.Hour
+	serverIDTTL = 1 * time.Hour
 	// serverIDTimeToKeepAlive is the interval that we keep serverID TTL alive periodically.
 	serverIDTimeToKeepAlive = 5 * time.Minute
 	// serverIDTimeToCheckPDConnectionRestored is the interval that we check connection to PD restored (after broken) periodically.
@@ -3032,7 +3032,7 @@ var (
 	// lostConnectionToPDTimeout is the duration that when TiDB cannot connect to PD excceeds this limit,
 	//   we realize the connection to PD is lost utterly, and server ID acquired before should be released.
 	//   Must be SHORTER than `serverIDTTL`.
-	lostConnectionToPDTimeout = 6 * time.Hour
+	lostConnectionToPDTimeout = 30 * time.Minute
 )
 
 var (
@@ -3082,11 +3082,15 @@ func (do *Domain) retrieveServerIDSession(ctx context.Context) (*concurrency.Ses
 		return do.serverIDSession, nil
 	}
 
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	randomSeconds := r.Intn(3600)
+	randomDuration := time.Duration(randomSeconds) * time.Second
+	severIDSessionTTL := serverIDTTL + randomDuration
 	// `keyspaceEtcdClient.Grant` needs a shortterm timeout, to avoid blocking if connection to PD lost,
 	//   while `keyspaceEtcdClient.KeepAlive` should be longterm.
 	//   So we separately invoke `keyspaceEtcdClient.Grant` and `concurrency.NewSession` with leaseID.
 	childCtx, cancel := context.WithTimeout(ctx, retrieveServerIDSessionTimeout)
-	resp, err := do.keyspaceEtcdClient.Grant(childCtx, int64(serverIDTTL.Seconds()))
+	resp, err := do.keyspaceEtcdClient.Grant(childCtx, int64(severIDSessionTTL.Seconds()))
 	cancel()
 	if err != nil {
 		logutil.BgLogger().Error("retrieveServerIDSession.Grant fail", zap.Error(err))
@@ -3161,12 +3165,18 @@ func (do *Domain) releaseServerID(context.Context) {
 	if do.keyspaceEtcdClient == nil {
 		return
 	}
-	key := fmt.Sprintf("%s/%v", serverIDEtcdPath, serverID)
-	err := ddlutil.DeleteKeyFromEtcd(key, do.keyspaceEtcdClient, refreshServerIDRetryCnt, acquireServerIDTimeout)
-	if err != nil {
-		logutil.BgLogger().Error("releaseServerID fail", zap.Uint64("serverID", serverID), zap.Error(err))
+	// closing session releases attached server id
+	leaseID := int64(do.serverIDSession.Lease())
+	if err := do.serverIDSession.Close(); err != nil {
+		logutil.BgLogger().Error("releaseServerID fail",
+			zap.Uint64("serverID", serverID),
+			zap.Int64("leaseID", leaseID),
+			zap.Error(err))
 	} else {
-		logutil.BgLogger().Info("releaseServerID succeed", zap.Uint64("serverID", serverID))
+		logutil.BgLogger().Info("releaseServerID succeed",
+			zap.Uint64("serverID", serverID),
+			zap.Int64("leaseID", leaseID),
+		)
 	}
 }
 

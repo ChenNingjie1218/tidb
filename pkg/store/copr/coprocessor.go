@@ -1316,7 +1316,7 @@ func (worker *copIteratorWorker) handleTaskOnce(bo *Backoffer, task *copTask, ch
 	}
 
 	var remains []*copTask
-	if worker.req.Paging.Enable {
+	if worker.req.Paging.Enable || copResp.GetRange() != nil {
 		remains, err = worker.handleCopPagingResult(bo, rpcCtx, &copResponse{pbResp: copResp}, cacheKey, cacheValue, task, ch, costTime)
 	} else {
 		// Handles the response for non-paging copTask.

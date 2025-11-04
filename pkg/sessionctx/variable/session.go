@@ -3246,6 +3246,8 @@ const (
 	SlowLogDBStr = "DB"
 	// SlowLogIsInternalStr is slow log field name.
 	SlowLogIsInternalStr = "Is_internal"
+	// SlowLogIsTiFlashStr is slow log field name.
+	SlowLogIsTiFlashStr = "Is_tiflash"
 	// SlowLogIndexNamesStr is slow log field name.
 	SlowLogIndexNamesStr = "Index_names"
 	// SlowLogDigestStr is slow log field name.
@@ -3362,6 +3364,7 @@ type SlowQueryLogItems struct {
 	TxnTS             uint64
 	KeyspaceName      string
 	KeyspaceID        uint32
+	IsTiFlash         bool
 	SQL               string
 	Digest            string
 	TimeTotal         time.Duration
@@ -3416,6 +3419,7 @@ type SlowQueryLogItems struct {
 // # DB: test
 // # Index_names: [t1.idx1,t2.idx2]
 // # Is_internal: false
+// # Is_tiflash: false
 // # Digest: 42a1c8aae6f133e934d4bf0147491709a8812ea05ff8819ec522780fe657b772
 // # Stats: t1:1,t2:2
 // # Num_cop_tasks: 10
@@ -3486,6 +3490,7 @@ func (s *SessionVars) SlowLogFormat(logItems *SlowQueryLogItems) string {
 	}
 
 	writeSlowLogItem(&buf, SlowLogIsInternalStr, strconv.FormatBool(s.InRestrictedSQL))
+	writeSlowLogItem(&buf, SlowLogIsTiFlashStr, strconv.FormatBool(logItems.IsTiFlash))
 	if len(logItems.Digest) > 0 {
 		writeSlowLogItem(&buf, SlowLogDigestStr, logItems.Digest)
 	}

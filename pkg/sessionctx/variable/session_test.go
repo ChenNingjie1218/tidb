@@ -235,6 +235,7 @@ func TestSlowLogFormat(t *testing.T) {
 # DB: test
 # Index_names: [t1:a,t2:b]
 # Is_internal: true
+# Is_tiflash: true
 # Digest: e5796985ccafe2f71126ed6c0ac939ffa015a8c0744a24b7aee6d587103fd2f7
 # Stats: t1:123[1000;0][ID 1:allLoaded,ID 2:allLoaded][ID 2:allEvicted,ID 3:onlyCmsEvicted],t2:pseudo[10000;0]
 # Num_cop_tasks: 10
@@ -268,6 +269,7 @@ func TestSlowLogFormat(t *testing.T) {
 		TxnTS:             txnTS,
 		KeyspaceName:      "keyspace_a",
 		KeyspaceID:        1,
+		IsTiFlash:         true,
 		SQL:               sql,
 		Digest:            digest.String(),
 		TimeTotal:         costTime,

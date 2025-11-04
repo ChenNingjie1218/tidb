@@ -1623,6 +1623,29 @@ func resetCTEStorageMap(se sessionctx.Context) error {
 	return nil
 }
 
+// isTiFlashPlan checks whether the plan requires TiFlash.
+func isTiFlashPlan(p base.Plan) bool {
+	if p == nil {
+		return false
+	}
+
+	switch v := p.(type) {
+	case *plannercore.PhysicalTableReader:
+		return v.ReadReqType == plannercore.BatchCop || v.ReadReqType == plannercore.MPP
+	default:
+		physicalPlan, ok := p.(base.PhysicalPlan)
+		if !ok {
+			return false
+		}
+		for _, child := range physicalPlan.Children() {
+			if isTiFlashPlan(child) {
+				return true
+			}
+		}
+		return false
+	}
+}
+
 // LogSlowQuery is used to print the slow query in the log files.
 func (a *ExecStmt) LogSlowQuery(txnTS uint64, succ bool, hasMoreResults bool) {
 	sessVars := a.Ctx.GetSessionVars()
@@ -1718,6 +1741,7 @@ func (a *ExecStmt) LogSlowQuery(txnTS uint64, succ bool, hasMoreResults bool) {
 		TxnTS:             txnTS,
 		KeyspaceName:      keyspaceName,
 		KeyspaceID:        keyspaceID,
+		IsTiFlash:         isTiFlashPlan(a.Plan),
 		SQL:               sql.String(),
 		Digest:            digest.String(),
 		TimeTotal:         costTime,

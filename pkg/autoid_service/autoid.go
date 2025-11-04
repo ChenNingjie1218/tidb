@@ -323,6 +323,7 @@ func newWithCli(selfAddr string, etcdCli *clientv3.Client, store kv.Storage) *Se
 	l.SetListener(&ownerListener{
 		Service:  service,
 		selfAddr: selfAddr,
+		etcdCli:  etcdCli,
 	})
 	// 10 means that autoid service's etcd lease is 10s.
 	err := l.CampaignOwner(10)

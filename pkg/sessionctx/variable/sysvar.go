@@ -2730,6 +2730,10 @@ var defaultSysVars = []*SysVar{
 	{Scope: ScopeGlobal, Name: TiDBDDLEnableFastReorg, Value: BoolToOnOff(DefTiDBEnableFastReorg), Type: TypeBool, GetGlobal: func(_ context.Context, sv *SessionVars) (string, error) {
 		return BoolToOnOff(EnableFastReorg.Load()), nil
 	}, SetGlobal: func(_ context.Context, s *SessionVars, val string) error {
+		// Skip apply setting unless in test.
+		if !intest.InTest {
+			return nil
+		}
 		EnableFastReorg.Store(TiDBOptOn(val))
 		return nil
 	}},

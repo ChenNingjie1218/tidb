@@ -4821,7 +4821,7 @@ func GetDBNames(seVar *variable.SessionVars) []string {
 	}
 	ns := make([]string, 0, len(dbNames))
 	for n := range dbNames {
-		ns = append(ns, n)
+		ns = append(ns, strings.ToLower(n))
 	}
 	return ns
 }

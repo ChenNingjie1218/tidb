@@ -19,8 +19,6 @@ import (
 )
 
 const (
-	// TiFlashRuleGroupID is the rule group id of tiflash
-	TiFlashRuleGroupID = "tiflash"
 	// BundleIDPrefix is the bundle prefix of all rule bundles from TiDB_DDL statements.
 	BundleIDPrefix = "TiDB_DDL_"
 	// PDBundleID is the bundle name of pd, the default bundle for all regions.
@@ -36,6 +34,9 @@ const (
 	KeyRangeGlobal = "global"
 	// KeyRangeMeta is the key range for system meta range.
 	KeyRangeMeta = "meta"
+
+	// S3TiFlashRuleGroupID is the rule group id of S3 WN tiflash.
+	S3TiFlashRuleGroupID = "enable_s3_wn_region"
 )
 
 var metaPrefix = []byte("m")

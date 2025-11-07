@@ -37,6 +37,7 @@ import (
 	logbackupconf "github.com/pingcap/tidb/br/pkg/streamhelper/config"
 	"github.com/pingcap/tidb/pkg/parser/mysql"
 	"github.com/pingcap/tidb/pkg/parser/terror"
+	"github.com/pingcap/tidb/pkg/store/pdtypes"
 	"github.com/pingcap/tidb/pkg/util/k8s"
 	"github.com/pingcap/tidb/pkg/util/logutil"
 	"github.com/pingcap/tidb/pkg/util/tiflashcompute"
@@ -130,6 +131,35 @@ const (
 
 var (
 	defaultManagerNs = "tidb-admin"
+)
+
+const (
+	engineLabelKey                  = "engine"
+	engineLabelTiFlash              = "tiflash"
+	engineRoleLabelKey              = "engine_role"
+	engineRoleLabelTiFlashWriteNode = "write"
+	defTiFlashRuleGroupID           = "tiflash"
+)
+
+var (
+	defaultTiFlashConstraints = []Constraint{
+		{
+			Key:    engineLabelKey,
+			Op:     string(pdtypes.In),
+			Values: []string{engineLabelTiFlash},
+		},
+		{
+			Key:    engineRoleLabelKey,
+			Op:     string(pdtypes.NotIn),
+			Values: []string{engineRoleLabelTiFlashWriteNode},
+		},
+	}
+	allowOps = map[string]bool{
+		string(pdtypes.In):        true,
+		string(pdtypes.NotIn):     true,
+		string(pdtypes.Exists):    true,
+		string(pdtypes.NotExists): true,
+	}
 )
 
 // Valid config maps
@@ -421,7 +451,6 @@ type Config struct {
 
 	// EnableOnlyRunUpgrade indicates whether only run upgrade process.
 	EnableOnlyRunUpgrade bool `toml:"enable-only-run-upgrade" json:"enable-only-run-upgrade"`
-
 	// StmtSummaryAdditionalInfo will be recorded in the stmtsummary when Instance.StmtSummaryEnablePersistent is true.
 	StmtSummaryAdditionalInfo map[string]string `toml:"stmt-summary-additional-info" json:"stmt-summary-additional-info"`
 
@@ -452,6 +481,30 @@ type Config struct {
 
 	// CSE is the config collection for the cloud storage engine.
 	CSE CSE `toml:"cse" json:"cse"`
+
+	// TiFlashReplicas is used to control the format of TiFlash placement rules committed to PD.
+	TiFlashReplicas TiFlashReplicas `toml:"tiflash-replicas" json:"tiflash-replicas"`
+}
+
+// TiFlashReplicas is used to control the format of TiFlash placement rules committed to PD.
+type TiFlashReplicas struct {
+	Constraints []Constraint `toml:"constraints" json:"constraints"`
+	MinCount    uint64       `toml:"min-count" json:"min-count"`
+	GroupID     string       `toml:"group-id" json:"group-id"`
+
+	// This config was used for data migration from non-S3 tiflash arch to S3 tiflash arch.
+	// It can be deprecated.
+	ExtraS3Rule bool `toml:"extra-s3-rule" json:"extra-s3-rule"`
+}
+
+// Constraints is a slice of constraints.
+type Constraints []Constraint
+
+// Constraint is used to store the constraints for tiflash.
+type Constraint struct {
+	Key    string   `toml:"key" json:"key"`
+	Op     string   `toml:"op" json:"op"`
+	Values []string `toml:"values" json:"values"`
 }
 
 // ExternalStorageConfig is config for external storage.
@@ -1348,6 +1401,13 @@ var defaultConf = Config{
 		Enabled: false,
 	},
 
+	TiFlashReplicas: TiFlashReplicas{
+		Constraints: defaultTiFlashConstraints,
+		MinCount:    1,
+		GroupID:     defTiFlashRuleGroupID,
+		ExtraS3Rule: false,
+	},
+
 	FixedStorageSize: 480 * 1024 * 1024 * 1024,
 	CSE: CSE{
 		EnableRegionClient:     false,
@@ -1787,6 +1847,13 @@ func (c *Config) Valid() error {
 		}
 		if c.TiFlashComputeAutoScalerAddr == "" {
 			return fmt.Errorf("autoscaler-addr cannot be empty when disaggregated-tiflash mode is true")
+		}
+	}
+
+	// Check tiflash constraints
+	for _, constraint := range c.TiFlashReplicas.Constraints {
+		if _, ok := allowOps[constraint.Op]; !ok {
+			return fmt.Errorf("invalid tiflash constraint op %s, only supports %v", constraint.Op, allowOps)
 		}
 	}
 

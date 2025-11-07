@@ -3674,6 +3674,13 @@ func (e *executor) AlterTableSetTiFlashReplica(ctx sessionctx.Context, ident ast
 		return errors.Trace(err)
 	}
 
+	minCount := config.GetGlobalConfig().TiFlashReplicas.MinCount
+	if replicaInfo.Count > 0 && replicaInfo.Count < minCount {
+		replicaInfo.Count = minCount
+		warning := fmt.Errorf("TiFlash replicas count is too small, it has been automatically adjusted to %d", minCount)
+		ctx.GetSessionVars().StmtCtx.AppendWarning(warning)
+	}
+
 	tbReplicaInfo := tb.Meta().TiFlashReplica
 	if !shouldModifyTiFlashReplica(tbReplicaInfo, replicaInfo) {
 		return nil

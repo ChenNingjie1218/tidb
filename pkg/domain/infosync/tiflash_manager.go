@@ -54,6 +54,8 @@ type TiFlashReplicaManager interface {
 	SetPlacementRule(ctx context.Context, rule *pd.Rule) error
 	// SetPlacementRuleBatch is a helper function to set a batch of placement rules.
 	SetPlacementRuleBatch(ctx context.Context, rules []*pd.Rule) error
+	// GetPlacementRule is a helper function to get placement rule.
+	GetPlacementRule(ctx context.Context, tableID int64) (*pd.Rule, error)
 	// DeletePlacementRule is to delete placement rule for certain group.
 	DeletePlacementRule(ctx context.Context, group string, ruleID string) error
 	// GetGroupRules to get all placement rule in a certain group.
@@ -86,6 +88,13 @@ type TiFlashReplicaManagerCtx struct {
 	sync.RWMutex         // protect tiflashProgressCache
 	tiflashProgressCache map[int64]float64
 	codec                tikv.Codec
+}
+
+// GetPlacementRule is a helper function to get placement rule by table id.
+func (m *TiFlashReplicaManagerCtx) GetPlacementRule(ctx context.Context, tableID int64) (*pd.Rule, error) {
+	ruleID := MakeRuleID(tableID)
+	ruleID = encodeRuleID(m.codec, ruleID)
+	return m.pdHTTPCli.GetPlacementRule(ctx, placement.GetTiFlashRuleGroupIDByConfig(), ruleID)
 }
 
 // Close is called to close TiFlashReplicaManagerCtx.
@@ -227,7 +236,7 @@ func (m *TiFlashReplicaManagerCtx) CleanTiFlashProgressCache() {
 
 // SetTiFlashGroupConfig sets the tiflash's rule group config
 func (m *TiFlashReplicaManagerCtx) SetTiFlashGroupConfig(ctx context.Context) error {
-	groupConfig, err := m.pdHTTPCli.GetPlacementRuleGroupByID(ctx, placement.TiFlashRuleGroupID)
+	groupConfig, err := m.pdHTTPCli.GetPlacementRuleGroupByID(ctx, placement.GetTiFlashRuleGroupIDByConfig())
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -235,7 +244,7 @@ func (m *TiFlashReplicaManagerCtx) SetTiFlashGroupConfig(ctx context.Context) er
 		return nil
 	}
 	groupConfig = &pd.RuleGroup{
-		ID:       placement.TiFlashRuleGroupID,
+		ID:       placement.GetTiFlashRuleGroupIDByConfig(),
 		Index:    placement.RuleIndexTiFlash,
 		Override: false,
 	}
@@ -341,21 +350,19 @@ type mockTiFlashReplicaManagerCtx struct {
 	tiflashProgressCache map[int64]float64
 }
 
+func (m *mockTiFlashReplicaManagerCtx) GetPlacementRule(ctx context.Context, tableID int64) (*pd.Rule, error) {
+	return nil, errors.New("not implemented")
+}
+
 func makeBaseRule() pd.Rule {
 	return pd.Rule{
-		GroupID:  placement.TiFlashRuleGroupID,
-		ID:       "",
-		Index:    placement.RuleIndexTiFlash,
-		Override: false,
-		Role:     pd.Learner,
-		Count:    2,
-		LabelConstraints: []pd.LabelConstraint{
-			{
-				Key:    "engine",
-				Op:     pd.In,
-				Values: []string{"tiflash"},
-			},
-		},
+		GroupID:          placement.GetTiFlashRuleGroupIDByConfig(),
+		ID:               "",
+		Index:            placement.RuleIndexTiFlash,
+		Override:         false,
+		Role:             pd.Learner,
+		Count:            2,
+		LabelConstraints: placement.GetTiFlashConstraintsFromConfig(),
 	}
 }
 

@@ -2147,6 +2147,10 @@ func GetStoreServerInfo(store kv.Storage) ([]ServerInfo, error) {
 		}
 		var tp string
 		if isTiFlashStore(store) {
+			// ignore this tiflash store if not match the constraints from config
+			if !placement.MatchConstraints(store, placement.GetTiFlashConstraintsFromConfig()) {
+				continue
+			}
 			tp = kv.TiFlash.Name()
 		} else {
 			tp = tikv.GetStoreTypeByMeta(store).Name()

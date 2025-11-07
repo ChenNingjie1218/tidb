@@ -15,6 +15,7 @@ go_library(
         "//br/pkg/streamhelper/config",
         "//pkg/parser/mysql",
         "//pkg/parser/terror",
+        "//pkg/store/pdtypes",
         "//pkg/util/k8s",
         "//pkg/util/logutil",
         "//pkg/util/tiflashcompute",

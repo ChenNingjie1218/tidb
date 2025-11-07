@@ -24,6 +24,7 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/opentracing/opentracing-go"
@@ -166,6 +167,12 @@ const (
 	nmEnableOnlyRunUpgrade = "enable-only-run-upgrade"
 
 	nmExportID = "export-id"
+)
+
+const (
+	exitCodeOK  = 0
+	exitCodeErr = 1
+	exitCodeInt = 130
 )
 
 var (
@@ -545,18 +552,25 @@ func main() {
 	}
 
 	exited := make(chan struct{})
-	signal.SetupSignalHandler(func() {
+	exitCode := exitCodeOK
+	signal.SetupSignalHandler(func(sig os.Signal) {
 		svr.Close()
 		cleanup(svr, storage, dom)
 		cpuprofile.StopCPUProfiler()
 		resourcemanager.InstanceResourceManager.Stop()
 		executor.Stop()
+		if sig == syscall.SIGINT {
+			exitCode = exitCodeInt
+		}
 		close(exited)
 	})
 	topsql.SetupTopSQL(svr)
 	terror.MustNil(svr.RunWithStore(dom, storage))
 	<-exited
-	syncLog()
+	if err := syncLog(); err != nil {
+		exitCode = exitCodeErr
+	}
+	os.Exit(exitCode)
 }
 
 const (
@@ -637,17 +651,18 @@ func getServerlessInfo() (*keyspacepb.KeyspaceMeta, pd.Client, error) {
 	return keyspaceMeta, pdCli, nil
 }
 
-func syncLog() {
+func syncLog() error {
 	if err := log.Sync(); err != nil {
 		// Don't complain about /dev/stdout as Fsync will return EINVAL.
 		if pathErr, ok := err.(*fs.PathError); ok {
 			if pathErr.Path == "/dev/stdout" {
-				os.Exit(0)
+				return nil
 			}
 		}
 		fmt.Fprintln(os.Stderr, "sync log err:", err)
-		os.Exit(1)
+		return err
 	}
+	return nil
 }
 
 func checkTempStorageQuota() {

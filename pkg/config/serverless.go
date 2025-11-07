@@ -79,3 +79,6 @@ func defaultBootstrapControl() BootstrapControl {
 
 // DefaultResourceGroup is the default resource group name for all txns and snapshots.
 var DefaultResourceGroup string
+
+// FTSFunctionIsUsedKey is the context key for FTS function is used.
+var FTSFunctionIsUsedKey = struct{}{}

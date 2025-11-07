@@ -356,6 +356,9 @@ type Config struct {
 	AutoScalerClusterID          string `toml:"autoscaler-cluster-id" json:"autoscaler-cluster-id"`
 	UseAutoScaler                bool   `toml:"use-autoscaler" json:"use-autoscaler"`
 
+	// UseColumnar is used to control whether to enable columnar execution.
+	UseColumnar bool `toml:"use-columnar" json:"use-columnar"`
+
 	// TiDBMaxReuseChunk indicates max cached chunk num
 	TiDBMaxReuseChunk uint32 `toml:"tidb-max-reuse-chunk" json:"tidb-max-reuse-chunk"`
 	// TiDBMaxReuseColumn indicates max cached column num
@@ -462,7 +465,27 @@ type ExternalStorageConfig struct {
 // CSE is the config collection for the cloud storage engine.
 type CSE struct {
 	// EnableRegionClient indicates whether to enable region client.
-	EnableRegionClient bool `toml:"enable-region-client" json:"enable-region-client"`
+	EnableRegionClient     bool          `toml:"enable-region-client" json:"enable-region-client"`
+	ColumnarStoreType      string        `toml:"columnar-store-type" json:"columnar-store-type"`
+	ColumnarCollectTimeout time.Duration `toml:"columnar-collect-timeout" json:"columnar-collect-timeout"`
+}
+
+// IsTiFlashEnabled checks if TiFlash is enabled
+func (c *CSE) IsTiFlashEnabled() bool {
+	return c.ColumnarStoreType == "tiflash" || c.ColumnarStoreType == "both"
+}
+
+// IsColumnarStoreEnabled checks if Columnar store is enabled
+func (c *CSE) IsColumnarStoreEnabled() bool {
+	return c.ColumnarStoreType == "columnar" || c.ColumnarStoreType == "both"
+}
+
+// Valid checks if the Columnar store type is valid
+func (c *CSE) Valid() bool {
+	if c.ColumnarStoreType != "tiflash" && c.ColumnarStoreType != "columnar" && c.ColumnarStoreType != "both" {
+		return false
+	}
+	return true
 }
 
 // UpdateTempStoragePath is to update the `TempStoragePath` if port/statusPort was changed
@@ -1293,6 +1316,7 @@ var defaultConf = Config{
 	IsTiFlashComputeFixedPool:            false,
 	AutoScalerClusterID:                  "",
 	UseAutoScaler:                        false,
+	UseColumnar:                          false,
 	TiDBMaxReuseChunk:                    64,
 	TiDBMaxReuseColumn:                   256,
 	TiDBEnableExitCheck:                  false,
@@ -1325,6 +1349,11 @@ var defaultConf = Config{
 	},
 
 	FixedStorageSize: 480 * 1024 * 1024 * 1024,
+	CSE: CSE{
+		EnableRegionClient:     false,
+		ColumnarStoreType:      "tiflash",
+		ColumnarCollectTimeout: 5 * time.Second,
+	},
 }
 
 var (
@@ -1773,6 +1802,10 @@ func (c *Config) Valid() error {
 
 	if c.EnableDistTask && len(c.TiKVAPIServiceAddr) == 0 {
 		return fmt.Errorf("should set enable-dist-task with tikv-api-service-addr")
+	}
+
+	if !c.CSE.Valid() {
+		return fmt.Errorf("invalid columnar-store-type=%s, valid types=%v", c.CSE.ColumnarStoreType, []string{"tiflash", "columnar", "both"})
 	}
 
 	// test log level

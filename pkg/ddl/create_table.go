@@ -584,6 +584,10 @@ func checkGeneratedColumn(ctx *metabuild.Context, schemaName pmodel.CIStr, table
 }
 
 func setTableDefaultReplicaNumForLocalIndex(store kv.Storage, tblInfo *model.TableInfo) error {
+	tiflashEnabled := config.GetGlobalConfig().CSE.IsTiFlashEnabled()
+	if !tiflashEnabled {
+		return nil
+	}
 	replicas, err := infoschema.GetTiFlashStoreCount(store)
 	if err != nil {
 		return errors.Trace(err)

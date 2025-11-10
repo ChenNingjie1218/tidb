@@ -211,6 +211,8 @@ type Controller struct {
 	db            *sql.DB
 	pdCli         pd.Client
 	pdHTTPCli     pdhttp.Client
+	etcdCli       *clientv3.Client
+	kvstore       tidbkv.Storage
 
 	sysVars       map[string]string
 	tls           *common.TLS
@@ -348,6 +350,8 @@ func NewImportControllerWithPauser(
 	var backendObj backend.Backend
 	var pdCli pd.Client
 	var pdHTTPCli pdhttp.Client
+	var etcdCli *clientv3.Client
+	var kvstore tidbkv.Storage
 	switch cfg.TikvImporter.Backend {
 	case config.BackendTiDB:
 		encodingBuilder = tidb.NewEncodingBuilder()
@@ -458,6 +462,13 @@ func NewImportControllerWithPauser(
 	}
 	p.Status.backend = cfg.TikvImporter.Backend
 
+	if isPhysicalBackend(cfg) {
+		etcdCli, kvstore, err = getEtcdCliByPDCli(pdCli, tls, p.KeyspaceName)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+	}
+
 	var metaBuilder metaMgrBuilder
 	isSSTImport := isPhysicalBackend(cfg)
 	switch {
@@ -478,7 +489,7 @@ func NewImportControllerWithPauser(
 
 	var wrapper backend.TargetInfoGetter
 	if isPhysicalBackend(cfg) {
-		wrapper = local.NewTargetInfoGetter(tls, db, pdHTTPCli)
+		wrapper = local.NewTargetInfoGetter(tls, db, pdHTTPCli, kvstore)
 	} else {
 		wrapper = tidb.NewTargetInfoGetter(db)
 	}
@@ -519,6 +530,8 @@ func NewImportControllerWithPauser(
 		backend:       backendObj,
 		pdCli:         pdCli,
 		pdHTTPCli:     pdHTTPCli,
+		etcdCli:       etcdCli,
+		kvstore:       kvstore,
 		db:            db,
 		sysVars:       common.DefaultImportantVariables,
 		tls:           tls,
@@ -559,6 +572,12 @@ func (rc *Controller) Close() {
 	_ = rc.db.Close()
 	if rc.pdCli != nil {
 		rc.pdCli.Close()
+	}
+	if rc.etcdCli != nil {
+		_ = rc.etcdCli.Close()
+	}
+	if rc.kvstore != nil {
+		_ = rc.kvstore.Close()
 	}
 }
 
@@ -636,7 +655,7 @@ func (rc *Controller) restoreSchema(ctx context.Context) error {
 	}
 	// For physical backend, we need DBInfo.ID to operate the global autoid allocator.
 	if isPhysicalBackend(rc.cfg) {
-		dbs, err := tikv.FetchRemoteDBModelsFromTLS(ctx, rc.tls)
+		dbs, err := tikv.FetchRemoteDBModels(ctx, rc.kvstore)
 		if err != nil {
 			return errors.Trace(err)
 		}
@@ -1369,8 +1388,6 @@ func (rc *Controller) importTables(ctx context.Context) (finalErr error) {
 	switchBack := false
 	cleanup := false
 	postProgress := func() error { return nil }
-	var kvStore tidbkv.Storage
-	var etcdCli *clientv3.Client
 
 	if isPhysicalBackend(rc.cfg) {
 		var (
@@ -1421,12 +1438,7 @@ func (rc *Controller) importTables(ctx context.Context) (finalErr error) {
 			urlsWithoutScheme = append(urlsWithoutScheme, u)
 		}
 
-		etcdCli, kvStore, err = getEtcdCliByPDCli(rc.pdCli, rc.tls, rc.keyspaceName)
-		if err != nil {
-			return errors.Trace(err)
-		}
-
-		manager, err := NewChecksumManager(ctx, rc, kvStore)
+		manager, err := NewChecksumManager(ctx, rc, rc.kvstore)
 		if err != nil {
 			return errors.Trace(err)
 		}
@@ -1481,16 +1493,6 @@ func (rc *Controller) importTables(ctx context.Context) (finalErr error) {
 				logTask.Warn("failed to clean table task metas, you may need to restore them manually", zap.Error(err))
 			}
 		}
-		if kvStore != nil {
-			if err := kvStore.Close(); err != nil {
-				logTask.Warn("failed to close kv store", zap.Error(err))
-			}
-		}
-		if etcdCli != nil {
-			if err := etcdCli.Close(); err != nil {
-				logTask.Warn("failed to close etcd client", zap.Error(err))
-			}
-		}
 	}()
 
 	taskCh := make(chan task, rc.cfg.App.IndexConcurrency)
@@ -1540,7 +1542,7 @@ func (rc *Controller) importTables(ctx context.Context) (finalErr error) {
 			if err != nil {
 				return errors.Trace(err)
 			}
-			tr, err := NewTableImporter(tableName, tableMeta, dbInfo, tableInfo, cp, igCols.ColumnsMap(), kvStore, etcdCli, log.FromContext(ctx))
+			tr, err := NewTableImporter(tableName, tableMeta, dbInfo, tableInfo, cp, igCols.ColumnsMap(), rc.kvstore, rc.etcdCli, log.FromContext(ctx))
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -1619,12 +1621,7 @@ func (rc *Controller) importTables(ctx context.Context) (finalErr error) {
 }
 
 func (rc *Controller) registerTaskToPD(ctx context.Context) (undo func(), _ error) {
-	etcdCli, err := dialEtcdWithCfg(ctx, rc.cfg, rc.pdCli.GetServiceDiscovery().GetServiceURLs())
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-
-	register := utils.NewTaskRegister(etcdCli, utils.RegisterLightning, fmt.Sprintf("lightning-%s", uuid.New()))
+	register := utils.NewTaskRegister(rc.etcdCli, utils.RegisterLightning, fmt.Sprintf("lightning-%s", uuid.New()))
 
 	undo = func() {
 		closeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -1632,9 +1629,6 @@ func (rc *Controller) registerTaskToPD(ctx context.Context) (undo func(), _ erro
 
 		if err := register.Close(closeCtx); err != nil {
 			log.L().Warn("failed to unregister task", zap.Error(err))
-		}
-		if err := etcdCli.Close(); err != nil {
-			log.L().Warn("failed to close etcd client", zap.Error(err))
 		}
 	}
 	if err := register.RegisterTask(ctx); err != nil {

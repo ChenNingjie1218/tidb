@@ -20,6 +20,7 @@ import (
 	"github.com/pingcap/errors"
 	ropts "github.com/pingcap/tidb/lightning/pkg/importer/opts"
 	"github.com/pingcap/tidb/lightning/pkg/precheck"
+	kv2 "github.com/pingcap/tidb/pkg/kv"
 	"github.com/pingcap/tidb/pkg/lightning/checkpoints"
 	"github.com/pingcap/tidb/pkg/lightning/config"
 	"github.com/pingcap/tidb/pkg/lightning/mydump"
@@ -50,6 +51,7 @@ func NewPrecheckItemBuilderFromConfig(
 	ctx context.Context,
 	cfg *config.Config,
 	pdHTTPCli pdhttp.Client,
+	kvstore kv2.Storage,
 	opts ...ropts.PrecheckItemBuilderOption,
 ) (*PrecheckItemBuilder, error) {
 	var gerr error
@@ -62,7 +64,7 @@ func NewPrecheckItemBuilderFromConfig(
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	targetInfoGetter, err := NewTargetInfoGetterImpl(cfg, targetDB, pdHTTPCli)
+	targetInfoGetter, err := NewTargetInfoGetterImpl(cfg, targetDB, pdHTTPCli, kvstore)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}

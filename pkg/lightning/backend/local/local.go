@@ -41,6 +41,7 @@ import (
 	"github.com/pingcap/tidb/br/pkg/version"
 	"github.com/pingcap/tidb/pkg/infoschema"
 	"github.com/pingcap/tidb/pkg/keyspace"
+	kv2 "github.com/pingcap/tidb/pkg/kv"
 	"github.com/pingcap/tidb/pkg/lightning/backend"
 	"github.com/pingcap/tidb/pkg/lightning/backend/encode"
 	"github.com/pingcap/tidb/pkg/lightning/backend/external"
@@ -266,6 +267,7 @@ type targetInfoGetter struct {
 	tls       *common.TLS
 	targetDB  *sql.DB
 	pdHTTPCli pdhttp.Client
+	kvstore   kv2.Storage
 }
 
 // NewTargetInfoGetter creates an TargetInfoGetter with local backend
@@ -275,23 +277,25 @@ func NewTargetInfoGetter(
 	tls *common.TLS,
 	db *sql.DB,
 	pdHTTPCli pdhttp.Client,
+	kvstore kv2.Storage,
 ) backend.TargetInfoGetter {
 	return &targetInfoGetter{
 		tls:       tls,
 		targetDB:  db,
 		pdHTTPCli: pdHTTPCli,
+		kvstore:   kvstore,
 	}
 }
 
 // FetchRemoteDBModels implements the `backend.TargetInfoGetter` interface.
 func (g *targetInfoGetter) FetchRemoteDBModels(ctx context.Context) ([]*model.DBInfo, error) {
-	return tikv.FetchRemoteDBModelsFromTLS(ctx, g.tls)
+	return tikv.FetchRemoteDBModels(ctx, g.kvstore)
 }
 
 // FetchRemoteTableModels obtains the models of all tables given the schema name.
 // It implements the `TargetInfoGetter` interface.
 func (g *targetInfoGetter) FetchRemoteTableModels(ctx context.Context, schemaName string) ([]*model.TableInfo, error) {
-	return tikv.FetchRemoteTableModelsFromTLS(ctx, g.tls, schemaName)
+	return tikv.FetchRemoteTableModels(ctx, g.kvstore, schemaName)
 }
 
 // CheckRequirements performs the check whether the backend satisfies the version requirements.

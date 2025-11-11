@@ -1470,6 +1470,10 @@ var defaultSysVars = []*SysVar{
 		return BoolToOnOff(EnableMDL.Load()), nil
 	}},
 	{Scope: ScopeGlobal, Name: TiDBEnableDistTask, Value: BoolToOnOff(DefTiDBEnableDistTask), Type: TypeBool, SetGlobal: func(_ context.Context, s *SessionVars, val string) error {
+		// Skip apply setting unless in test.
+		if !intest.InTest {
+			return nil
+		}
 		if EnableDistTask.Load() != TiDBOptOn(val) {
 			EnableDistTask.Store(TiDBOptOn(val))
 		}
@@ -3540,6 +3544,10 @@ var defaultSysVars = []*SysVar{
 		return nil
 	}, GetGlobal: func(ctx context.Context, vars *SessionVars) (string, error) {
 		return maskEmbedAPIKey(EmbedGeminiAPIKey.Load()), nil
+	}},
+	{Scope: ScopeSession, Name: TiDBEnableAsyncIndexCreation, Value: BoolToOnOff(DefTiDBEnableAsyncIndexCreation), Type: TypeBool, SetSession: func(s *SessionVars, val string) error {
+		s.EnableAsyncIndexCreation = TiDBOptOn(val)
+		return nil
 	}},
 }
 

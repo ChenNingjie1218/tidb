@@ -6717,6 +6717,14 @@ func (e *executor) DoDDLJobWrapper(ctx sessionctx.Context, jobW *JobWrapper) (re
 	// KILL can cancel this DDL job.
 	ctx.GetSessionVars().StmtCtx.DDLJobID = jobID
 
+	// If enabled async add index, return immediately.
+	if job.Type == model.ActionAddIndex && sessVars.EnableAsyncIndexCreation {
+		logutil.DDLLogger().Info("start DDL job asynchronously", zap.String("job", job.String()), zap.String("query", job.Query))
+		msg := fmt.Sprintf("DDL job %d added to the queue", job.ID)
+		sessVars.StmtCtx.SetMessage(msg)
+		return nil
+	}
+
 	// For a job from start to end, the state of it will be none -> delete only -> write only -> reorganization -> public
 	// For every state changes, we will wait as lease 2 * lease time, so here the ticker check is 10 * lease.
 	// But we use etcd to speed up, normally it takes less than 0.5s now, so we use 0.5s or 1s or 3s as the max value.

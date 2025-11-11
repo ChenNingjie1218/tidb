@@ -286,6 +286,10 @@ const (
 	// TiDBExplicitRequestSourceType indicates the source of the request, it's a complement of RequestSourceType.
 	// The value maybe "lightning", "br", "dumpling" etc.
 	TiDBExplicitRequestSourceType = "tidb_request_source_type"
+
+	// TiDBEnableAsyncIndexCreation indicates whether to enable async index creation.
+	// If set to true, index creation will be non-blocking and returns immediately in the cli.
+	TiDBEnableAsyncIndexCreation = "tidb_enable_async_index_creation"
 )
 
 // TiDB system variable names that both in session and global scope.
@@ -1624,6 +1628,9 @@ const (
 	DefTiDBTSOClientRPCMode                           = TSOClientRPCModeDefault
 	DefTiDBLoadBindingTimeout                         = 200
 	DefTiDBEnableFullTextIndex                        = false
+
+	// Serverless related defaults
+	DefTiDBEnableAsyncIndexCreation = false
 )
 
 // Process global variables.

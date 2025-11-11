@@ -27,10 +27,13 @@ import (
 	"github.com/pingcap/tidb/pkg/kv"
 	"github.com/pingcap/tidb/pkg/sessionctx"
 	"github.com/pingcap/tidb/pkg/sessionctx/variable"
+	"github.com/pingcap/tidb/pkg/tidbworker"
 	"github.com/pingcap/tidb/pkg/util"
 	"github.com/pingcap/tidb/pkg/util/chunk"
+	"github.com/pingcap/tidb/pkg/util/logutil"
 	"github.com/pingcap/tidb/pkg/util/sqlexec"
 	clitutil "github.com/tikv/client-go/v2/util"
+	"go.uber.org/zap"
 )
 
 const (
@@ -627,7 +630,7 @@ func (mgr *TaskManager) SwitchTaskStep(
 			// Or when there is no such task.
 			return nil
 		}
-		return mgr.insertSubtasks(ctx, se, subtasks)
+		return mgr.insertSubtasks(ctx, se, task, subtasks)
 	})
 }
 
@@ -647,13 +650,39 @@ func (*TaskManager) updateTaskStateStep(ctx context.Context, se sessionctx.Conte
 			meta = %?
 		where id = %? and state = %? and step = %?`,
 		nextState, nextStep, task.Meta, task.ID, task.State, task.Step)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Recycle the DDL worker when the global task is in one of the terminal state.
+	if variable.EnableDistTask.Load() && tidbworker.IsBgTaskEnabled(ctx, string(task.Type)) {
+		switch nextState {
+		case proto.TaskStateSucceed, proto.TaskStateFailed, proto.TaskStateReverted:
+			logutil.BgLogger().Info("recycle background task", zap.Int64("taskID", task.ID), zap.String("taskKey", task.Key))
+			err = tidbworker.GlobalTiDBWorkerManager.RecycleBgTask(
+				ctx,
+				tidbworker.TaskWorkerType(string(task.Type)),
+				task.Key,
+				task.ID,
+				0,
+			)
+			if err != nil {
+				logutil.BgLogger().Error("recycle background task failed", zap.Error(err))
+			}
+		}
+	}
+	return nil
 }
 
 // TestChannel is used for test.
 var TestChannel = make(chan struct{})
 
-func (*TaskManager) insertSubtasks(ctx context.Context, se sessionctx.Context, subtasks []*proto.Subtask) error {
+func (*TaskManager) insertSubtasks(
+	ctx context.Context,
+	se sessionctx.Context,
+	task *proto.Task,
+	subtasks []*proto.Subtask,
+) error {
 	if len(subtasks) == 0 {
 		return nil
 	}
@@ -665,15 +694,54 @@ func (*TaskManager) insertSubtasks(ctx context.Context, se sessionctx.Context, s
 		sb         strings.Builder
 		markerList = make([]string, 0, len(subtasks))
 		args       = make([]any, 0, len(subtasks)*7)
+		execIDs    = make([]string, 0, len(subtasks))
 	)
 	sb.WriteString(`insert into mysql.tidb_background_subtask(` + InsertSubtaskColumns + `) values `)
 	for _, subtask := range subtasks {
 		markerList = append(markerList, "(%?, %?, %?, %?, %?, %?, %?, %?, CURRENT_TIMESTAMP(), '{}', '{}')")
 		args = append(args, subtask.Step, subtask.TaskID, subtask.ExecID, subtask.Meta,
 			proto.SubtaskStatePending, proto.Type2Int(subtask.Type), subtask.Concurrency, subtask.Ordinal)
+		execIDs = append(execIDs, subtask.ExecID)
 	}
 	sb.WriteString(strings.Join(markerList, ","))
 	_, err := sqlexec.ExecSQL(ctx, se.GetSQLExecutor(), sb.String(), args...)
+	if err != nil {
+		return err
+	}
+	// Register background task to worker.
+	if variable.EnableDistTask.Load() && tidbworker.IsBgTaskEnabled(ctx, string(task.Type)) {
+		// Get subtaskID base
+		rs, err := sqlexec.ExecSQL(ctx, se.GetSQLExecutor(), "select @@last_insert_id")
+		if err != nil {
+			return err
+		}
+		subTaskIDBase := int64(rs[0].GetUint64(0))
+		for i, execID := range execIDs {
+			err = tidbworker.GlobalTiDBWorkerManager.RegisterBgTask(
+				ctx,
+				tidbworker.TaskWorkerType(string(task.Type)),
+				task.Key,
+				task.ID,
+				subTaskIDBase+int64(i),
+				execID,
+			)
+			if err != nil {
+				return err
+			}
+		}
+		// Register a special worker task to prevent early recycle.
+		err = tidbworker.GlobalTiDBWorkerManager.RegisterBgTask(
+			ctx,
+			tidbworker.TaskWorkerType(string(task.Type)),
+			task.Key,
+			task.ID,
+			0,
+			"",
+		)
+		if err != nil {
+			return err
+		}
+	}
 	return err
 }
 
@@ -700,7 +768,7 @@ func (mgr *TaskManager) SwitchTaskStepInBatch(
 		}
 		subtaskBatches := mgr.splitSubtasks(subtasks[existingTaskCnt:])
 		for _, batch := range subtaskBatches {
-			if err = mgr.insertSubtasks(ctx, se, batch); err != nil {
+			if err = mgr.insertSubtasks(ctx, se, task, batch); err != nil {
 				return err
 			}
 		}

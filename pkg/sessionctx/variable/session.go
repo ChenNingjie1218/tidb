@@ -1699,6 +1699,9 @@ type SessionVars struct {
 
 	// ScatterRegion will scatter the regions for DDLs when it is "table" or "global", "" indicates not trigger scatter.
 	ScatterRegion string
+
+	// EnableAsyncIndexCreation controls whether to enable async index creation.
+	EnableAsyncIndexCreation bool
 }
 
 // GetSessionVars implements the `SessionVarsProvider` interface.

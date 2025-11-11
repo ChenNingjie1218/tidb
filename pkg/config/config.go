@@ -1382,6 +1382,7 @@ var defaultConf = Config{
 	ExtendedErrorMsgs:         make(map[string]string),
 	SkipGCWorker:              false,
 	TiDBWorker:                defaultTiDBWorker(),
+	EnableDistTask:            false,
 	RUConfig:                  rmclient.DefaultRequestUnitConfig(),
 	ExportID:                  "",
 	ForceEnableFullTextIndex:  false,

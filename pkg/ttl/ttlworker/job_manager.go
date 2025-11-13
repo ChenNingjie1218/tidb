@@ -173,23 +173,26 @@ func NewJobManager(id string, sessPool util.SessionPool, store kv.Storage, etcdC
 	// so that the TTL job manager elects its own leader, enabling the TTL leader to run on the worker.
 	if !intest.InTest && etcdCli != nil {
 		manager.ownerManager = owner.NewOwnerManager(context.Background(), etcdCli, ttlJobManagerPrompt, id, ttlJobManagerLeaderPath)
-
 		// ownerListener used to listen the owner change events and log the info
-		manager.ownerManager.SetListener(&ownerListener{})
+		manager.ownerManager.SetListener(&ownerListener{
+			manager: manager,
+		})
+
 		err := manager.ownerManager.CampaignOwner(5)
 		if err != nil {
 			logutil.BgLogger().Error("failed to campaign ttl job manager owner", zap.Error(err))
+			return nil
 		}
 		manager.leaderFunc = manager.ownerManager.IsOwner
 	} else {
 		manager.leaderFunc = leaderFunc
 	}
 	// ------ Serverless TiDB worker ------
-
-	return
+	return manager
 }
 
 type ownerListener struct {
+	manager *JobManager
 }
 
 // OnRetireOwner just to fix implement the interface
@@ -198,6 +201,19 @@ func (l *ownerListener) OnRetireOwner() {
 
 func (l *ownerListener) OnBecomeOwner() {
 	logutil.BgLogger().Info("leader change of TTL job manager service, this node become owner")
+	// Perform a cleanup immediately upon startup
+	// to prevent the GC interval from exceeding the TiDB survival time,
+	// which would result in GC never occurring.
+	se, err := getSession(l.manager.sessPool)
+	if err != nil {
+		logutil.BgLogger().Error("failed to get session for ttl job manager owner", zap.Error(err))
+	}
+	go func() {
+		gcCtx, cancel := context.WithTimeout(l.manager.ctx, ttlInternalSQLTimeout)
+		defer cancel()
+		now := se.Now()
+		l.manager.DoGC(gcCtx, se, now)
+	}()
 }
 
 func (m *JobManager) isLeader() bool {

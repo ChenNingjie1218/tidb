@@ -21,6 +21,7 @@ go_library(
         "//pkg/disttask/framework/handle",
         "//pkg/disttask/framework/proto",
         "//pkg/expression",
+        "//pkg/keyspace",
         "//pkg/kv",
         "//pkg/lightning/backend",
         "//pkg/lightning/backend/encode",

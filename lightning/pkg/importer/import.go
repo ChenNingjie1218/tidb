@@ -245,6 +245,7 @@ type Controller struct {
 	tikvModeSwitcher    local.TiKVModeSwitcher
 
 	keyspaceName      string
+	apiContext        pd.APIContext
 	resourceGroupName string
 	taskType          string
 }
@@ -352,6 +353,7 @@ func NewImportControllerWithPauser(
 	var pdHTTPCli pdhttp.Client
 	var etcdCli *clientv3.Client
 	var kvstore tidbkv.Storage
+	apiContext := keyspace.BuildAPIContext(p.KeyspaceName)
 	switch cfg.TikvImporter.Backend {
 	case config.BackendTiDB:
 		encodingBuilder = tidb.NewEncodingBuilder()
@@ -369,7 +371,7 @@ func NewImportControllerWithPauser(
 		}
 
 		addrs := strings.Split(cfg.TiDB.PdAddr, ",")
-		pdCli, err = pd.NewClientWithContext(ctx, addrs, tls.ToPDSecurityOption())
+		pdCli, err = pd.NewClientWithAPIContext(ctx, apiContext, addrs, tls.ToPDSecurityOption())
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
@@ -559,6 +561,7 @@ func NewImportControllerWithPauser(
 		tikvModeSwitcher:    local.NewTiKVModeSwitcher(tls.TLSConfig(), pdHTTPCli, log.FromContext(ctx).Logger),
 
 		keyspaceName:      p.KeyspaceName,
+		apiContext:        apiContext,
 		resourceGroupName: p.ResourceGroupName,
 		taskType:          p.TaskType,
 	}
@@ -1220,7 +1223,7 @@ const (
 func (rc *Controller) keepPauseGCForDupeRes(ctx context.Context) (<-chan struct{}, error) {
 	tlsOpt := rc.tls.ToPDSecurityOption()
 	addrs := strings.Split(rc.cfg.TiDB.PdAddr, ",")
-	pdCli, err := pd.NewClientWithContext(ctx, addrs, tlsOpt)
+	pdCli, err := pd.NewClientWithAPIContext(ctx, rc.apiContext, addrs, tlsOpt)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -1924,7 +1927,7 @@ func (rc *Controller) preCheckRequirements(ctx context.Context) error {
 	if isPhysicalBackend(rc.cfg) {
 		pdAddrs := rc.pdCli.GetServiceDiscovery().GetServiceURLs()
 		pdController, err := pdutil.NewPdController(
-			ctx, pdAddrs, rc.tls.TLSConfig(), rc.tls.ToPDSecurityOption(),
+			ctx, rc.keyspaceName, pdAddrs, rc.tls.TLSConfig(), rc.tls.ToPDSecurityOption(),
 		)
 		if err != nil {
 			log.L().Error("fail to create PD controller", zap.Error(err))

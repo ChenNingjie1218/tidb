@@ -407,8 +407,9 @@ func main() {
 		exportID := config.GetGlobalConfig().ExportID
 		if config.GetGlobalConfig().EnableRULimit {
 			if exportID != "" {
-				log.Info("setting up serverless resource control", zap.String("exportID", exportID))
-				config.DefaultResourceGroup = exportID
+				ResourceGroupName := fmt.Sprintf("exp-%d", keyspaceID)
+				log.Info("setting up serverless resource control", zap.String("exportID", exportID), zap.Uint32("keyspaceID", keyspaceID))
+				config.DefaultResourceGroup = ResourceGroupName
 			} else {
 				log.Info("setting up serverless resource control", zap.Uint32("keyspaceID", keyspaceID))
 				config.DefaultResourceGroup = strconv.FormatUint(uint64(keyspaceID), 10)

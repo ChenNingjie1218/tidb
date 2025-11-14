@@ -33,6 +33,7 @@ import (
 	"github.com/pingcap/tidb/pkg/parser/terror"
 	"github.com/pingcap/tidb/pkg/sessionctx"
 	"github.com/pingcap/tidb/pkg/tablecodec"
+	"github.com/pingcap/tidb/pkg/tidbworker"
 	topsqlstate "github.com/pingcap/tidb/pkg/util/topsql/state"
 	"go.uber.org/zap"
 )
@@ -283,6 +284,13 @@ func insertJobIntoDeleteRangeTable(ctx context.Context, wrapper DelRangeExecWrap
 		return errors.Trace(err)
 	}
 
+	//  Register tasks to tidb worker service when tidb is operating as master and not using keyspace level GC.
+	if tidbworker.IsMaster() && !tidbworker.UseKeyspaceLevelGC() {
+		if err := tidbworker.GlobalTiDBWorkerManager.RegisterGC(ctx, wrapper.GetTSO()); err != nil {
+			return errors.Trace(err)
+		}
+	}
+
 	ctx = kv.WithInternalSourceType(ctx, getDDLRequestSource(job.Type))
 	switch job.Type {
 	case model.ActionDropSchema:
@@ -503,6 +511,9 @@ type DelRangeExecWrapper interface {
 	// generate a new tso for the next job
 	UpdateTSOForJob() error
 
+	// get the tso for the current job
+	GetTSO() uint64
+
 	// initialize the paramsList
 	PrepareParamsList(sz int)
 
@@ -541,6 +552,10 @@ func (sdr *sessionDelRangeExecWrapper) UpdateTSOForJob() error {
 	}
 	sdr.ts = now
 	return nil
+}
+
+func (sdr *sessionDelRangeExecWrapper) GetTSO() uint64 {
+	return sdr.ts
 }
 
 func (sdr *sessionDelRangeExecWrapper) PrepareParamsList(sz int) {

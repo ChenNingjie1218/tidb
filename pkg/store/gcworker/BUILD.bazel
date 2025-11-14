@@ -22,6 +22,7 @@ go_library(
         "//pkg/session/types",
         "//pkg/sessionctx/variable",
         "//pkg/tablecodec",
+        "//pkg/tidbworker",
         "//pkg/util",
         "//pkg/util/codec",
         "//pkg/util/dbterror",

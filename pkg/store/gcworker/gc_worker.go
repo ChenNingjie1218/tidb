@@ -48,6 +48,7 @@ import (
 	sessiontypes "github.com/pingcap/tidb/pkg/session/types"
 	"github.com/pingcap/tidb/pkg/sessionctx/variable"
 	"github.com/pingcap/tidb/pkg/tablecodec"
+	"github.com/pingcap/tidb/pkg/tidbworker"
 	util2 "github.com/pingcap/tidb/pkg/util"
 	"github.com/pingcap/tidb/pkg/util/codec"
 	"github.com/pingcap/tidb/pkg/util/dbterror"
@@ -899,6 +900,38 @@ func (w *GCWorker) runGCJob(ctx context.Context, safePoint uint64, concurrency g
 				zap.Error(err))
 			metrics.GCJobFailureCounter.WithLabelValues("gc").Inc()
 			return errors.Trace(err)
+		}
+	}
+
+	// Handle GCV2 tidb worker after a round of GC.
+	if w.isCurrentKeyspaceUseKeyspaceLevelGC() {
+		// If current TiDB is the master, it should send a heartbeat to tidb worker service
+		// in order to prevent unnecessary activation of the GCV2 tidb worker.
+		if tidbworker.IsMaster() || tidbworker.IsTTLTaskWorker() {
+			gcLifeTime, err := w.loadDurationWithDefault(gcLifeTimeKey, gcDefaultLifeTime)
+			if err != nil {
+				logutil.Logger(ctx).Error("[tidb worker] failed to load gc life time",
+					zap.Error(err))
+				return errors.Trace(err)
+			}
+			err = tidbworker.GlobalTiDBWorkerManager.RegisterGCV2(ctx, safePoint, int64(*gcLifeTime/time.Second))
+			if err != nil {
+				logutil.Logger(ctx).Error("[tidb worker] failed to register gc v2 job",
+					zap.Uint64("safe-point", safePoint),
+					zap.Error(err))
+				return errors.Trace(err)
+			}
+		}
+		// If current TiDB is master or worker, it should notify tidb worker service that it
+		// has finished a round of GC.
+		if tidbworker.IsMaster() || tidbworker.IsGCV2Worker() || tidbworker.IsTTLTaskWorker() {
+			err = tidbworker.GlobalTiDBWorkerManager.RecycleGCV2(ctx, safePoint)
+			if err != nil {
+				logutil.Logger(ctx).Error("[tidb worker] failed to recycle gc v2 job",
+					zap.Uint64("safe-point", safePoint),
+					zap.Error(err))
+				return errors.Trace(err)
+			}
 		}
 	}
 

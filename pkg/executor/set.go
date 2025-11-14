@@ -17,6 +17,7 @@ package executor
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/tidb/pkg/config"
@@ -179,13 +180,15 @@ func (e *SetExecutor) setSysVariable(ctx context.Context, name string, v *expres
 		}
 		logutil.BgLogger().Info("set global var", zap.Uint64("conn", sessionVars.ConnectionID), zap.String("name", name), zap.String("val", showValStr))
 
-		// TODO: @AmoebaProtozoa add when tidb worker is ready
-		// if name == variable.TiDBGCLifetime && tidbworker.IsMaster() && config.GetGlobalConfig().EnableSafePointV2 {
-		// 	gcLifeTime, err := time.ParseDuration(valStr)
-		// 	if err != nil {
-		// 		err = tidbworker.GlobalTiDBWorkerManager.UpdateGCLifeTime(ctx, int64(gcLifeTime/time.Second))
-		// 	}
-		// }
+		if name == variable.TiDBGCLifetime && tidbworker.IsMaster() && tidbworker.UseKeyspaceLevelGC() {
+			gcLifeTime, err := time.ParseDuration(valStr)
+			if err != nil {
+				return err
+			}
+			if err = tidbworker.GlobalTiDBWorkerManager.UpdateGCLifeTime(ctx, int64(gcLifeTime/time.Second)); err != nil {
+				return err
+			}
+		}
 
 		if name == variable.TiDBTTLJobEnable && tidbworker.IsMaster() {
 			if err = tidbworker.GlobalTiDBWorkerManager.UpdateTTLJobEnable(ctx, strings.ToUpper(valStr) == "ON"); err != nil {

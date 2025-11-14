@@ -739,6 +739,10 @@ func (bdr *brDelRangeExecWrapper) UpdateTSOForJob() error {
 	return nil
 }
 
+func (brd *brDelRangeExecWrapper) GetTSO() uint64 {
+	return 0
+}
+
 func (bdr *brDelRangeExecWrapper) PrepareParamsList(sz int) {
 	bdr.query = &PreDelRangeQuery{
 		ParamsList: make([]DelRangeParams, 0, sz),

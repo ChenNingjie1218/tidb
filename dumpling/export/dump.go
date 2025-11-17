@@ -173,6 +173,10 @@ func (d *Dumper) RemoveServiceSafepoint(gcSafePointKeeperCancel context.CancelFu
 	d.tctx.L().Info("start to remove service safe point keeper", zap.Object("safePoint", d.serviceSafePoint), zap.String("keyspace-name", keyspaceName))
 	// close the gc safe point keeper at first
 	gcSafePointKeeperCancel()
+	if d.tidbPDClientForGC == nil {
+		d.tctx.L().Warn("no pd client for gc safe point, skip removing service safe point")
+		return
+	}
 	// set the ttl to 0 to remove the gc-safe-point
 	d.serviceSafePoint.TTL = -1
 	if err := utils.UpdateServiceSafePoint(d.tctx, d.tidbPDClientForGC, d.serviceSafePoint, keyspaceName); err != nil {

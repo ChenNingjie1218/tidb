@@ -1600,6 +1600,10 @@ type SessionVars struct {
 	// EnableRowLevelChecksum indicates whether row level checksum is enabled.
 	EnableRowLevelChecksum bool
 
+	// EnableRemoteCoprocessor controls whether to enable remote coprocessor.
+	// The RemoteCoprocessorAddr must be configured in the config file first.
+	EnableRemoteCoprocessor bool
+
 	// TiFlashComputeDispatchPolicy indicates how to dipatch task to tiflash_compute nodes.
 	// Only for disaggregated-tiflash mode.
 	TiFlashComputeDispatchPolicy tiflashcompute.DispatchPolicy
@@ -2223,6 +2227,7 @@ func NewSessionVars(hctx HookContext) *SessionVars {
 		mppExchangeCompressionMode:    DefaultExchangeCompressionMode,
 		mppVersion:                    kv.MppVersionUnspecified,
 		EnableLateMaterialization:     DefTiDBOptEnableLateMaterialization,
+		EnableRemoteCoprocessor:       DefTiDBEnableRemoteCoprocessor,
 		TiFlashComputeDispatchPolicy:  tiflashcompute.DispatchPolicyConsistentHash,
 		ResourceGroupName:             resourcegroup.DefaultResourceGroupName,
 		DefaultCollationForUTF8MB4:    mysql.DefaultCollationName,

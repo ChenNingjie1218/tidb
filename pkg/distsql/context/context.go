@@ -45,6 +45,8 @@ type DistSQLContext struct {
 	KvExecCounter          *stmtstats.KvExecCounter
 	SessionMemTracker      *memory.Tracker
 
+	EnableRemoteCoprocessor bool
+
 	Location         *time.Location
 	RuntimeStatsColl *execdetails.RuntimeStatsColl
 	SQLKiller        *sqlkiller.SQLKiller

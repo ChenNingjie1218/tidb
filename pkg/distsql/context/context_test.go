@@ -53,6 +53,8 @@ func TestContextDetach(t *testing.T) {
 		KvExecCounter:          &stmtstats.KvExecCounter{},
 		SessionMemTracker:      &memory.Tracker{},
 
+		EnableRemoteCoprocessor: true,
+
 		Location:         time.Local,
 		RuntimeStatsColl: &execdetails.RuntimeStatsColl{},
 		SQLKiller:        sqlkiller,

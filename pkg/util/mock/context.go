@@ -243,6 +243,7 @@ func (c *Context) GetDistSQLCtx() *distsqlctx.DistSQLContext {
 		Client:                               c.GetClient(),
 		EnabledRateLimitAction:               vars.EnabledRateLimitAction,
 		EnableChunkRPC:                       vars.EnableChunkRPC,
+		EnableRemoteCoprocessor:              vars.EnableRemoteCoprocessor,
 		OriginalSQL:                          sc.OriginalSQL,
 		KVVars:                               vars.KVVars,
 		KvExecCounter:                        sc.KvExecCounter,

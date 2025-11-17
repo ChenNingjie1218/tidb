@@ -283,6 +283,9 @@ const (
 	// TiDBUseAlloc indicates whether the last statement used chunk alloc
 	TiDBUseAlloc = "last_sql_use_alloc"
 
+	// TiDBEnableRemoteCoprocessor indicates whether to enable remote coprocessor.
+	TiDBEnableRemoteCoprocessor = "tidb_enable_remote_coprocessor"
+
 	// TiDBExplicitRequestSourceType indicates the source of the request, it's a complement of RequestSourceType.
 	// The value maybe "lightning", "br", "dumpling" etc.
 	TiDBExplicitRequestSourceType = "tidb_request_source_type"
@@ -1607,6 +1610,7 @@ const (
 	DefRuntimeFilterType                              = "IN"
 	DefRuntimeFilterMode                              = "OFF"
 	DefTiDBLockUnchangedKeys                          = true
+	DefTiDBEnableRemoteCoprocessor                    = false
 	DefTiDBEnableCheckConstraint                      = false
 	DefTiDBSkipMissingPartitionStats                  = true
 	DefTiDBOptEnableHashJoin                          = true

@@ -88,6 +88,9 @@ func Select(ctx context.Context, dctx *distsqlctx.DistSQLContext, kvReq *kv.Requ
 		option.AppendWarning = dctx.AppendWarning
 	}
 
+	if kvReq.StoreType == kv.TiKV && dctx.EnableRemoteCoprocessor {
+		kvReq.StoreType = kv.TiKVRemoteCoprocessor
+	}
 	resp := dctx.Client.Send(ctx, kvReq, dctx.KVVars, option)
 	if resp == nil {
 		return nil, errors.New("client returns nil response")

@@ -59,7 +59,7 @@ func NewPrecheckItemBuilderFromConfig(
 	for _, o := range opts {
 		o(builderCfg)
 	}
-	builderCfg.MDLoaderSetupOptions = append(builderCfg.MDLoaderSetupOptions, mydump.WithScanFileConcurrency(cfg.App.RegionConcurrency*2))
+	builderCfg.MDLoaderSetupOptions = append(builderCfg.MDLoaderSetupOptions, mydump.WithScanFileConcurrency(min(cfg.App.RegionConcurrency*2, cfg.App.MaxScanFileConcurrency)))
 	targetDB, err := DBFromConfig(ctx, cfg.TiDB)
 	if err != nil {
 		return nil, errors.Trace(err)

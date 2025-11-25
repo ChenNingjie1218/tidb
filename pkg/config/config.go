@@ -484,6 +484,8 @@ type Config struct {
 
 	// TiFlashReplicas is used to control the format of TiFlash placement rules committed to PD.
 	TiFlashReplicas TiFlashReplicas `toml:"tiflash-replicas" json:"tiflash-replicas"`
+
+	MaxScanParquetFileConcurrency int `toml:"max-scan-parquet-file-concurrency" json:"max-scan-parquet-file-concurrency"`
 }
 
 // TiFlashReplicas is used to control the format of TiFlash placement rules committed to PD.
@@ -1415,6 +1417,7 @@ var defaultConf = Config{
 		ColumnarStoreType:      "tiflash",
 		ColumnarCollectTimeout: 5 * time.Second,
 	},
+	MaxScanParquetFileConcurrency: 2,
 }
 
 var (

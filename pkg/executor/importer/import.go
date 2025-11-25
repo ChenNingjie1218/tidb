@@ -1119,6 +1119,8 @@ func (e *LoadDataController) InitDataFiles(ctx context.Context) error {
 	var (
 		totalSize     int64
 		totalRealSize atomic.Int64
+		rwLock        sync.RWMutex
+		rowSize       float64
 	)
 	dataFiles := []*mydump.SourceFileMeta{}
 	// check glob pattern is present in filename.
@@ -1176,6 +1178,11 @@ func (e *LoadDataController) InitDataFiles(ctx context.Context) error {
 			return exeerrors.ErrLoadDataCantRead.GenWithStackByArgs(GetMsgFromBRError(err), "failed to walk dir")
 		}
 
+		concurrency := int(e.ThreadCnt * 2)
+		if sourceType == mydump.SourceTypeParquet {
+			concurrency = min(concurrency, tidbcfg.GetGlobalConfig().MaxScanParquetFileConcurrency)
+		}
+
 		var err error
 		if dataFiles, err = mydump.ParallelProcess(ctx, allFiles, e.ThreadCnt*2,
 			func(ctx context.Context, f mydump.RawFile) (*mydump.SourceFileMeta, error) {
@@ -1187,7 +1194,34 @@ func (e *LoadDataController) InitDataFiles(ctx context.Context) error {
 					Compression: compressTp,
 					Type:        sourceType,
 				}
-				fileMeta.RealSize = mydump.EstimateRealSizeForFile(ctx, fileMeta, s, 0)
+				switch sourceType {
+				case mydump.SourceTypeSQL, mydump.SourceTypeCSV:
+					fileMeta.RealSize = mydump.EstimateRealSizeForFile(ctx, fileMeta, s, 0)
+				case mydump.SourceTypeParquet:
+					rwLock.RLock()
+					curRowSize := rowSize
+					rwLock.RUnlock()
+
+					if curRowSize == 0.0 {
+						rwLock.Lock()
+						if rowSize == 0.0 {
+							rowSize, err = mydump.SampleParquetRowSize(ctx, fileMeta, s)
+							if err != nil {
+								rwLock.Unlock()
+								return nil, errors.Trace(err)
+							}
+						}
+						curRowSize = rowSize
+						rwLock.Unlock()
+					}
+
+					totalRowCount, err := mydump.ReadParquetFileRowCountByFile(ctx, s, fileMeta)
+					if err != nil {
+						return nil, errors.Trace(err)
+					}
+					fileMeta.Rows = totalRowCount
+					fileMeta.RealSize = int64(float64(totalRowCount) * rowSize)
+				}
 				totalRealSize.Add(fileMeta.RealSize)
 				return &fileMeta, nil
 			}); err != nil {

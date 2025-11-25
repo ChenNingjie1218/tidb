@@ -112,6 +112,8 @@ const (
 
 	defaultMaxSourceDataSize       = 25 * 1024 * 1024 * 1024  // 25GB
 	defaultMaxSourceDataSizeForVip = 256 * 1024 * 1024 * 1024 // 256GB
+
+	defaultMaxScanFileConcurrency = 16
 )
 
 var (
@@ -346,6 +348,8 @@ type Lightning struct {
 	// deprecated, use Conflict.MaxRecordRows instead
 	MaxErrorRecords    int64  `toml:"max-error-records" json:"max-error-records"`
 	TaskInfoSchemaName string `toml:"task-info-schema-name" json:"task-info-schema-name"`
+
+	MaxScanFileConcurrency int `toml:"max-scan-file-concurrency" json:"max-scan-file-concurrency"`
 }
 
 // adjust assigns default values and check illegal values. The input TikvImporter
@@ -375,6 +379,9 @@ func (l *Lightning) adjust(i *TikvImporter) {
 		if l.RegionConcurrency > cpuCount {
 			l.RegionConcurrency = cpuCount
 		}
+		if l.MaxScanFileConcurrency == 0 {
+			l.MaxScanFileConcurrency = defaultMaxScanFileConcurrency
+		}
 	case BackendRemote:
 		if l.IndexConcurrency == 0 {
 			l.IndexConcurrency = defaultIndexConcurrency
@@ -385,6 +392,9 @@ func (l *Lightning) adjust(i *TikvImporter) {
 
 		if len(l.MetaSchemaName) == 0 {
 			l.MetaSchemaName = defaultMetaSchemaName
+		}
+		if l.MaxScanFileConcurrency == 0 {
+			l.MaxScanFileConcurrency = defaultMaxScanFileConcurrency
 		}
 	}
 }

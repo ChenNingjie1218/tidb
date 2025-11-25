@@ -265,6 +265,11 @@ type RawFile struct {
 	Size int64
 }
 
+type rowSizeWithLock struct {
+	sync.RWMutex
+	sampledRowSize float64
+}
+
 type mdLoaderSetup struct {
 	sourceID      string
 	loader        *MDLoader
@@ -498,13 +503,6 @@ func (s *mdLoaderSetup) setup(ctx context.Context) error {
 			continue
 		}
 
-		// process row size for parquet files
-		if info.FileMeta.Type == SourceTypeParquet {
-			v, _ := s.sampledParquetRowSizes.Load(info.TableName.String())
-			avgRowSize, _ := v.(float64)
-			info.FileMeta.RealSize = int64(float64(info.FileMeta.Rows) * avgRowSize)
-		}
-
 		switch info.FileMeta.Type {
 		case SourceTypeSchemaSchema:
 			s.dbSchemas = append(s.dbSchemas, *info)
@@ -637,22 +635,32 @@ func (s *mdLoaderSetup) constructFileInfo(ctx context.Context, f RawFile) (*File
 		info.FileMeta.RealSize = EstimateRealSizeForFile(ctx, info.FileMeta, s.loader.GetStore(), s.setupCfg.empiricalCompressRatio)
 	case SourceTypeParquet:
 		var (
-			totalRowCount int64
-			rowSize       float64
-			tableName     = info.TableName.String()
+			totalRowCount  int64
+			sampledRowSize float64
+			tableName      = info.TableName.String()
 		)
 
 		// Only sample once for each table
-		_, loaded := s.sampledParquetRowSizes.LoadOrStore(tableName, 0)
-		if !loaded {
-			rowSize, err = SampleParquetRowSize(ctx, info.FileMeta, s.loader.GetStore())
-			if err != nil {
-				logger.Error("fail to sample parquet row size", zap.String("category", "loader"),
-					zap.String("schema", res.Schema), zap.String("table", res.Name),
-					zap.Stringer("type", res.Type), zap.Error(err))
-				return nil, errors.Trace(err)
+		rowSizeRaw, _ := s.sampledParquetRowSizes.LoadOrStore(tableName, &rowSizeWithLock{})
+		rowSize := rowSizeRaw.(*rowSizeWithLock)
+		rowSize.RLock()
+		sampledRowSize = rowSize.sampledRowSize
+		rowSize.RUnlock()
+
+		if sampledRowSize == 0 {
+			rowSize.Lock()
+			if rowSize.sampledRowSize == 0 {
+				rowSize.sampledRowSize, err = SampleParquetRowSize(ctx, info.FileMeta, s.loader.GetStore())
+				if err != nil {
+					rowSize.Unlock()
+					logger.Error("fail to sample parquet row size", zap.String("category", "loader"),
+						zap.String("schema", res.Schema), zap.String("table", res.Name),
+						zap.Stringer("type", res.Type), zap.Error(err))
+					return nil, errors.Trace(err)
+				}
 			}
-			s.sampledParquetRowSizes.Store(tableName, rowSize)
+			sampledRowSize = rowSize.sampledRowSize
+			rowSize.Unlock()
 		}
 
 		totalRowCount, err = ReadParquetFileRowCountByFile(ctx, s.loader.GetStore(), info.FileMeta)
@@ -664,6 +672,8 @@ func (s *mdLoaderSetup) constructFileInfo(ctx context.Context, f RawFile) (*File
 		}
 
 		info.FileMeta.Rows = totalRowCount
+		info.FileMeta.RealSize = int64(float64(totalRowCount) * sampledRowSize)
+
 		if m, ok := metric.FromContext(ctx); ok {
 			m.RowsCounter.WithLabelValues(metric.StateTotalRestore, tableName).Add(float64(totalRowCount))
 		}

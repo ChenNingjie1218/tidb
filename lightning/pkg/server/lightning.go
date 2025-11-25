@@ -540,7 +540,7 @@ func (l *Lightning) run(taskCtx context.Context, taskCfg *config.Config, o *opti
 	var mdl *mydump.MDLoader
 	mdl, err = mydump.NewLoaderWithStore(
 		ctx, mydump.NewLoaderCfg(taskCfg), s,
-		mydump.WithScanFileConcurrency(l.curTask.App.RegionConcurrency*2),
+		mydump.WithScanFileConcurrency(min(l.curTask.App.RegionConcurrency*2, l.curTask.App.MaxScanFileConcurrency)),
 	)
 	loadTask.End(zap.ErrorLevel, err)
 	if err != nil {

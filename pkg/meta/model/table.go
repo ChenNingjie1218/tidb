@@ -43,6 +43,11 @@ const ExtraPhysTblID = -3
 // ExtraRowChecksumID is the column ID of column which holds the row checksum info.
 const ExtraRowChecksumID = -4
 
+// VirtualColVecSearchDistanceID is the ID of the column who holds the vector search distance.
+// When read column by vector index, sometimes there is no need to read vector column just need distance,
+// so a distance column will be added to table_scan. this field is used in the action.
+const VirtualColVecSearchDistanceID int64 = -2000
+
 // VirtualColFTSScoreID is the ID of the column who holds the score of Full Text Search.
 // This acts as a column that can be produced by TiFlashTableScan.
 const VirtualColFTSScoreID = -2050

@@ -49,7 +49,6 @@ import (
 	"github.com/pingcap/tidb/pkg/util/tracing"
 	"github.com/pingcap/tipb/go-tipb"
 	"go.uber.org/zap"
-	"k8s.io/utils/pointer"
 )
 
 // PlanCounterDisabled is the default value of PlanCounterTp, indicating that optimizer needn't force a plan.
@@ -2523,13 +2522,13 @@ func convertToTableScan(ds *logicalop.DataSource, prop *property.PhysicalPropert
 			ts.AnnIndexExtra = &VectorIndexExtra{
 				IndexInfo: candidate.path.Index,
 				PushDownQueryInfo: &tipb.ANNQueryInfo{
-					QueryType:          tipb.ANNQueryType_OrderBy,
-					DistanceMetric:     tipb.VectorDistanceMetric(distanceMetricPB),
-					TopK:               prop.VectorProp.TopK,
-					ColumnName:         ts.Table.Columns[candidate.path.Index.Columns[0].Offset].Name.L,
-					DeprecatedColumnId: pointer.Int64(prop.VectorProp.Column.ID),
-					IndexId:            candidate.path.Index.ID,
-					RefVecF32:          prop.VectorProp.Vec.SerializeTo(nil),
+					QueryType:      tipb.ANNQueryType_OrderBy,
+					DistanceMetric: tipb.VectorDistanceMetric(distanceMetricPB),
+					TopK:           prop.VectorProp.TopK,
+					ColumnName:     ts.Table.Columns[candidate.path.Index.Columns[0].Offset].Name.L,
+					IndexId:        candidate.path.Index.ID,
+					RefVecF32:      prop.VectorProp.Vec.SerializeTo(nil),
+					Column:         *tidbutil.ColumnToProto(prop.VectorProp.Column.ToInfo(), true, false),
 				},
 			}
 			ts.SetStats(util.DeriveLimitStats(ts.StatsInfo(), float64(prop.VectorProp.TopK)))

@@ -407,12 +407,11 @@ func TestAutoEmbeddingWithVectorIndex(t *testing.T) {
 		`          └─TableFullScan 10.00 mpp[tiflash] table:t, index:vector_index(vec) keep order:false, stats:pseudo, annIndex:COSINE(vec..[1,2,3], limit:10)`,
 	))
 	tk.MustQuery("explain format = 'brief' select id from t order by VEC_EMBED_COSINE_DISTANCE(vec, '[1,2,3]') limit 10").Check(testkit.Rows(
-		`TopN 10.00 root  Column#8, offset:0, count:10`,
+		`TopN 10.00 root  Column#9, offset:0, count:10`,
 		`└─TableReader 10.00 root  MppVersion: 2, data:ExchangeSender`,
 		`  └─ExchangeSender 10.00 mpp[tiflash]  ExchangeType: PassThrough`,
-		`    └─TopN 10.00 mpp[tiflash]  Column#8, offset:0, count:10`,
-		`      └─Projection 10.00 mpp[tiflash]  test.t.id, vec_cosine_distance(test.t.vec, [1,2,3])->Column#8`,
-		`        └─TableFullScan 10.00 mpp[tiflash] table:t, index:vector_index(vec) keep order:false, stats:pseudo, annIndex:COSINE(vec..[1,2,3], limit:10)`,
+		`    └─TopN 10.00 mpp[tiflash]  Column#9, offset:0, count:10`,
+		`      └─TableFullScan 10.00 mpp[tiflash] table:t, index:vector_index(vec) keep order:false, stats:pseudo, annIndex:COSINE(vec..[1,2,3], limit:10)->Column#9`,
 	))
 }
 

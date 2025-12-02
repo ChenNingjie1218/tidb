@@ -1225,10 +1225,6 @@ func (do *Domain) Close() {
 	if do.ddl != nil {
 		terror.Log(do.ddl.Stop())
 	}
-	if do.info != nil {
-		do.info.RemoveServerInfo()
-		do.info.RemoveMinStartTS()
-	}
 	ttlJobManager := do.ttlJobManager.Load()
 	if ttlJobManager != nil {
 		logutil.BgLogger().Info("stopping ttlJobManager")
@@ -1252,11 +1248,6 @@ func (do *Domain) Close() {
 	}
 
 	do.runawayManager.Stop()
-
-	if do.unprefixedEtcdCli != nil {
-		terror.Log(errors.Trace(do.unprefixedEtcdCli.Close()))
-	}
-
 	do.slowQuery.Close()
 	do.cancelFns.mu.Lock()
 	for _, f := range do.cancelFns.fns {
@@ -1264,6 +1255,17 @@ func (do *Domain) Close() {
 	}
 	do.cancelFns.mu.Unlock()
 	do.wg.Wait()
+	// Clean etcd session and close the clients.
+	// We should wait all the etcd keys keeper to exit
+	// in case the keeper rewrite the key after the cleaning.
+	if do.info != nil {
+		do.info.RemoveServerInfo()
+		do.info.RemoveMinStartTS()
+		do.info.RemoveTopologyInfo()
+	}
+	if do.unprefixedEtcdCli != nil {
+		terror.Log(errors.Trace(do.unprefixedEtcdCli.Close()))
+	}
 	if do.keyspaceEtcdClient != nil {
 		terror.Log(errors.Trace(do.keyspaceEtcdClient.Close()))
 	}

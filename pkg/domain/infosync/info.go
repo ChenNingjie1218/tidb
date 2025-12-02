@@ -15,6 +15,7 @@
 package infosync
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -1789,21 +1790,141 @@ func (is *InfoSyncer) setDynamicServerInfo(ds *DynamicServerInfo) {
 
 // SetKeyspaceConfig sets the keyspace config information in merge style
 func SetKeyspaceConfig(ctx context.Context, keyspaceName string, config any) error {
-	// TODO: uncomment after meta server client merge
+	is, err := getGlobalInfoSyncer()
+	if err != nil {
+		return errors.Trace(err)
+	}
 
-	// is, err := getGlobalInfoSyncer()
-	// if err != nil {
-	// 	return errors.Trace(err)
-	// }
+	url := fmt.Sprintf(KeyspaceConfig, keyspaceName)
 
-	// url := fmt.Sprintf(KeyspaceConfig, keyspaceName)
+	j, err := json.Marshal(config)
+	if err != nil {
+		return errors.Trace(err)
+	}
 
-	// j, err := json.Marshal(config)
-	// if err != nil {
-	// 	return errors.Trace(err)
-	// }
+	_, err = DoRequestWithMetaServiceClient(ctx, "SetKeyspaceConfig", is.metaServiceClient, url, "PATCH", j)
+	return err
 
-	// _, err = DoRequestWithMetaServiceClient(ctx, "SetKeyspaceConfig", is.metaServiceClient, url, "PATCH", j)
-	// return err
-	return nil
+}
+
+// DoRequestWithMetaServiceClient exports for testing.
+func DoRequestWithMetaServiceClient(
+	ctx context.Context,
+	apiName string,
+	metaServiceClient metaservice.ServiceClient,
+	route, method string,
+	body []byte,
+) ([]byte, error) {
+	var err error
+	var req *http.Request
+	var res *http.Response
+	addrs, err := metaServiceClient.GetPDHttpAddrs()
+	if err != nil {
+		return nil, err
+	}
+
+	logutil.BgLogger().Debug("do request with meta service client", zap.Any("addrs", addrs), zap.Error(err))
+
+	for idx, addr := range addrs {
+		url := util2.ComposeURL(addr, route)
+		req, err = http.NewRequestWithContext(ctx, method, url, bytes.NewReader(body))
+		if err != nil {
+			return nil, err
+		}
+		if body != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		start := time.Now()
+		res, err = doRequestWithFailpoint(req)
+		if err == nil {
+			metrics.PDAPIExecutionHistogram.WithLabelValues(apiName).Observe(time.Since(start).Seconds())
+			metrics.PDAPIRequestCounter.WithLabelValues(apiName, res.Status).Inc()
+			bodyBytes, err := io.ReadAll(res.Body)
+			if err != nil {
+				terror.Log(res.Body.Close())
+				return nil, err
+			}
+			if res.StatusCode != http.StatusOK {
+				leaderAddr, errMsgField := metaServiceClient.GetPDLeaderAddrs(ctx)
+				logutil.BgLogger().Warn("response not 200, will retry sending to etcd leader",
+					zap.String("method", method),
+					zap.String("hosts", addr),
+					zap.String("url", url),
+					zap.Int("http status", res.StatusCode),
+					zap.Int("address order", idx),
+					zap.String("leader", leaderAddr),
+					errMsgField,
+				)
+				leaderIsUsed := leaderAddr == addr
+				if intest.InTest {
+					leaderIsUsed = false
+				}
+
+				if leaderAddr != "" && !leaderIsUsed {
+					url2 := util2.ComposeURL(leaderAddr, route)
+					req2, err2 := http.NewRequestWithContext(ctx, method, url2, bytes.NewReader(body))
+					if err2 != nil {
+						return nil, err2
+					}
+					if body != nil {
+						req2.Header.Set("Content-Type", "application/json")
+					}
+					res2, err2 := doRequestWithFailpoint(req2)
+					if err2 == nil {
+						bodyBytes2, err2 := io.ReadAll(res2.Body)
+						terror.Log(res2.Body.Close())
+						if err2 != nil {
+							return nil, err2
+						}
+						if res2.StatusCode == http.StatusOK {
+							return bodyBytes2, nil
+						}
+						// if leader is still not 200, log and return the old error
+						logutil.BgLogger().Warn("response not 200 after sending to etcd leader",
+							zap.Int("http status", res2.StatusCode),
+							zap.ByteString("response body", bodyBytes2))
+					}
+				}
+
+				err = ErrHTTPServiceError.FastGen("%s", bodyBytes)
+				if res.StatusCode == http.StatusNotFound || res.StatusCode == http.StatusPreconditionFailed {
+					err = nil
+					bodyBytes = nil
+				}
+			}
+			terror.Log(res.Body.Close())
+			return bodyBytes, err
+		}
+		metrics.PDAPIRequestCounter.WithLabelValues(apiName, "network error").Inc()
+		logutil.BgLogger().Warn("fail to doRequest",
+			zap.Error(err),
+			zap.Bool("retry next address", idx == len(addrs)-1),
+			zap.String("method", method),
+			zap.String("hosts", addr),
+			zap.String("url", url),
+			zap.Int("address order", idx),
+		)
+	}
+	return nil, err
+}
+
+func doRequestWithFailpoint(req *http.Request) (resp *http.Response, err error) {
+	failpoint.Inject("FailPlacement", func(val failpoint.Value) {
+		if val.(bool) {
+			resp = &http.Response{StatusCode: http.StatusNotFound, Body: http.NoBody}
+			failpoint.Return(resp, nil)
+		}
+	})
+	failpoint.Inject("SuccOnlyURLContains", func(val failpoint.Value) {
+		url := val.(string)
+		if strings.Contains(req.URL.String(), url) {
+			body := strings.NewReader("SuccOnlyURLMatch")
+			body2 := io.NopCloser(body)
+			resp = &http.Response{StatusCode: http.StatusOK, Body: body2}
+			failpoint.Return(resp, nil)
+		}
+		resp = &http.Response{StatusCode: http.StatusNotFound, Body: http.NoBody}
+		failpoint.Return(resp, nil)
+	})
+	return util2.InternalHTTPClient().Do(req)
 }

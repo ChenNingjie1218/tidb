@@ -428,6 +428,16 @@ func main() {
 					c.IsBootstrappedForRestore = IsBootstrappedForRestore
 				})
 			}
+			if isBranch, ok := keyspaceMeta.Config[serverless.LabelIsBranch]; ok {
+				config.UpdateGlobal(func(c *config.Config) {
+					c.IsBranch, _ = strconv.ParseBool(isBranch)
+				})
+			}
+			if isBranchBootstrapped, ok := keyspaceMeta.Config[serverless.LabelIsBranchBootstrapped]; ok {
+				config.UpdateGlobal(func(c *config.Config) {
+					c.IsBranchBootstrapped = isBranchBootstrapped
+				})
+			}
 		}
 		keyspace.SetUsernamePolicy(keyspace.NewPrefixPolicy(keyspaceMeta.GetName()))
 	}

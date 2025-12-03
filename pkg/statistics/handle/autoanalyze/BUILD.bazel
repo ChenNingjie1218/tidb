@@ -2,10 +2,14 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "autoanalyze",
-    srcs = ["autoanalyze.go"],
+    srcs = [
+        "autoanalyze.go",
+        "autoanalyze_worker.go",
+    ],
     importpath = "github.com/pingcap/tidb/pkg/statistics/handle/autoanalyze",
     visibility = ["//visibility:public"],
     deps = [
+        "//pkg/config",
         "//pkg/ddl/notifier",
         "//pkg/domain/infosync",
         "//pkg/infoschema",
@@ -22,6 +26,7 @@ go_library(
         "//pkg/statistics/handle/logutil",
         "//pkg/statistics/handle/types",
         "//pkg/statistics/handle/util",
+        "//pkg/tidbworker",
         "//pkg/types",
         "//pkg/util",
         "//pkg/util/intest",

@@ -2813,6 +2813,13 @@ func (do *Domain) deltaUpdateTickerWorker() {
 
 func (do *Domain) autoAnalyzeWorker() {
 	defer util.Recover(metrics.LabelDomain, "autoAnalyzeWorker", nil, false)
+	// When tidb is running as auto analyze worker, we use a separate owner to avoid
+	// blocking the analyze-loop on tidb master.
+	autoAnalyzeOwner := do.statsOwner
+	if tidbworker.IsAutoAnalyzeWorker() {
+		autoAnalyzeOwner = do.newOwnerManager(handle.AutoAnalyzeExecutorPrompt, handle.AutoAnalyzeExecutorOwnerKey)
+	}
+
 	statsHandle := do.StatsHandle()
 	analyzeTicker := time.NewTicker(do.statsLease)
 	defer func() {
@@ -2822,7 +2829,7 @@ func (do *Domain) autoAnalyzeWorker() {
 	for {
 		select {
 		case <-analyzeTicker.C:
-			if variable.RunAutoAnalyze.Load() && !do.stopAutoAnalyze.Load() && do.statsOwner.IsOwner() {
+			if variable.RunAutoAnalyze.Load() && !do.stopAutoAnalyze.Load() && autoAnalyzeOwner.IsOwner() {
 				statsHandle.HandleAutoAnalyze()
 			}
 		case <-do.exit:

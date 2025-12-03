@@ -635,6 +635,7 @@ func TestSkipAutoAnalyzeOutsideTheAvailableTime(t *testing.T) {
 			dom.SysProcTracker(),
 			0.6,
 			variable.Dynamic,
+			map[int64]struct{}{},
 			ttStart,
 			ttEnd,
 		),

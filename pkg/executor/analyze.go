@@ -27,11 +27,13 @@ import (
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
+	"github.com/pingcap/tidb/pkg/config"
 	"github.com/pingcap/tidb/pkg/domain"
 	"github.com/pingcap/tidb/pkg/domain/infosync"
 	"github.com/pingcap/tidb/pkg/executor/internal/exec"
 	"github.com/pingcap/tidb/pkg/infoschema"
 	"github.com/pingcap/tidb/pkg/kv"
+	"github.com/pingcap/tidb/pkg/meta/model"
 	"github.com/pingcap/tidb/pkg/metrics"
 	"github.com/pingcap/tidb/pkg/parser/ast"
 	"github.com/pingcap/tidb/pkg/planner/core"
@@ -83,6 +85,42 @@ const (
 	colTask taskType = iota
 	idxTask
 )
+
+func skipHealthyTable(statsHandle *handle.Handle, tblInfo *model.TableInfo) bool {
+	// Don't skip when in test, table health takes time to update, which may causes test fail if we skip.
+	if intest.InTest {
+		return false
+	}
+
+	statsTbl := statsHandle.GetTableStats(tblInfo)
+
+	// Don't skip table with uninitialized stats.
+	if !statsTbl.IsInitialized() {
+		return false
+	}
+	for _, idx := range tblInfo.Indices {
+		// Don't skip table with new index.
+		if idxStats := statsTbl.GetIdx(idx.ID); idxStats != nil && !idxStats.IsAnalyzed() {
+			return false
+		}
+	}
+
+	health, ok := statsTbl.GetStatsHealthy()
+	// Don't skip table with pseudo stats.
+	if !ok {
+		return false
+	}
+	analyzeThreshold := config.GetGlobalConfig().AnalyzeTableThreshold
+	// Don't skip table if health is below the threshold.
+	if health <= analyzeThreshold {
+		return false
+	}
+	logutil.BgLogger().Info("skip analyze table due to good health",
+		zap.String("table", tblInfo.Name.O),
+		zap.Int64("table-health", health),
+		zap.Int64("analyze-threshold", analyzeThreshold))
+	return true
+}
 
 // Next implements the Executor Next interface.
 // It will collect all the sample task and run them concurrently.
@@ -247,6 +285,10 @@ func filterAndCollectTasks(tasks []*analyzeTask, statsHandle *handle.Handle, is 
 
 		// Only analyze the table that is not locked.
 		if !isLocked {
+			// Skip if table is healthy.
+			if tbl, ok := is.TableByID(context.Background(), tableID.TableID); ok && skipHealthyTable(statsHandle, tbl.Meta()) {
+				continue
+			}
 			filteredTasks = append(filteredTasks, task)
 		}
 

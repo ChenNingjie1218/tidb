@@ -17,6 +17,7 @@ host = "127.0.0.1"
 new_collations_enabled_on_first_bootstrap = true
 enable-table-lock = true
 enable-set-table-ttl = true
+analyze-table-threshold = 100
 
 [status]
 status-host = "127.0.0.1"

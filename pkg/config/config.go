@@ -449,6 +449,11 @@ type Config struct {
 	// EnableSetTableTTL is used to control whether to create or alter table ttl .
 	EnableSetTableTTL bool `toml:"enable-set-table-ttl" json:"enable-set-table-ttl"`
 
+	// AnalyzeTableThreshold is used to control the threshold of manual analyze table.
+	// when table health is above this threshold, manual analyze will be skipped.
+	// The value is the percentage of the table health, the valid range is [0, 100].
+	AnalyzeTableThreshold int64 `toml:"analyze-table-threshold" json:"analyze-table-threshold"`
+
 	// EnableOnlyRunUpgrade indicates whether only run upgrade process.
 	EnableOnlyRunUpgrade bool `toml:"enable-only-run-upgrade" json:"enable-only-run-upgrade"`
 	// StmtSummaryAdditionalInfo will be recorded in the stmtsummary when Instance.StmtSummaryEnablePersistent is true.
@@ -1417,7 +1422,10 @@ var defaultConf = Config{
 		ColumnarStoreType:      "tiflash",
 		ColumnarCollectTimeout: 5 * time.Second,
 	},
+
 	MaxScanParquetFileConcurrency: 2,
+
+	AnalyzeTableThreshold: 95,
 }
 
 var (
@@ -1864,6 +1872,11 @@ func (c *Config) Valid() error {
 	// check mode
 	if c.StandByMode && c.KeyspaceActivateMode {
 		return fmt.Errorf("can't set standby and keyspace-activate mode at the same time")
+	}
+
+	// Check analyze table threshold is within valid range.
+	if c.AnalyzeTableThreshold < 0 || c.AnalyzeTableThreshold > 100 {
+		return fmt.Errorf("analyze-table-threshold should be in [0, 100]")
 	}
 
 	// check tidb worker

@@ -25,6 +25,7 @@ import (
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
+	"github.com/pingcap/tidb/pkg/config"
 	"github.com/pingcap/tidb/pkg/ddl/notifier"
 	"github.com/pingcap/tidb/pkg/domain/infosync"
 	"github.com/pingcap/tidb/pkg/infoschema"
@@ -41,6 +42,7 @@ import (
 	statslogutil "github.com/pingcap/tidb/pkg/statistics/handle/logutil"
 	statstypes "github.com/pingcap/tidb/pkg/statistics/handle/types"
 	statsutil "github.com/pingcap/tidb/pkg/statistics/handle/util"
+	"github.com/pingcap/tidb/pkg/tidbworker"
 	"github.com/pingcap/tidb/pkg/types"
 	"github.com/pingcap/tidb/pkg/util"
 	"github.com/pingcap/tidb/pkg/util/intest"
@@ -356,12 +358,37 @@ func (sa *statsAnalyze) handleAutoAnalyze(sctx sessionctx.Context) bool {
 
 	pruneMode := variable.PartitionPruneMode(sctx.GetSessionVars().PartitionPruneMode.Load())
 
+	// Query locked tables once to minimize overhead.
+	// Outdated lock info is acceptable as we verify table lock status pre-analysis.
+	lockedTables, err := lockstats.QueryLockedTables(statsutil.StatsCtx, sctx)
+	if err != nil {
+		statslogutil.StatsLogger().Error(
+			"check table lock failed",
+			zap.Error(err),
+		)
+		return false
+	}
+
+	// When current tidb is auto analyze worker, obtain task from auto analyze tables and executes it.
+	if tidbworker.IsAutoAnalyzeWorker() {
+		return loadAutoAnalyzeTaskAndExecute(
+			sctx,
+			sa.statsHandle,
+			sa.sysProcTracker,
+			sctx.GetDomainInfoSchema().(infoschema.InfoSchema),
+			autoAnalyzeRatio,
+			pruneMode,
+			lockedTables,
+		)
+	}
+
 	return RandomPickOneTableAndTryAutoAnalyze(
 		sctx,
 		sa.statsHandle,
 		sa.sysProcTracker,
 		autoAnalyzeRatio,
 		pruneMode,
+		lockedTables,
 		start,
 		end,
 	)
@@ -410,6 +437,7 @@ func RandomPickOneTableAndTryAutoAnalyze(
 	sysProcTracker sysproctrack.Tracker,
 	autoAnalyzeRatio float64,
 	pruneMode variable.PartitionPruneMode,
+	lockedTables map[int64]struct{},
 	start, end time.Time,
 ) bool {
 	is := sctx.GetDomainInfoSchema().(infoschema.InfoSchema)
@@ -419,17 +447,6 @@ func RandomPickOneTableAndTryAutoAnalyze(
 	rd.Shuffle(len(dbs), func(i, j int) {
 		dbs[i], dbs[j] = dbs[j], dbs[i]
 	})
-	// Query locked tables once to minimize overhead.
-	// Outdated lock info is acceptable as we verify table lock status pre-analysis.
-	lockedTables, err := lockstats.QueryLockedTables(statsutil.StatsCtx, sctx)
-	if err != nil {
-		statslogutil.StatsLogger().Error(
-			"check table lock failed",
-			zap.Error(err),
-		)
-		return false
-	}
-
 	for _, db := range dbs {
 		// Ignore the memory and system database.
 		if util.IsMemOrSysDB(strings.ToLower(db)) {
@@ -463,54 +480,61 @@ func RandomPickOneTableAndTryAutoAnalyze(
 				continue
 			}
 
-			pi := tblInfo.GetPartitionInfo()
-			// No partitions, analyze the whole table.
-			if pi == nil {
-				statsTbl := statsHandle.GetTableStatsForAutoAnalyze(tblInfo)
-				sql := "analyze table %n.%n"
-				analyzed := tryAutoAnalyzeTable(sctx, statsHandle, sysProcTracker, tblInfo, statsTbl, autoAnalyzeRatio, sql, db, tblInfo.Name.O)
-				if analyzed {
-					// analyze one table at a time to let it get the freshest parameters.
-					// others will be analyzed next round which is just 3s later.
+			// When tidb is tidb worker master, just register and return
+			if config.GetGlobalConfig().EnableAutoAnalyzeSysTable && tidbworker.IsMaster() {
+				registered, err := checkAndRegisterAutoAnalyze(statsHandle, tblInfo, autoAnalyzeRatio)
+				if err != nil {
+					statslogutil.StatsLogger().Error("register auto analyze task failed", zap.Error(err))
+					break
+				}
+				if registered {
 					return true
 				}
 				continue
 			}
-			// Only analyze the partition that has not been locked.
-			partitionDefs := make([]model.PartitionDefinition, 0, len(pi.Definitions))
-			for _, def := range pi.Definitions {
-				if _, ok := lockedTables[def.ID]; !ok {
-					partitionDefs = append(partitionDefs, def)
-				}
-			}
-			partitionStats := getPartitionStats(statsHandle, tblInfo, partitionDefs)
-			if pruneMode == variable.Dynamic {
-				analyzed := tryAutoAnalyzePartitionTableInDynamicMode(
-					sctx,
-					statsHandle,
-					sysProcTracker,
-					tblInfo,
-					partitionDefs,
-					partitionStats,
-					db,
-					autoAnalyzeRatio,
-				)
-				if analyzed {
-					return true
-				}
-				continue
-			}
-			for _, def := range partitionDefs {
-				sql := "analyze table %n.%n partition %n"
-				statsTbl := partitionStats[def.ID]
-				analyzed := tryAutoAnalyzeTable(sctx, statsHandle, sysProcTracker, tblInfo, statsTbl, autoAnalyzeRatio, sql, db, tblInfo.Name.O, def.Name.O)
-				if analyzed {
-					return true
-				}
+			// When tidb worker not enabled, we check and run analyze.
+			if checkAndRunAnalyze(sctx, statsHandle, sysProcTracker, tblInfo, db, pruneMode, lockedTables, autoAnalyzeRatio) {
+				return true
 			}
 		}
 	}
 
+	return false
+}
+
+// checkAndRunAnalyze check and run analyze for the table.
+func checkAndRunAnalyze(
+	sctx sessionctx.Context,
+	statsHandle statstypes.StatsHandle,
+	sysProcTracker sysproctrack.Tracker,
+	tblInfo *model.TableInfo,
+	db string,
+	pruneMode variable.PartitionPruneMode,
+	lockedTables map[int64]struct{},
+	autoAnalyzeRatio float64,
+) bool {
+	pi := tblInfo.GetPartitionInfo()
+	if pi == nil {
+		statsTbl := statsHandle.GetTableStatsForAutoAnalyze(tblInfo)
+		sql := "analyze table %n.%n"
+		return tryAutoAnalyzeTable(sctx, statsHandle, sysProcTracker, tblInfo, statsTbl, autoAnalyzeRatio, sql, db, tblInfo.Name.O)
+	}
+	// Only analyze the partition that has not been locked.
+	partitionDefs := make([]model.PartitionDefinition, 0, len(pi.Definitions))
+	for _, def := range pi.Definitions {
+		if _, ok := lockedTables[def.ID]; !ok {
+			partitionDefs = append(partitionDefs, def)
+		}
+	}
+	partitionStats := getPartitionStats(statsHandle, tblInfo, partitionDefs)
+	if pruneMode == variable.Dynamic {
+		return tryAutoAnalyzePartitionTableInDynamicMode(sctx, statsHandle, sysProcTracker, tblInfo, partitionDefs, partitionStats, db, autoAnalyzeRatio)
+	}
+	for _, def := range partitionDefs {
+		sql := "analyze table %n.%n partition %n"
+		statsTbl := partitionStats[def.ID]
+		return tryAutoAnalyzeTable(sctx, statsHandle, sysProcTracker, tblInfo, statsTbl, autoAnalyzeRatio, sql, db, tblInfo.Name.O, def.Name.O)
+	}
 	return false
 }
 

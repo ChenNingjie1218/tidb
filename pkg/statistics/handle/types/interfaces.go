@@ -197,6 +197,25 @@ type StatsAnalyze interface {
 	Close()
 }
 
+// StatsAutoAnalyzeWorker is used to hand auto-analyze worker.
+type StatsAutoAnalyzeWorker interface {
+	// RegisterAutoAnalyzeTask register the auto analyze task into task table and tidb worker.
+	RegisterAutoAnalyzeTask(tableID int64, reason string) error
+
+	// GetAutoAnalyzeTask load one auto analyze task from task table.
+	GetAutoAnalyzeTask() (*statistics.AutoAnalyzeTask, error)
+
+	// FinishAutoAnalyzeTask notifies worker to recycle an auto analyze task and move the
+	// task to history table.
+	FinishAutoAnalyzeTask(task *statistics.AutoAnalyzeTask) error
+
+	// UpdateLastExecution record the last execution status of auto analyze
+	UpdateLastExecution(success bool, sql string)
+
+	// GetLastExecution returns the last execution status of auto analyze
+	GetLastExecution() (success bool, sql string)
+}
+
 // CacheUpdate encapsulates changes to be made to the stats cache
 type CacheUpdate struct {
 	Updated []*statistics.Table
@@ -565,6 +584,9 @@ type StatsHandle interface {
 
 	// StatsAnalyze is used to handle auto-analyze and manage analyze jobs.
 	StatsAnalyze
+
+	// StatsAutoAnalyzeWorker is used to handle auto-analyze worker.
+	StatsAutoAnalyzeWorker
 
 	// StatsCache is used to manage all table statistics in memory.
 	StatsCache

@@ -85,6 +85,7 @@ const (
 
 	flagPDAddr       = "pd"
 	flagKeyspaceName = "keyspace-name"
+	flagPartitions   = "partitions"
 )
 
 // CSVDialect is the dialect of the CSV output for compatible with different import target
@@ -201,6 +202,8 @@ type Config struct {
 	ParquetCompressType ParquetCompressType
 	ParquetPageSize     int64
 	ParquetRowGroupSize int64
+
+	Partitions []string
 }
 
 type ParquetCompressType string
@@ -389,7 +392,7 @@ func (*Config) DefineFlags(flags *pflag.FlagSet) {
 	flags.String(flagParquetCompress, "snappy", "Compress algorithm for parquet file, support 'no-compression', 'snappy', 'gzip', 'zstd'")
 	flags.Int64(flagParquetPageSize, 1024*1024, "Parquet page size in bytes")
 	flags.Int64(flagParquetRowGroupSize, 16*1024*1024, "Parquet row group size in bytes")
-
+	flags.StringSlice(flagPartitions, nil, "The table partitions to dump")
 }
 
 // ParseFromFlags parses dumpling's export.Config from flags
@@ -667,7 +670,10 @@ func (conf *Config) ParseFromFlags(flags *pflag.FlagSet) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
-
+	conf.Partitions, err = flags.GetStringSlice(flagPartitions)
+	if err != nil {
+		return errors.Trace(err)
+	}
 	return nil
 }
 
@@ -843,6 +849,9 @@ func buildTLSConfig(conf *Config) error {
 func validateSpecifiedSQL(conf *Config) error {
 	if conf.SQL != "" && conf.Where != "" {
 		return errors.New("can't specify both --sql and --where at the same time. Please try to combine them into --sql")
+	}
+	if conf.SQL != "" && len(conf.Partitions) > 0 {
+		return errors.New("can't specify both --sql and --partitions at the same time.")
 	}
 	return nil
 }

@@ -43,6 +43,8 @@ func Step2Str(t TaskType, s Step) string {
 		return importIntoStep2Str(s)
 	case TaskTypeExample:
 		return exampleStep2Str(s)
+	case Batch:
+		return batchStep2Str(s)
 	}
 	return fmt.Sprintf("unknown type %s", t)
 }
@@ -136,6 +138,15 @@ func backfillStep2Str(s Step) string {
 		return "merge-sort"
 	case BackfillStepWriteAndIngest:
 		return "write&ingest"
+	default:
+		return fmt.Sprintf("unknown step %d", s)
+	}
+}
+
+func batchStep2Str(s Step) string {
+	switch s {
+	case StepDone:
+		return "run"
 	default:
 		return fmt.Sprintf("unknown step %d", s)
 	}

@@ -26,6 +26,7 @@ import (
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
 	"github.com/pingcap/tidb/pkg/config"
+	"github.com/pingcap/tidb/pkg/disttask/framework/handle"
 	"github.com/pingcap/tidb/pkg/disttask/framework/proto"
 	"github.com/pingcap/tidb/pkg/disttask/framework/scheduler"
 	"github.com/pingcap/tidb/pkg/disttask/framework/storage"
@@ -158,6 +159,11 @@ func registerGlobalJob(ctx context.Context, stmt *ast.NonTransactionalDMLStmt, s
 	if err != nil {
 		return nil, err
 	}
+	cpuCount, err := handle.GetCPUCountOfNode(ctx)
+	if err != nil {
+		return nil, err
+	}
+	concurrency := min(batchJobConcurrency, cpuCount)
 	taskKey := fmt.Sprintf("batch/%d", uuid.New().ID())
 	taskMeta := batchJobMeta{
 		DB:            se.GetSessionVars().CurrentDB,
@@ -168,7 +174,7 @@ func registerGlobalJob(ctx context.Context, stmt *ast.NonTransactionalDMLStmt, s
 	if err != nil {
 		return nil, err
 	}
-	taskID, err := globalTaskManager.CreateTask(ctx, taskKey, proto.Batch, batchJobConcurrency, variable.ServiceScope.Load(), metadata)
+	taskID, err := globalTaskManager.CreateTask(ctx, taskKey, proto.Batch, concurrency, variable.ServiceScope.Load(), metadata)
 	if err != nil {
 		return nil, err
 	}
@@ -323,20 +329,6 @@ func (e *batchStepExecutor) Cleanup(context.Context) error {
 	return nil
 }
 
-// StepStr convert proto.Step to string.
-func StepStr(step proto.Step) string {
-	switch step {
-	case proto.StepInit:
-		return "init"
-	case proto.StepOne:
-		return "run"
-	case proto.StepDone:
-		return "done"
-	default:
-		return "unknown"
-	}
-}
-
 type batchSchedulerExtension struct {
 	store kv.Storage
 }
@@ -350,8 +342,8 @@ func (b batchSchedulerExtension) OnNextSubtasksBatch(ctx context.Context, h stor
 	logger := logutil.BgLogger().With(
 		zap.Stringer("type", task.Type),
 		zap.Int64("task-id", task.ID),
-		zap.String("curr-step", StepStr(task.Step)),
-		zap.String("next-step", StepStr(step)),
+		zap.String("curr-step", proto.Step2Str(task.Type, task.Step)),
+		zap.String("next-step", proto.Step2Str(task.Type, step)),
 	)
 
 	var taskMeta batchJobMeta

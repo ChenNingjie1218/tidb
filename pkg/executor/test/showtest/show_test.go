@@ -17,6 +17,7 @@ package showtest
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -1181,7 +1182,7 @@ func TestShowLimitReturnRow(t *testing.T) {
 		"gbk Chinese Internal Code Specification gbk_chinese_ci 2"))
 
 	tk.MustQuery("Show Variables where variable_name ='max_allowed_packet'").Check(testkit.RowsWithSep("|", ""+
-		"max_allowed_packet 67108864"))
+		"max_allowed_packet "+strconv.FormatUint(variable.DefMaxAllowedPacket, 10)))
 
 	result = tk.MustQuery("SHOW status where variable_name ='server_id'")
 	rows = result.Rows()

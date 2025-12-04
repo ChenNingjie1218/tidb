@@ -104,11 +104,10 @@ const (
 	// MaxTokenLimit is the max token limit value.
 	MaxTokenLimit  = 1024 * 1024
 	DefSchemaLease = 45 * time.Second
-)
-
-const (
 	// EnvVarKeyspaceName is the system env name for keyspace name.
 	EnvVarKeyspaceName = "KEYSPACE_NAME"
+	// DefMaxAllowedPacket is the default value of max-allowed-packet
+	DefMaxAllowedPacket = 67108864
 	// EnvClusterCA is the system env name for cluster CA path.
 	EnvClusterCA = "CLUSTER_CA"
 	// EnvClusterCert is the system env name for cluster cert path.
@@ -484,13 +483,16 @@ type Config struct {
 	// FixedStorageSize is used for `import into from select`
 	FixedStorageSize int64 `toml:"fixed-storage-size" json:"fixed-storage-size"`
 
-	// CSE is the config collection for the cloud storage engine.
-	CSE CSE `toml:"cse" json:"cse"`
-
 	// TiFlashReplicas is used to control the format of TiFlash placement rules committed to PD.
 	TiFlashReplicas TiFlashReplicas `toml:"tiflash-replicas" json:"tiflash-replicas"`
 
 	MaxScanParquetFileConcurrency int `toml:"max-scan-parquet-file-concurrency" json:"max-scan-parquet-file-concurrency"`
+
+	// CSE is the config collection for the cloud storage engine.
+	CSE CSE `toml:"cse" json:"cse"`
+
+	// MaxAllowedPacket is to set the default value of max-allowed-packet overwriting system variable.
+	MaxAllowedPacket uint64 `toml:"max-allowed-packet" json:"max-allowed-packet"`
 }
 
 // TiFlashReplicas is used to control the format of TiFlash placement rules committed to PD.
@@ -1229,6 +1231,7 @@ var defaultConf = Config{
 	TiDBEdition:                  "",
 	VersionComment:               "",
 	TiDBReleaseVersion:           "",
+	MaxAllowedPacket:             DefMaxAllowedPacket,
 	Log: Log{
 		Level:               "info",
 		Format:              "text",
@@ -2098,4 +2101,9 @@ func GetGlobalKeyspaceName() string {
 // EnableRemoteBackend return true when `TiKVAPIServiceAddr` is configured
 func EnableRemoteBackend() bool {
 	return len(GetGlobalConfig().TiKVAPIServiceAddr) != 0
+}
+
+// GetMaxAllowedPacket is used to read it from config.
+func GetMaxAllowedPacket() uint64 {
+	return GetGlobalConfig().MaxAllowedPacket
 }

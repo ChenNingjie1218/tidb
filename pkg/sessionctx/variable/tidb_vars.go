@@ -1016,6 +1016,12 @@ const (
 	// TiDBEnableSharedLockPromotion indicates whether the `select for share` statement would be executed
 	// as `select for update` statements which do acquire pessimistic locks.
 	TiDBEnableSharedLockPromotion = "tidb_enable_shared_lock_promotion"
+
+	// TiDBDisableTxnFile is used to control whether to disable file-based transaction feature.
+	TiDBDisableTxnFile = "tidb_disable_txn_file"
+
+	// TiDBTxnFileMinMutationSize is used to set the minimum size of mutations to use file-based txn..
+	TiDBTxnFileMinMutationSize = "tidb_txn_file_min_mutation_size"
 )
 
 // TiDB vars that have only global scope
@@ -1635,6 +1641,9 @@ const (
 
 	// Serverless related defaults
 	DefTiDBEnableAsyncIndexCreation = false
+	DefTiDBDisableTxnFile           = false
+	DefTiDBTxnFileMinMutationSize   = 0
+	MinTiDBTxnFileMinMutationSize   = 1 << 20 // 1MB
 )
 
 // Process global variables.

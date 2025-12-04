@@ -3553,6 +3553,21 @@ var defaultSysVars = []*SysVar{
 		s.EnableAsyncIndexCreation = TiDBOptOn(val)
 		return nil
 	}},
+	{Scope: ScopeGlobal | ScopeSession, Name: TiDBDisableTxnFile, Value: BoolToOnOff(DefTiDBDisableTxnFile), Type: TypeBool, SetSession: func(s *SessionVars, val string) error {
+		s.KVVars.DisableTxnFile = TiDBOptOn(val)
+		return nil
+	}},
+	{Scope: ScopeGlobal | ScopeSession, Name: TiDBTxnFileMinMutationSize, Value: strconv.Itoa(DefTiDBTxnFileMinMutationSize),
+		Type: TypeUnsigned, MinValue: 0, MaxValue: math.MaxInt64, SetSession: func(s *SessionVars, val string) error {
+			s.KVVars.TxnFileMinMutationSize = TidbOptUint64(val, DefTiDBTxnFileMinMutationSize)
+			return nil
+		}, Validation: func(vars *SessionVars, normalizedValue string, originalValue string, scope ScopeFlag) (string, error) {
+			val := TidbOptUint64(originalValue, DefTiDBTxnFileMinMutationSize)
+			if val > 0 && val < MinTiDBTxnFileMinMutationSize {
+				return originalValue, ErrWrongValueForVar.GenWithStackByArgs(TiDBTxnFileMinMutationSize, originalValue)
+			}
+			return normalizedValue, nil
+		}},
 }
 
 func maskEmbedAPIKey(key string) string {

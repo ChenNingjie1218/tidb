@@ -453,6 +453,9 @@ type Config struct {
 	// The value is the percentage of the table health, the valid range is [0, 100].
 	AnalyzeTableThreshold int64 `toml:"analyze-table-threshold" json:"analyze-table-threshold"`
 
+	// AnalyzeAlwaysSkipWideColumns is used to control whether to always skip wide columns when analyze table.
+	AnalyzeAlwaysSkipWideColumns bool `toml:"analyze-always-skip-wide-columns" json:"analyze-always-skip-wide-columns"`
+
 	// EnableOnlyRunUpgrade indicates whether only run upgrade process.
 	EnableOnlyRunUpgrade bool `toml:"enable-only-run-upgrade" json:"enable-only-run-upgrade"`
 	// StmtSummaryAdditionalInfo will be recorded in the stmtsummary when Instance.StmtSummaryEnablePersistent is true.
@@ -1428,7 +1431,8 @@ var defaultConf = Config{
 
 	MaxScanParquetFileConcurrency: 2,
 
-	AnalyzeTableThreshold: 95,
+	AnalyzeTableThreshold:        95,
+	AnalyzeAlwaysSkipWideColumns: false,
 }
 
 var (

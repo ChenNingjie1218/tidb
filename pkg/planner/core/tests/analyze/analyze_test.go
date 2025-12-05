@@ -17,13 +17,42 @@ package analyze
 import (
 	"testing"
 
+	"github.com/pingcap/tidb/pkg/config"
 	"github.com/pingcap/tidb/pkg/testkit"
 )
 
-func TestAnalyzeVirtualColumns(t *testing.T) {
+var createTableSQL = `CREATE TABLE t1 (
+		id bigint NOT NULL,
+		c1 varchar(50) NOT NULL,
+		c2 int DEFAULT NULL,
+		c3 json DEFAULT NULL,
+		c4 varchar(255) GENERATED ALWAYS AS (json_unquote(json_extract(c3, '$.oppositePlaceId'))) VIRTUAL,
+		c5 vector(3),
+		c6 double GENERATED ALWAYS AS (vec_l2_distance(c5, '[0,0,0]')) VIRTUAL,
+		PRIMARY KEY (id),
+		UNIQUE KEY idx_unique (c1,c2)) ;`
+
+func TestAnalyzeVirtualColumnsV2(t *testing.T) {
 	store := testkit.CreateMockStore(t)
 	tk := testkit.NewTestKit(t, store)
 	tk.MustExec("use test")
-	tk.MustExec(`CREATE TABLE t1 (id bigint NOT NULL,c1 varchar(50) NOT NULL ,c2 int DEFAULT NULL ,c3 json DEFAULT NULL ,c4 varchar(255) GENERATED ALWAYS AS (json_unquote(json_extract(c3, '$.oppositePlaceId'))) VIRTUAL ,PRIMARY KEY (id),UNIQUE KEY idx_unique (c1,c2)) ;`)
+	tk.MustExec("set @@tidb_analyze_version=2")
+	tk.MustExec(createTableSQL)
 	tk.MustExec("analyze table t1 all columns")
+}
+
+func TestAnalyzeVirtualColumnsV1(t *testing.T) {
+	store := testkit.CreateMockStore(t)
+	tk := testkit.NewTestKit(t, store)
+
+	originConfigValue := config.GetGlobalConfig().AnalyzeAlwaysSkipWideColumns
+	defer func() {
+		config.GetGlobalConfig().AnalyzeAlwaysSkipWideColumns = originConfigValue
+	}()
+	config.GetGlobalConfig().AnalyzeAlwaysSkipWideColumns = true
+
+	tk.MustExec("use test")
+	tk.MustExec("set @@tidb_analyze_version=1")
+	tk.MustExec(createTableSQL)
+	tk.MustExec("analyze table t1")
 }

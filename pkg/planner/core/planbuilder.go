@@ -2384,6 +2384,7 @@ func (b *PlanBuilder) filterSkipColumnTypes(origin []*model.ColumnInfo, tbl *res
 	for _, colInfo := range origin {
 		// Vector type is skip by hardcoded. Just because that collecting it is meanless for current TiDB.
 		if colInfo.FieldType.GetType() == mysql.TypeTiDBVectorFloat32 {
+			skipCol = append(skipCol, colInfo)
 			continue
 		}
 		_, skip := skipTypes[types.TypeToStr(colInfo.FieldType.GetType(), colInfo.FieldType.GetCharset())]
@@ -2803,6 +2804,9 @@ func (b *PlanBuilder) buildAnalyzeTable(as *ast.AnalyzeTableStmt, opts map[ast.A
 			}
 			p.IdxTasks = append(p.IdxTasks, generateIndexTasks(idx, as, tnW.TableInfo, partitionNames, physicalIDs, version)...)
 		}
+		var mustAnalyzedCols calcOnceMap
+		var skipColsInfo []*model.ColumnInfo
+		colInfo, skipColsInfo = b.skipWideColumnsForAnalyzeV1(colInfo, tnW, &mustAnalyzedCols)
 		handleCols := BuildHandleColsForAnalyze(b.ctx, tnW.TableInfo, true, nil)
 		if len(colInfo) > 0 || handleCols != nil {
 			for i, id := range physicalIDs {
@@ -2822,12 +2826,53 @@ func (b *PlanBuilder) buildAnalyzeTable(as *ast.AnalyzeTableStmt, opts map[ast.A
 					ColsInfo:         colInfo,
 					AnalyzeInfo:      info,
 					TblInfo:          tnW.TableInfo,
+					SkipColsInfo:     skipColsInfo, // It's OK to not set SkipColsInfo as analyze V1 skip virtual columns.
 				})
 			}
 		}
 	}
 
 	return p, nil
+}
+
+var wideColumnTypes = map[byte]struct{}{
+	mysql.TypeJSON:       {},
+	mysql.TypeMediumBlob: {}, // "mediumtext" & "mediumblob"
+	mysql.TypeLongBlob:   {}, // "longtext" & "longblob"
+}
+
+func (b *PlanBuilder) skipWideColumnsForAnalyzeV1(origin []*model.ColumnInfo, tbl *resolve.TableNameW, mustAnalyzedCols *calcOnceMap) (result []*model.ColumnInfo, skipCol []*model.ColumnInfo) {
+	skipWideColumn := config.GetGlobalConfig().AnalyzeAlwaysSkipWideColumns
+
+	var mustAnalyze map[int64]struct{}
+	if skipWideColumn {
+		var err1 error
+		mustAnalyze, err1 = b.getMustAnalyzedColumns(tbl, mustAnalyzedCols)
+		if err1 != nil {
+			logutil.BgLogger().Error("getting must-analyzed columns failed", zap.Error(err1))
+			result = origin
+			return
+		}
+	}
+
+	for _, colInfo := range origin {
+		// Vector type is skip by hardcoded. Just because that collecting it is meanless for current TiDB.
+		if colInfo.FieldType.GetType() == mysql.TypeTiDBVectorFloat32 {
+			skipCol = append(skipCol, colInfo)
+			continue
+		}
+
+		if skipWideColumn {
+			_, isWide := wideColumnTypes[colInfo.FieldType.GetType()]
+			_, keep := mustAnalyze[colInfo.ID]
+			if isWide && !keep {
+				skipCol = append(skipCol, colInfo)
+				continue
+			}
+		}
+		result = append(result, colInfo)
+	}
+	return
 }
 
 func (b *PlanBuilder) buildAnalyzeIndex(as *ast.AnalyzeTableStmt, opts map[ast.AnalyzeOptionType]uint64, version int) (base.Plan, error) {

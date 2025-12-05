@@ -26,6 +26,7 @@ import (
 
 	"github.com/docker/go-units"
 	"github.com/pingcap/errors"
+	"github.com/pingcap/tidb/pkg/config"
 	"github.com/pingcap/tidb/pkg/domain"
 	"github.com/pingcap/tidb/pkg/expression"
 	"github.com/pingcap/tidb/pkg/expression/aggregation"
@@ -997,4 +998,141 @@ func TestGetMaxWriteSpeedFromExpression(t *testing.T) {
 	}
 	_, err = GetMaxWriteSpeedFromExpression(opt)
 	require.Equal(t, "parse max_write_speed value error: invalid size: 'MiB'", err.Error())
+}
+
+func TestSkipWideColumns(t *testing.T) {
+	newText := func() *types.FieldType {
+		ft := types.NewFieldType(mysql.TypeBlob)
+		ft.SetCharset(mysql.UTF8MB4Charset)
+		return ft
+	}
+	newMediumText := func() *types.FieldType {
+		ft := types.NewFieldType(mysql.TypeMediumBlob)
+		ft.SetCharset(mysql.UTF8MB4Charset)
+		return ft
+	}
+	newLongText := func() *types.FieldType {
+		ft := types.NewFieldType(mysql.TypeLongBlob)
+		ft.SetCharset(mysql.UTF8MB4Charset)
+		return ft
+	}
+	getColumnNames := func(columns []*model.ColumnInfo) []string {
+		names := make([]string, 0, len(columns))
+		for _, col := range columns {
+			names = append(names, col.Name.L)
+		}
+		return names
+	}
+
+	ctx := MockContext()
+	defer func() {
+		domain.GetDomain(ctx).StatsHandle().Close()
+	}()
+	pb, _ := NewPlanBuilder().Init(ctx, nil, hint.NewQBHintHandler(nil))
+
+	originConfigValue := config.GetGlobalConfig().AnalyzeAlwaysSkipWideColumns
+	defer func() {
+		config.GetGlobalConfig().AnalyzeAlwaysSkipWideColumns = originConfigValue
+	}()
+
+	tableName := &ast.TableName{
+		Schema: pmodel.NewCIStr("test"),
+		Name:   pmodel.NewCIStr("my_table"),
+	}
+	columns := []*model.ColumnInfo{
+		{
+			Name:      pmodel.NewCIStr("id"),
+			FieldType: *types.NewFieldType(mysql.TypeLonglong),
+		},
+		{
+			Name:      pmodel.NewCIStr("name"),
+			FieldType: *types.NewFieldType(mysql.TypeString),
+		},
+		{
+			Name:      pmodel.NewCIStr("text"),
+			FieldType: *newText(),
+		},
+		{
+			Name:      pmodel.NewCIStr("meduimtext"),
+			FieldType: *newMediumText(),
+		},
+		{
+			Name:      pmodel.NewCIStr("meduimblob"),
+			FieldType: *types.NewFieldType(mysql.TypeMediumBlob),
+		},
+		{
+			Name:      pmodel.NewCIStr("longtext"),
+			FieldType: *newLongText(),
+		},
+		{
+			Name:      pmodel.NewCIStr("longblob"),
+			FieldType: *types.NewFieldType(mysql.TypeLongBlob),
+		},
+		{
+			Name:      pmodel.NewCIStr("longblob_index"),
+			FieldType: *types.NewFieldType(mysql.TypeLongBlob),
+		},
+		{
+			Name:      pmodel.NewCIStr("blob"),
+			FieldType: *types.NewFieldType(mysql.TypeBlob),
+		},
+		{
+			Name:      pmodel.NewCIStr("json"),
+			FieldType: *types.NewFieldType(mysql.TypeJSON),
+		},
+		{
+			Name:      pmodel.NewCIStr("vector"),
+			FieldType: *types.NewFieldType(mysql.TypeTiDBVectorFloat32),
+		},
+	}
+	offsetIndex := 0
+	for i, col := range columns {
+		col.ID = int64(i + 1)
+		col.Offset = i
+
+		if col.Name.L == "longblob_index" {
+			offsetIndex = col.Offset
+		}
+	}
+	tblNameW := &resolve.TableNameW{
+		TableName: tableName,
+		TableInfo: &model.TableInfo{
+			Columns: columns,
+			Indices: []*model.IndexInfo{
+				{
+					ID:   2,
+					Name: pmodel.NewCIStr("longblob_index"),
+					Columns: []*model.IndexColumn{
+						{Offset: offsetIndex},
+					},
+					Primary: false,
+					State:   model.StatePublic,
+				},
+			},
+		},
+	}
+
+	{
+		config.GetGlobalConfig().AnalyzeAlwaysSkipWideColumns = false
+		var mustAnalyzedCols calcOnceMap
+		result, skipColsInfo := pb.skipWideColumnsForAnalyzeV1(columns, tblNameW, &mustAnalyzedCols)
+
+		names := getColumnNames(result)
+		skipNames := getColumnNames(skipColsInfo)
+		require.Equal(t, len(columns), len(result)+len(skipColsInfo))
+		require.Equal(t, []string{"id", "name", "text", "meduimtext", "meduimblob", "longtext", "longblob", "longblob_index", "blob", "json"}, names)
+		require.Equal(t, []string{"vector"}, skipNames)
+	}
+
+	{
+		config.GetGlobalConfig().AnalyzeAlwaysSkipWideColumns = true
+		var mustAnalyzedCols calcOnceMap
+		result, skipColsInfo := pb.skipWideColumnsForAnalyzeV1(columns, tblNameW, &mustAnalyzedCols)
+
+		names := getColumnNames(result)
+		skipNames := getColumnNames(skipColsInfo)
+		require.Equal(t, len(columns), len(result)+len(skipColsInfo))
+		require.Equal(t, []string{"id", "name", "text", "longblob_index", "blob"}, names)
+		require.Equal(t, []string{"meduimtext", "meduimblob", "longtext", "longblob", "json", "vector"}, skipNames)
+	}
 }

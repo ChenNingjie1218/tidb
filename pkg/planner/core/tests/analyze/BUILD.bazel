@@ -9,6 +9,7 @@ go_test(
     ],
     flaky = True,
     deps = [
+        "//pkg/config",
         "//pkg/testkit",
         "//pkg/testkit/testsetup",
         "@org_uber_go_goleak//:goleak",

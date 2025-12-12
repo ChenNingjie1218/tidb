@@ -128,7 +128,7 @@ func SchedulerNodes(ctx context.Context, workerType string, gTaskID int64) []*in
 	if GlobalTiDBWorkerManager == nil {
 		return nil
 	}
-	workerCount, autoScalerEnabled, err := loadBgTaskConfig(ctx, workerType)
+	workerCount, autoScalerEnabled, err := loadBgTaskConfig(ctx, TaskWorkerType(workerType))
 	if err != nil {
 		logutil.BgLogger().Warn("[tidb-worker] failed to load worker config", zap.Error(err))
 		return nil

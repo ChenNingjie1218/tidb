@@ -30,10 +30,8 @@ import (
 	"github.com/pingcap/tidb/pkg/tidbworker"
 	"github.com/pingcap/tidb/pkg/util"
 	"github.com/pingcap/tidb/pkg/util/chunk"
-	"github.com/pingcap/tidb/pkg/util/logutil"
 	"github.com/pingcap/tidb/pkg/util/sqlexec"
 	clitutil "github.com/tikv/client-go/v2/util"
-	"go.uber.org/zap"
 )
 
 const (
@@ -650,28 +648,7 @@ func (*TaskManager) updateTaskStateStep(ctx context.Context, se sessionctx.Conte
 			meta = %?
 		where id = %? and state = %? and step = %?`,
 		nextState, nextStep, task.Meta, task.ID, task.State, task.Step)
-	if err != nil {
-		return err
-	}
-
-	// Recycle the DDL worker when the global task is in one of the terminal state.
-	if variable.EnableDistTask.Load() && tidbworker.IsBgTaskEnabled(ctx, string(task.Type)) {
-		switch nextState {
-		case proto.TaskStateSucceed, proto.TaskStateFailed, proto.TaskStateReverted:
-			logutil.BgLogger().Info("recycle background task", zap.Int64("taskID", task.ID), zap.String("taskKey", task.Key))
-			err = tidbworker.GlobalTiDBWorkerManager.RecycleBgTask(
-				ctx,
-				tidbworker.TaskWorkerType(string(task.Type)),
-				task.Key,
-				task.ID,
-				0,
-			)
-			if err != nil {
-				logutil.BgLogger().Error("recycle background task failed", zap.Error(err))
-			}
-		}
-	}
-	return nil
+	return err
 }
 
 // TestChannel is used for test.

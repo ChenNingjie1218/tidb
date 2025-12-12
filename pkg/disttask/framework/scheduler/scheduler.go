@@ -30,6 +30,8 @@ import (
 	"github.com/pingcap/tidb/pkg/domain/infosync"
 	"github.com/pingcap/tidb/pkg/kv"
 	"github.com/pingcap/tidb/pkg/sessionctx"
+	"github.com/pingcap/tidb/pkg/sessionctx/variable"
+	"github.com/pingcap/tidb/pkg/tidbworker"
 	"github.com/pingcap/tidb/pkg/util/backoff"
 	disttaskutil "github.com/pingcap/tidb/pkg/util/disttask"
 	"github.com/pingcap/tidb/pkg/util/intest"
@@ -347,6 +349,19 @@ func (s *BaseScheduler) onReverting() error {
 		if err = s.taskMgr.RevertedTask(s.ctx, task.ID); err != nil {
 			return errors.Trace(err)
 		}
+		if variable.EnableDistTask.Load() && tidbworker.IsBgTaskEnabled(s.ctx, string(task.Type)) {
+			logutil.BgLogger().Info("recycle subtask zero", zap.Int64("taskID", task.ID), zap.String("taskKey", task.Key))
+			err = tidbworker.GlobalTiDBWorkerManager.RecycleBgTask(
+				s.ctx,
+				tidbworker.TaskWorkerType(string(task.Type)),
+				task.Key,
+				task.ID,
+				0,
+			)
+			if err != nil {
+				logutil.BgLogger().Error("recycle subtask zero failed", zap.Error(err))
+			}
+		}
 		task.State = proto.TaskStateReverted
 		s.task.Store(&task)
 		return nil
@@ -416,6 +431,20 @@ func (s *BaseScheduler) switch2NextStep() error {
 		}
 		if err := s.taskMgr.SucceedTask(s.ctx, task.ID); err != nil {
 			return errors.Trace(err)
+		}
+
+		if variable.EnableDistTask.Load() && tidbworker.IsBgTaskEnabled(s.ctx, string(task.Type)) {
+			s.logger.Info("recycle subtask zero", zap.Int64("taskID", task.ID), zap.String("taskKey", task.Key))
+			err := tidbworker.GlobalTiDBWorkerManager.RecycleBgTask(
+				s.ctx,
+				tidbworker.TaskWorkerType(string(task.Type)),
+				task.Key,
+				task.ID,
+				0,
+			)
+			if err != nil {
+				s.logger.Error("recycle subtask zero failed", zap.Error(err))
+			}
 		}
 		task.Step = nextStep
 		task.State = proto.TaskStateSucceed

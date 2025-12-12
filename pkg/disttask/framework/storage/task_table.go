@@ -594,6 +594,22 @@ func (mgr *TaskManager) UpdateSubtasksExecIDs(ctx context.Context, subtasks []*p
 		}
 		return nil
 	})
+
+	taskID, taskType := subtasks[0].TaskID, subtasks[0].Type
+	useTiDBWorker := variable.EnableDistTask.Load() && tidbworker.IsBgTaskEnabled(ctx, string(taskType))
+	if err == nil && useTiDBWorker {
+		var subtaskIDs []int64
+		var execIDs []string
+		for _, subtask := range subtasks {
+			subtaskIDs = append(subtaskIDs, subtask.ID)
+			execIDs = append(execIDs, subtask.ExecID)
+		}
+		err = tidbworker.GlobalTiDBWorkerManager.UpdateBgTaskExecID(ctx, taskID, subtaskIDs, execIDs)
+		if err != nil {
+			return err
+		}
+	}
+
 	return err
 }
 

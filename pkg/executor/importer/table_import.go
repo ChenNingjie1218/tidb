@@ -454,6 +454,10 @@ func (e *LoadDataController) PopulateChunks(ctx context.Context) (ecp map[int32]
 	return tableCp.Engines, nil
 }
 
+func (ti *TableImporter) getTotalRealDataSize(indexCnt int64) int64 {
+	return ti.Plan.TotalRealSize * indexCnt
+}
+
 // a simplified version of EstimateCompactionThreshold
 func (ti *TableImporter) getTotalRawFileSize(indexCnt int64) int64 {
 	var totalSize int64
@@ -478,19 +482,19 @@ func (ti *TableImporter) OpenIndexEngine(ctx context.Context, taskID int64, engi
 	if !common.TableHasAutoRowID(ti.tableInfo.Core) {
 		idxCnt--
 	}
-	estimatedDataSize := ti.getTotalRawFileSize(int64(idxCnt))
+
 	idxEngineCfg := &backend.EngineConfig{
 		TaskID:            taskID,
 		EngineID:          engineID,
 		TableInfo:         ti.tableInfo,
-		EstimatedDataSize: estimatedDataSize,
+		EstimatedDataSize: ti.getTotalRealDataSize(int64(idxCnt)),
 	}
 	if dataSize != 0 {
 		idxEngineCfg.EstimatedDataSize = dataSize
 	}
 	// todo: getTotalRawFileSize returns size of all data files, but in distributed framework,
 	// we create one index engine for each engine, should reflect this in the future.
-	threshold := local.EstimateCompactionThreshold2(estimatedDataSize)
+	threshold := local.EstimateCompactionThreshold2(ti.getTotalRawFileSize(int64(idxCnt)))
 	idxEngineCfg.Local = backend.LocalEngineConfig{
 		Compact:            threshold > 0,
 		CompactConcurrency: 4,
@@ -513,7 +517,7 @@ func (ti *TableImporter) OpenDataEngine(ctx context.Context, taskID int64, engin
 		TaskID:            taskID,
 		EngineID:          engineID,
 		TableInfo:         ti.tableInfo,
-		EstimatedDataSize: ti.getTotalRawFileSize(int64(1)),
+		EstimatedDataSize: ti.getTotalRealDataSize(int64(1)),
 	}
 	if dataSize != 0 {
 		dataEngineCfg.EstimatedDataSize = dataSize

@@ -33,3 +33,6 @@ wait_for_tiflash
 
 echo "+ Running /root/mysql-tester"
 /root/mysql-tester
+
+stop_tiup
+stop_minio

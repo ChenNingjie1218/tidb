@@ -52,3 +52,6 @@ wait_for_tiflash
 
 echo "+ Testing vector recall and index using latest version"
 python3 /root/python_testers/vector_recall.py --check-only
+
+stop_tiup
+stop_minio

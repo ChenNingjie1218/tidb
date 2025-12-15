@@ -33,3 +33,6 @@ wait_for_tiflash
 
 echo "+ Running /root/python_testers/vector_recall.py"
 python3 /root/python_testers/vector_recall.py
+
+stop_tiup
+stop_minio

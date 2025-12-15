@@ -69,6 +69,26 @@ function stop_tiup() {
   exit 1
 }
 
+function stop_minio() {
+  echo "+ Stopping MinIO"
+  MINIO_PID=$(pgrep -f "minio")
+  if [ -n "$MINIO_PID" ]; then
+    echo "  - Sending SIGTERM to PID=$MINIO_PID"
+    kill $MINIO_PID
+  fi
+
+  for i in {1..30}; do
+    if ! pgrep -f "minio" > /dev/null; then
+      echo "  - MinIO stopped successfully"
+      return
+    fi
+    sleep 1
+  done
+
+  echo "* Fail to stop MinIO in 30s"
+  exit 1
+}
+
 function wait_for_tiflash() {
   echo
   echo "+ Waiting TiFlash start up (30s)"

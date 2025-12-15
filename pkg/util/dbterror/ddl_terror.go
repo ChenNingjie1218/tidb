@@ -504,6 +504,11 @@ var (
 	// which cannot trigger automatic analysis when it contains prefix columns or virtual generated columns.
 	ErrWarnGlobalIndexNeedManuallyAnalyze = ClassDDL.NewStd(mysql.ErrWarnGlobalIndexNeedManuallyAnalyze)
 
+	// ErrEngineAttributeInvalidFormat is returned when meeting invalid format of engine attribute.
+	ErrEngineAttributeInvalidFormat = ClassDDL.NewStd(mysql.ErrEngineAttributeInvalidFormat)
+	// ErrStorageClassInvalidSpec is returned when meeting invalid storage class specification.
+	ErrStorageClassInvalidSpec = ClassDDL.NewStd(mysql.ErrStorageClassInvalidSpec)
+
 	// ErrNotSupportedOnServerless returns when user requested a serverless unsupported feature.
 	ErrNotSupportedOnServerless = ClassDDL.NewStd(mysql.ErrNotSupportedOnServerless)
 )

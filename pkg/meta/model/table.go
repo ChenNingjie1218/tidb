@@ -203,6 +203,14 @@ type TableInfo struct {
 	Revision uint64 `json:"revision"`
 
 	DBID int64 `json:"-"`
+
+	// EngineAttribute is the ENGINE_ATTRIBUTE for the table.
+	EngineAttribute string `json:"engine_attribute,omitempty"`
+
+	// StorageClassTier is the storage class tier of the table level.
+	StorageClassTier string `json:"storage_class_tier,omitempty"`
+	// StorageClassTransitions is the storage class transition rules of the table level.
+	StorageClassTransitions []StorageClassTransitRule `json:"storage_class_transitions,omitempty"`
 }
 
 // SepAutoInc decides whether _rowid and auto_increment id use separate allocator.
@@ -530,6 +538,11 @@ func (t *TableInfo) GetColumnByID(id int64) *ColumnInfo {
 		}
 	}
 	return nil
+}
+
+// StorageClassString return string presentation of the storage class tier and transitions.
+func (t *TableInfo) StorageClassString() string {
+	return buildStorageClassString(t.StorageClassTier, t.StorageClassTransitions)
 }
 
 // FindFKInfoByName finds FKInfo in fks by lowercase name.
@@ -1080,12 +1093,14 @@ type PartitionState struct {
 
 // PartitionDefinition defines a single partition.
 type PartitionDefinition struct {
-	ID                 int64          `json:"id"`
-	Name               model.CIStr    `json:"name"`
-	LessThan           []string       `json:"less_than"`
-	InValues           [][]string     `json:"in_values"`
-	PlacementPolicyRef *PolicyRefInfo `json:"policy_ref_info"`
-	Comment            string         `json:"comment,omitempty"`
+	ID                      int64                     `json:"id"`
+	Name                    model.CIStr               `json:"name"`
+	LessThan                []string                  `json:"less_than"`
+	InValues                [][]string                `json:"in_values"`
+	PlacementPolicyRef      *PolicyRefInfo            `json:"policy_ref_info"`
+	Comment                 string                    `json:"comment,omitempty"`
+	StorageClassTier        string                    `json:"storage_class_tier,omitempty"`
+	StorageClassTransitions []StorageClassTransitRule `json:"storage_class_transitions,omitempty"`
 }
 
 // Clone clones PartitionDefinition.
@@ -1118,6 +1133,11 @@ func (ci *PartitionDefinition) MemoryUsage() (sum int64) {
 		}
 	}
 	return
+}
+
+// StorageClassString return string presentation of the storage class tier and transitions.
+func (ci *PartitionDefinition) StorageClassString() string {
+	return buildStorageClassString(ci.StorageClassTier, ci.StorageClassTransitions)
 }
 
 // ConstraintInfo provides meta data describing check-expression constraint.

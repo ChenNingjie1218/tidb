@@ -1746,3 +1746,21 @@ func GetFinishedModifyColumnArgs(job *Job) (*ModifyColumnArgs, error) {
 	}
 	return getOrDecodeArgsV2[*ModifyColumnArgs](job)
 }
+
+// ModifyTableEngineAttributeArgs is the arguments for ActionModifyTableEngineAttribute ddl.
+type ModifyTableEngineAttributeArgs struct {
+	EngineAttribute string `json:"engine_attribute,omitempty"`
+}
+
+func (a *ModifyTableEngineAttributeArgs) getArgsV1(*Job) []any {
+	return []any{a.EngineAttribute}
+}
+
+func (a *ModifyTableEngineAttributeArgs) decodeV1(job *Job) error {
+	return errors.Trace(job.decodeArgs(&a.EngineAttribute))
+}
+
+// GetModifyTableEngineAttributeArgs gets the args for ActionModifyTableEngineAttribute.
+func GetModifyTableEngineAttributeArgs(job *Job) (*ModifyTableEngineAttributeArgs, error) {
+	return getOrDecodeArgs[*ModifyTableEngineAttributeArgs](&ModifyTableEngineAttributeArgs{}, job)
+}

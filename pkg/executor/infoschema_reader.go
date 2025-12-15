@@ -673,6 +673,7 @@ func (e *memtableRetriever) setDataFromOneTable(
 		if table.PlacementPolicyRef != nil {
 			policyName = table.PlacementPolicyRef.Name.O
 		}
+		storageClass := table.StorageClassString()
 
 		rowCount, avgRowLength, dataLength, indexLength := cache.TableRowStatsCache.EstimateDataLength(table)
 
@@ -702,6 +703,7 @@ func (e *memtableRetriever) setDataFromOneTable(
 			shardingInfo,          // TIDB_ROW_ID_SHARDING_INFO
 			pkType,                // TIDB_PK_TYPE
 			policyName,            // TIDB_PLACEMENT_POLICY_NAME
+			storageClass,          // TIDB_STORAGE_CLASS
 		)
 		rows = append(rows, record)
 	} else {
@@ -731,6 +733,7 @@ func (e *memtableRetriever) setDataFromOneTable(
 			nil,                   // TIDB_ROW_ID_SHARDING_INFO
 			pkType,                // TIDB_PK_TYPE
 			nil,                   // TIDB_PLACEMENT_POLICY_NAME
+			nil,                   // TIDB_STORAGE_CLASS
 		)
 		rows = append(rows, record)
 	}
@@ -834,6 +837,7 @@ func (e *memtableRetriever) setDataFromTables(ctx context.Context, sctx sessionc
 					nil,                   // TIDB_ROW_ID_SHARDING_INFO
 					nil,                   // TIDB_PK_TYPE
 					nil,                   // TIDB_PLACEMENT_POLICY_NAME
+					nil,                   // TIDB_STORAGE_CLASS
 				)
 				rows = append(rows, record)
 				return true
@@ -1340,6 +1344,7 @@ func (e *memtableRetriever) setDataFromPartitions(ctx context.Context, sctx sess
 				if pi.PlacementPolicyRef != nil {
 					policyName = pi.PlacementPolicyRef.Name.O
 				}
+				storageClass := pi.StorageClassString()
 				record := types.MakeDatums(
 					infoschema.CatalogVal, // TABLE_CATALOG
 					schema.O,              // TABLE_SCHEMA
@@ -1368,6 +1373,7 @@ func (e *memtableRetriever) setDataFromPartitions(ctx context.Context, sctx sess
 					nil,                   // TABLESPACE_NAME
 					pi.ID,                 // TIDB_PARTITION_ID
 					policyName,            // TIDB_PLACEMENT_POLICY_NAME
+					storageClass,          // TIDB_STORAGE_CLASS
 				)
 				rows = append(rows, record)
 			}

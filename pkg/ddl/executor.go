@@ -1892,6 +1892,9 @@ func (e *executor) AlterTable(ctx context.Context, sctx sessionctx.Context, stmt
 						Name: pmodel.NewCIStr(opt.StrValue),
 					}
 				case ast.TableOptionEngine:
+				case ast.TableOptionEngineAttribute:
+					spec.EngineAttribute = opt.StrValue
+					err = e.AlterTableEngineAttribute(sctx, ident, spec)
 				case ast.TableOptionRowFormat:
 				case ast.TableOptionTTL, ast.TableOptionTTLEnable, ast.TableOptionTTLJobInterval:
 					var ttlInfo *model.TTLInfo

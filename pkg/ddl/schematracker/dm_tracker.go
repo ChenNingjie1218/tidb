@@ -998,6 +998,10 @@ func (d *SchemaTracker) AlterTable(ctx context.Context, sctx sessionctx.Context,
 					handledCharsetOrCollate = true
 				case ast.TableOptionPlacementPolicy:
 				case ast.TableOptionEngine:
+				case ast.TableOptionEngineAttribute:
+					tblInfo = tblInfo.Clone()
+					tblInfo.EngineAttribute = opt.StrValue
+					_ = d.PutTable(ident.Schema, tblInfo)
 				default:
 					err = dbterror.ErrUnsupportedAlterTableOption
 				}

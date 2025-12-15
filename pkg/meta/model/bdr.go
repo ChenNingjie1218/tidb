@@ -110,6 +110,9 @@ var BDRActionMap = map[DDLBDRType][]ActionType{
 		ActionCreateResourceGroup,
 		ActionAlterResourceGroup,
 		ActionDropResourceGroup,
+		// storage class will not be replicated to allow different settings in primary/secondary clusters
+		// Note: need to change if ENGINE_ATTRIBUTE contains other fields in the future.
+		ActionModifyEngineAttribute,
 	},
 	UnknownDDL: {
 		_DEPRECATEDActionAlterTableAlterPartition,

@@ -1342,6 +1342,11 @@ func constructResultOfShowCreateTable(ctx sessionctx.Context, dbName *pmodel.CIS
 	buf.WriteString("\n")
 
 	buf.WriteString(") ENGINE=InnoDB")
+
+	if len(tableInfo.EngineAttribute) > 0 {
+		fmt.Fprintf(buf, " ENGINE_ATTRIBUTE='%s'", format.OutputFormat(tableInfo.EngineAttribute))
+	}
+
 	// We need to explicitly set the default charset and collation
 	// to make it work on MySQL server which has default collate utf8_general_ci.
 	if len(tblCollate) == 0 || tblCollate == "binary" {

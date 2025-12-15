@@ -1158,6 +1158,9 @@ const (
 	ErrResourceGroupInvalidBackgroundTaskName = 8255
 	ErrResourceGroupInvalidForRole            = 8257
 
+	ErrEngineAttributeInvalidFormat = 8270
+	ErrStorageClassInvalidSpec      = 8271
+
 	// TiKV/PD/TiFlash errors.
 	ErrPDServerTimeout           = 9001
 	ErrTiKVServerTimeout         = 9002

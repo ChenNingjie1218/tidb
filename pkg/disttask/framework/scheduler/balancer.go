@@ -86,19 +86,16 @@ func (b *balancer) balance(ctx context.Context, sm *Manager) {
 	for _, sch := range schedulers {
 		task := sch.GetTask()
 		var nodeIDs []string
-		var capacity int
 		if variable.EnableDistTask.Load() && tidbworker.IsBgTaskEnabled(ctx, string(task.Type)) {
 			nodes := b.nodeMgr.getEnabledNodes(ctx, task)
 			for _, n := range nodes {
 				b.currUsedSlots[n.ID] = 0
 				nodeIDs = append(nodeIDs, n.ID)
 			}
-			capacity = len(nodes)
 		} else {
 			nodeIDs = filterByScope(managedNodes, task.TargetScope)
-			capacity = b.slotMgr.getCapacity()
 		}
-		if err := b.balanceSubtasks(ctx, sch, nodeIDs, capacity); err != nil {
+		if err := b.balanceSubtasks(ctx, sch, nodeIDs); err != nil {
 			b.logger.Warn("failed to balance subtasks",
 				zap.Int64("task-id", task.ID), llog.ShortError(err))
 			return
@@ -106,7 +103,7 @@ func (b *balancer) balance(ctx context.Context, sm *Manager) {
 	}
 }
 
-func (b *balancer) balanceSubtasks(ctx context.Context, sch Scheduler, managedNodes []string, capacity int) error {
+func (b *balancer) balanceSubtasks(ctx context.Context, sch Scheduler, managedNodes []string) error {
 	task := sch.GetTask()
 	eligibleNodes, err := getEligibleNodes(ctx, sch, managedNodes)
 	if err != nil {
@@ -115,10 +112,10 @@ func (b *balancer) balanceSubtasks(ctx context.Context, sch Scheduler, managedNo
 	if len(eligibleNodes) == 0 {
 		return errors.New("no eligible nodes to balance subtasks")
 	}
-	return b.doBalanceSubtasks(ctx, task.ID, eligibleNodes, capacity)
+	return b.doBalanceSubtasks(ctx, task.ID, eligibleNodes)
 }
 
-func (b *balancer) doBalanceSubtasks(ctx context.Context, taskID int64, eligibleNodes []string, capacity int) (err error) {
+func (b *balancer) doBalanceSubtasks(ctx context.Context, taskID int64, eligibleNodes []string) (err error) {
 	subtasks, err := b.taskMgr.GetActiveSubtasks(ctx, taskID)
 	if err != nil {
 		return err
@@ -129,7 +126,7 @@ func (b *balancer) doBalanceSubtasks(ctx context.Context, taskID int64, eligible
 
 	// balance subtasks only to nodes with enough slots, from the view of all
 	// managed nodes, subtasks of task might not be balanced.
-	adjustedNodes := filterNodesWithEnoughSlots(b.currUsedSlots, capacity,
+	adjustedNodes := filterNodesWithEnoughSlots(b.currUsedSlots, b.slotMgr.getCapacity(),
 		eligibleNodes, subtasks[0].Concurrency)
 	if len(adjustedNodes) == 0 {
 		// no node has enough slots to run the subtasks, skip balance and skip
@@ -174,7 +171,7 @@ func (b *balancer) doBalanceSubtasks(ctx context.Context, taskID int64, eligible
 			b.logger.Info("dead node or not have enough slots, schedule subtasks away",
 				zap.Int64("task-id", taskID),
 				zap.String("node", node),
-				zap.Int("slot-capacity", capacity),
+				zap.Int("slot-capacity", b.slotMgr.getCapacity()),
 				zap.Int("used-slots", b.currUsedSlots[node]))
 			// dead node or not have enough slots
 			subtasksNeedSchedule = append(subtasksNeedSchedule, sts...)

@@ -144,13 +144,15 @@ func (nm *NodeManager) refreshNodes(ctx context.Context, taskMgr TaskManager, sl
 		return
 	}
 
-	var cpuCount int
-	for _, node := range newNodes {
-		if node.CPUCount > 0 {
-			cpuCount = node.CPUCount
+	if intest.InTest {
+		var cpuCount int
+		for _, node := range newNodes {
+			if node.CPUCount > 0 {
+				cpuCount = node.CPUCount
+			}
 		}
+		slotMgr.updateCapacity(cpuCount)
 	}
-	slotMgr.updateCapacity(cpuCount)
 	nm.nodes.Store(&newNodes)
 
 	failpoint.Inject("syncRefresh", func() {

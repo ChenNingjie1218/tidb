@@ -19,7 +19,9 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/pingcap/tidb/pkg/config"
 	"github.com/pingcap/tidb/pkg/disttask/framework/proto"
+	"github.com/pingcap/tidb/pkg/util/intest"
 )
 
 // slotManager is used to manage the slots of the executor.
@@ -42,6 +44,9 @@ func newSlotManager(capacity int) *slotManager {
 		taskID2Index:  make(map[int64]int),
 		executorTasks: make([]*proto.TaskBase, 0),
 		capacity:      capacity,
+	}
+	if !intest.InTest {
+		capacity = config.GetGlobalConfig().DXFConcurrencyCapacity
 	}
 	sm.available.Store(int32(capacity))
 	return sm

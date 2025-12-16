@@ -108,6 +108,8 @@ const (
 	EnvVarKeyspaceName = "KEYSPACE_NAME"
 	// DefMaxAllowedPacket is the default value of max-allowed-packet
 	DefMaxAllowedPacket = 67108864
+	// DefDXFConcurrencyCapacity is the default value of dxf-concurrency-capacity
+	DefDXFConcurrencyCapacity = 4
 	// EnvClusterCA is the system env name for cluster CA path.
 	EnvClusterCA = "CLUSTER_CA"
 	// EnvClusterCert is the system env name for cluster cert path.
@@ -496,6 +498,9 @@ type Config struct {
 
 	// MaxAllowedPacket is to set the default value of max-allowed-packet overwriting system variable.
 	MaxAllowedPacket uint64 `toml:"max-allowed-packet" json:"max-allowed-packet"`
+
+	// DXFConcurrencyCapacity is set to DXF slot manager capacity
+	DXFConcurrencyCapacity int `toml:"dxf-concurrency-capacity" json:"dxf-concurrency-capacity"`
 }
 
 // TiFlashReplicas is used to control the format of TiFlash placement rules committed to PD.
@@ -1235,6 +1240,7 @@ var defaultConf = Config{
 	VersionComment:               "",
 	TiDBReleaseVersion:           "",
 	MaxAllowedPacket:             DefMaxAllowedPacket,
+	DXFConcurrencyCapacity:       DefDXFConcurrencyCapacity,
 	Log: Log{
 		Level:               "info",
 		Format:              "text",

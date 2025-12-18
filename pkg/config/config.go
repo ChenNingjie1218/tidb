@@ -989,7 +989,9 @@ type Status struct {
 	// Sets window size for stream. The default value is 2MB.
 	GRPCInitialWindowSize int `toml:"grpc-initial-window-size" json:"grpc-initial-window-size"`
 	// Set maximum message length in bytes that gRPC can send. `-1` means unlimited. The default value is 10MB.
-	GRPCMaxSendMsgSize int `toml:"grpc-max-send-msg-size" json:"grpc-max-send-msg-size"`
+	GRPCMaxSendMsgSize      int    `toml:"grpc-max-send-msg-size" json:"grpc-max-send-msg-size"`
+	MeteringMetricsAddr     string `toml:"metering-metrics-addr" json:"metering-metrics-addr"`
+	MeteringMetricsInterval uint   `toml:"metering-metrics-interval" json:"metering-metrics-interval"`
 }
 
 // Performance is the performance section of the config.

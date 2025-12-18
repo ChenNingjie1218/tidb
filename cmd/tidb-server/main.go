@@ -819,6 +819,28 @@ func prometheusPushClient(addr string, interval time.Duration) {
 	}
 }
 
+func pushMeteringMetric(addr string, interval time.Duration) {
+	if interval == zeroDuration || len(addr) == 0 {
+		log.Info("disable Prometheus push client for metering")
+		return
+	}
+	log.Info("start prometheus push client for metering", zap.String("server addr", addr), zap.String("interval", interval.String()))
+	go prometheusPushClientMetering(addr, interval)
+}
+
+func prometheusPushClientMetering(addr string, interval time.Duration) {
+	job := "tidb"
+	pusher := push.New(addr, job).Grouping("instance", instanceName()).Collector(metrics.StmtNodeCounter)
+	for {
+		err := pusher.Push()
+		if err != nil {
+			log.Error("push metrics for metering failed", zap.Error(err))
+		}
+		time.Sleep(interval)
+	}
+
+}
+
 func instanceName() string {
 	cfg := config.GetGlobalConfig()
 	hostname, err := os.Hostname()
@@ -1309,6 +1331,7 @@ func setupMetrics() {
 	go systimemon.StartMonitor(time.Now, systimeErrHandler)
 
 	pushMetric(cfg.Status.MetricsAddr, time.Duration(cfg.Status.MetricsInterval)*time.Second)
+	pushMeteringMetric(cfg.Status.MeteringMetricsAddr, time.Duration(cfg.Status.MeteringMetricsInterval)*time.Second)
 }
 
 func setupTracing() {

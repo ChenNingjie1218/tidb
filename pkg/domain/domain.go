@@ -2816,14 +2816,24 @@ func (do *Domain) autoAnalyzeWorker() {
 	// When tidb is running as auto analyze worker, we use a separate owner to avoid
 	// blocking the analyze-loop on tidb master.
 	autoAnalyzeOwner := do.statsOwner
+	useWorkerOwner := false
 	if tidbworker.IsAutoAnalyzeWorker() {
-		autoAnalyzeOwner = do.newOwnerManager(handle.AutoAnalyzeExecutorPrompt, handle.AutoAnalyzeExecutorOwnerKey)
+		workerOwner := do.newOwnerManager(handle.AutoAnalyzeExecutorPrompt, handle.AutoAnalyzeExecutorOwnerKey)
+		if err := workerOwner.CampaignOwner(10); err != nil {
+			logutil.BgLogger().Error("failed to campaign auto-analyze-executor owner", zap.Error(err))
+		} else {
+			autoAnalyzeOwner = workerOwner
+			useWorkerOwner = true
+		}
 	}
 
 	statsHandle := do.StatsHandle()
 	analyzeTicker := time.NewTicker(do.statsLease)
 	defer func() {
 		analyzeTicker.Stop()
+		if useWorkerOwner {
+			autoAnalyzeOwner.Close()
+		}
 		logutil.BgLogger().Info("autoAnalyzeWorker exited.")
 	}()
 	for {

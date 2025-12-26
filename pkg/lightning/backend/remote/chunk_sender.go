@@ -281,9 +281,14 @@ func (c *chunkSender) putChunkToRemote(ctx context.Context, chunk *chunk) error 
 func (c *chunkSender) handlePutChunkResult(ctx context.Context, result *PutChunkResult, expectChunkID uint64) error {
 	if result.Canceled {
 		c.e.logger.Error("failed to put chunk, task is canceled",
-			zap.String("error", result.Error),
-			zap.Bool("finished", result.Finished))
+			zap.String("error", result.Error))
 		return ErrTaskCanceled
+	}
+
+	if result.Finished {
+		c.e.logger.Error("failed to put chunk, task is finished",
+			zap.String("error", result.Error))
+		return nil
 	}
 
 	if result.HandledChunkID != expectChunkID {
@@ -314,6 +319,16 @@ func (c *chunkSender) handlePutChunkResult(ctx context.Context, result *PutChunk
 			err = json.Unmarshal(data, result)
 			if err != nil {
 				return err
+			}
+			if result.Canceled {
+				c.e.logger.Error("failed to put chunk, task is canceled",
+					zap.String("error", result.Error))
+				return ErrTaskCanceled
+			}
+			if result.Finished {
+				c.e.logger.Error("failed to put chunk, task is finished",
+					zap.String("error", result.Error))
+				return nil
 			}
 			nextChunkID = result.HandledChunkID + 1
 		}

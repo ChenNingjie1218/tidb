@@ -16,6 +16,7 @@ package executor
 
 import (
 	"context"
+	"strings"
 
 	"github.com/pingcap/failpoint"
 	"github.com/pingcap/tidb/pkg/config"
@@ -200,11 +201,11 @@ func CountStmtNode(stmtNode ast.StmtNode, resolveCtx *resolve.Context, inRestric
 		switch {
 		case config.GetGlobalConfig().Status.RecordQPSbyDB:
 			for dbLabel := range dbLabels {
-				metrics.DbStmtNodeCounter.WithLabelValues(dbLabel, typeLabel).Inc()
+				metrics.DbStmtNodeCounter.WithLabelValues(strings.ToLower(dbLabel), typeLabel).Inc()
 			}
 		case config.GetGlobalConfig().Status.RecordDBLabel:
 			for dbLabel := range dbLabels {
-				metrics.StmtNodeCounter.WithLabelValues(typeLabel, dbLabel, resourceGroup).Inc()
+				metrics.StmtNodeCounter.WithLabelValues(typeLabel, strings.ToLower(dbLabel), resourceGroup).Inc()
 			}
 		}
 	} else {

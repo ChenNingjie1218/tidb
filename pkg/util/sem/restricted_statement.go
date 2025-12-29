@@ -103,7 +103,7 @@ func IsRestrictedStatement(stmt ast.Node) error {
 		*ast.BeginStmt, *ast.CommitStmt, *ast.SavepointStmt, *ast.ReleaseSavepointStmt, *ast.RollbackStmt, *ast.CreateUserStmt, *ast.SetPwdStmt, *ast.AlterInstanceStmt,
 		*ast.GrantStmt, *ast.DropUserStmt, *ast.AlterUserStmt, *ast.RevokeStmt, *ast.KillStmt, *ast.DropStatsStmt,
 		*ast.GrantRoleStmt, *ast.RevokeRoleStmt, *ast.SetRoleStmt, *ast.SetDefaultRoleStmt, *ast.ShutdownStmt,
-		*ast.RenameUserStmt, *ast.NonTransactionalDMLStmt, *ast.SetSessionStatesStmt:
+		*ast.RenameUserStmt, *ast.NonTransactionalDMLStmt, *ast.SetSessionStatesStmt, *ast.SetResourceGroupStmt:
 		return verifySimple(x)
 	case ast.DDLNode:
 		return verifyDDL(x)
@@ -244,6 +244,8 @@ func verifySimple(stmt ast.Node) error {
 		return dbterror.ErrNotSupportedOnServerless.GenWithStackByCause("SHUTDOWN")
 	case *ast.BRIEStmt:
 		return verifyBRIE(s)
+	case *ast.SetResourceGroupStmt:
+		return dbterror.ErrNotSupportedOnServerless.GenWithStackByCause("SET RESOURCE GROUP")
 	}
 	return dbterror.ErrNotSupportedOnServerless.GenWithStackByCause(fmt.Sprintf("Unsupported Executor %T", stmt))
 }

@@ -37,6 +37,11 @@ on:
           - aws
           - alicloud
           - both
+      pr_labels:
+        description: "Set pr labels, skip-e2e"
+        required: false
+        default: ""
+        type: string
 
 
 jobs:
@@ -51,4 +56,4 @@ jobs:
           repo: tidbcloud/aws-shared-provider
           ref: refs/heads/master
           token: ${{ secrets.GIT_ACTION_BOT }}
-          inputs: '{ "version": "${{ github.event.inputs.version }}", "env": "${{ github.event.inputs.deploy_env }}", "cloud_provider": "${{ github.event.inputs.cloud_provider }}", "action_url": "${{github.server_url}}/${{ github.repository }}/actions/runs/${{ github.run_id }}", "bump_lightning": "${{ github.event.inputs.bump_lightning }}", "bump_dumpling": "${{ github.event.inputs.bump_dumpling }}", "author": "${{ github.actor }}" }'
+          inputs: '{ "version": "${{ github.event.inputs.version }}", "env": "${{ github.event.inputs.deploy_env }}", "cloud_provider": "${{ github.event.inputs.cloud_provider }}", "action_url": "${{github.server_url}}/${{ github.repository }}/actions/runs/${{ github.run_id }}", "bump_lightning": "${{ github.event.inputs.bump_lightning }}", "bump_dumpling": "${{ github.event.inputs.bump_dumpling }}", "author": "${{ github.actor }}", "pr_labels": "${{ github.event.inputs.pr_labels }}" }'

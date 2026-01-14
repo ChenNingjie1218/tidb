@@ -157,6 +157,9 @@ func verifyDDL(stmt ast.DDLNode) error {
 			if spec.Tp == ast.AlterTableAttributes || spec.Tp == ast.AlterTablePartitionAttributes {
 				return dbterror.ErrNotSupportedOnServerless.GenWithStackByCause("ALTER TABLE ATTRIBUTES")
 			}
+			if spec.Tp == ast.AlterTableExchangePartition {
+				return dbterror.ErrNotSupportedOnServerless.GenWithStackByCause("ALTER TABLE EXCHANGE PARTITION")
+			}
 		}
 		return nil
 	case *ast.AlterPlacementPolicyStmt:

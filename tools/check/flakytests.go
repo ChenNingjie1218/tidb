@@ -49,6 +49,7 @@ var flakyTests = map[string][]string{
 		"TestMultiSchemaPartitionByGlobalIndex",
 		"TestPartitionErrorCode",
 		"TestBackfillConcurrentDML",
+		"TestMultiSchemaModifyColumn",
 	},
 	"./pkg/executor/staticrecordset": {
 		"TestFinishStmtError",

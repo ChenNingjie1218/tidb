@@ -17,6 +17,7 @@ package importinto
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/pingcap/failpoint"
@@ -45,17 +46,36 @@ func (s *importIntoSuite) enableFailPoint(path, term string) {
 
 func (s *importIntoSuite) TestSchedulerGetEligibleInstances() {
 	sch := ImportSchedulerExt{}
+	ctx := context.Background()
+
+	// Test empty EligibleInstances
 	task := &proto.Task{Meta: []byte("{}")}
-	ctx := context.WithValue(context.Background(), "etcd", true)
 	eligibleInstances, err := sch.GetEligibleInstances(ctx, task)
 	s.NoError(err)
-	// order of slice is not stable, change to map
 	s.Empty(eligibleInstances)
 
+	// Test EligibleInstances with first instance in live executors
+	s.enableFailPoint("github.com/pingcap/tidb/pkg/disttask/framework/scheduler/mockTaskExecutorNodes", "return()")
+	liveExecIDs := []string{"1.1.1.1:4000", "2.2.2.2:4001"}
+	scheduler.MockServerInfo.Store(&liveExecIDs)
 	task.Meta = []byte(`{"EligibleInstances":[{"ip": "1.1.1.1", "listening_port": 4000}]}`)
 	eligibleInstances, err = sch.GetEligibleInstances(ctx, task)
 	s.NoError(err)
 	s.Equal([]string{"1.1.1.1:4000"}, eligibleInstances)
+
+	// Test EligibleInstances with first instance not in live executors (fallback to current server)
+	// Note: This will fallback to current server's execID, which requires GetServerInfo to work
+	// Mock GetServerInfo to return a valid server info
+	mockServerInfoJSON := `{"ip": "127.0.0.1", "listening_port": 4000, "status_port": 10080, "ddl_id": "test-id", "server_id": 1, "start_timestamp": 1234567890, "lease": "45s", "labels": {}}`
+	s.enableFailPoint("github.com/pingcap/tidb/pkg/domain/infosync/mockGetServerInfo", fmt.Sprintf("return(`%s`)", mockServerInfoJSON))
+	task.Meta = []byte(`{"EligibleInstances":[{"ip": "3.3.3.3", "listening_port": 4000}]}`)
+	eligibleInstances, err = sch.GetEligibleInstances(ctx, task)
+	s.NoError(err)
+	// When the eligible instance is not in live executors, it falls back to current server
+	// The result should not be empty (contains current server's execID)
+	s.NotEmpty(eligibleInstances)
+	s.Len(eligibleInstances, 1)
+	s.Equal([]string{"127.0.0.1:4000"}, eligibleInstances)
 }
 
 func (s *importIntoSuite) TestUpdateCurrentTask() {

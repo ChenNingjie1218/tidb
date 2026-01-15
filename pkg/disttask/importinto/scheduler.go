@@ -32,6 +32,7 @@ import (
 	"github.com/pingcap/tidb/pkg/disttask/framework/proto"
 	"github.com/pingcap/tidb/pkg/disttask/framework/scheduler"
 	"github.com/pingcap/tidb/pkg/disttask/framework/storage"
+	"github.com/pingcap/tidb/pkg/domain/infosync"
 	"github.com/pingcap/tidb/pkg/errno"
 	"github.com/pingcap/tidb/pkg/executor/importer"
 	"github.com/pingcap/tidb/pkg/kv"
@@ -345,15 +346,35 @@ func (sch *ImportSchedulerExt) OnDone(ctx context.Context, handle storage.TaskHa
 }
 
 // GetEligibleInstances implements scheduler.Extension interface.
-func (*ImportSchedulerExt) GetEligibleInstances(_ context.Context, task *proto.Task) ([]string, error) {
+func (*ImportSchedulerExt) GetEligibleInstances(ctx context.Context, task *proto.Task) ([]string, error) {
 	taskMeta := &TaskMeta{}
 	err := json.Unmarshal(task.Meta, taskMeta)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
 	res := make([]string, 0, len(taskMeta.EligibleInstances))
-	for _, instance := range taskMeta.EligibleInstances {
-		res = append(res, disttaskutil.GenerateExecID(instance))
+	if len(taskMeta.EligibleInstances) > 0 {
+		liveExecIDs, err := scheduler.GetLiveExecIDs(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		execID := disttaskutil.GenerateExecID(taskMeta.EligibleInstances[0])
+		for _, liveExecID := range liveExecIDs {
+			if liveExecID == execID {
+				res = append(res, liveExecID)
+				break
+			}
+		}
+
+		if len(res) == 0 {
+			serverInfo, err := infosync.GetServerInfo()
+			if err != nil {
+				return nil, err
+			}
+			execID := disttaskutil.GenerateExecID(serverInfo)
+			res = append(res, execID)
+		}
 	}
 	return res, nil
 }

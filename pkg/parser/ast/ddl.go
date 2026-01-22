@@ -859,7 +859,8 @@ const (
 	ConstraintFulltext
 	ConstraintCheck
 	// ConstraintVector is only used in AST.
-	// It will be rewritten into ConstraintColumnar after preprocessor phase.
+	// It will be rewritten into ConstraintColumnar for HNSW/default (TiFlash columnar vector index),
+	// but kept as ConstraintVector for SPFresh (non-columnar vector index stored in KV layer).
 	ConstraintVector
 	ConstraintColumnar
 )

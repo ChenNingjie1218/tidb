@@ -91,13 +91,22 @@ func readResponseBodyForLog(ctx context.Context, resp *http.Response) []byte {
 	return body
 }
 
-func sendRequestWithRetry(ctx context.Context, httpClient *http.Client,
-	method, url string, data []byte, retryCounter prometheus.Counter) (*http.Response, error) {
+func sendRequestWithRetryInternal(
+	ctx context.Context,
+	httpClient *http.Client,
+	method, url string,
+	data []byte,
+	headers map[string]string,
+	retryCounter prometheus.Counter,
+) (*http.Response, error) {
 	var lastErr error
-	for retry := 0; retry < retryCount; retry++ {
+	for range retryCount {
 		req, err := http.NewRequestWithContext(ctx, method, url, bytes.NewReader(data))
 		if err != nil {
 			return nil, err
+		}
+		for k, v := range headers {
+			req.Header.Set(k, v)
 		}
 
 		resp, err := httpClient.Do(req)
@@ -134,6 +143,22 @@ func sendRequestWithRetry(ctx context.Context, httpClient *http.Client,
 
 	// Exceeded max retry count - lastErr is guaranteed to be non-nil now
 	return nil, errors.Wrap(lastErr, "exceeded max retry count")
+}
+
+func sendRequestWithRetry(ctx context.Context, httpClient *http.Client,
+	method, url string, data []byte, retryCounter prometheus.Counter) (*http.Response, error) {
+	return sendRequestWithRetryInternal(ctx, httpClient, method, url, data, nil, retryCounter)
+}
+
+func sendRequestWithRetryWithHeaders(
+	ctx context.Context,
+	httpClient *http.Client,
+	method, url string,
+	data []byte,
+	headers map[string]string,
+	retryCounter prometheus.Counter,
+) (*http.Response, error) {
+	return sendRequestWithRetryInternal(ctx, httpClient, method, url, data, headers, retryCounter)
 }
 
 func sendRequest(ctx context.Context, httpClient *http.Client,

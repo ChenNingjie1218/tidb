@@ -1318,9 +1318,10 @@ type IndexArg struct {
 	IndexOption             *ast.IndexOption              `json:"index_option,omitempty"`
 	HiddenCols              []*ColumnInfo                 `json:"hidden_cols,omitempty"`
 
+	// For vector index
+	FuncExpr string `json:"func_expr,omitempty"`
 	// For columnar index
-	FuncExpr   string `json:"func_expr,omitempty"`
-	IsColumnar bool   `json:"is_columnar,omitempty"`
+	IsColumnar bool `json:"is_columnar,omitempty"`
 	// ColumnarIndexType is used to distinguish different columnar index types.
 	// Only used for job args v2.
 	// Note: 1. when you want to read it, always calling `GetColumnarIndexType`` rather than using it directly.

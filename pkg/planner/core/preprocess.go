@@ -1135,7 +1135,7 @@ func isTableAliasDuplicate(node ast.ResultSetNode, tableAliases map[string]any) 
 	return nil
 }
 
-func checkIndexOptions(isColumnar bool, indexOptions *ast.IndexOption) error {
+func checkIndexOptions(isColumnar bool, isVector bool, indexOptions *ast.IndexOption) error {
 	if isColumnar && indexOptions == nil {
 		return dbterror.ErrUnsupportedIndexType.FastGen("COLUMNAR INDEX must specify 'USING <index_type>'")
 	}
@@ -1169,7 +1169,13 @@ func checkIndexOptions(isColumnar bool, indexOptions *ast.IndexOption) error {
 		}
 		switch indexOptions.Tp {
 		case pmodel.IndexTypeHNSW:
-			return dbterror.ErrUnsupportedIndexType.FastGen("'USING HNSW' can be only used for VECTOR INDEX")
+			if !isVector {
+				return dbterror.ErrUnsupportedIndexType.FastGen("'USING HNSW' can be only used for VECTOR INDEX")
+			}
+		case pmodel.IndexTypeSPFresh:
+			if !isVector {
+				return dbterror.ErrUnsupportedIndexType.FastGen("'USING SPFresh' can be only used for VECTOR INDEX")
+			}
 		case pmodel.IndexTypeVector /* , model.IndexTypeInverted */, pmodel.IndexTypeFulltext:
 			return dbterror.ErrUnsupportedIndexType.FastGen("'USING %s' can be only used for COLUMNAR INDEX", indexOptions.Tp)
 		default:
@@ -1185,7 +1191,7 @@ func checkIndexSpecs(indexOptions *ast.IndexOption, partSpecs []*ast.IndexPartSp
 		return nil
 	}
 	switch indexOptions.Tp {
-	case pmodel.IndexTypeVector:
+	case pmodel.IndexTypeSPFresh, pmodel.IndexTypeVector:
 		if len(partSpecs) != 1 || partSpecs[0].Expr == nil {
 			return dbterror.ErrUnsupportedAddColumnarIndex.FastGen("VECTOR INDEX must specify an expression like ((VEC_XX_DISTANCE(<COLUMN>)))")
 		}
@@ -1246,14 +1252,20 @@ func (p *preprocessor) checkCreateIndexGrammar(stmt *ast.CreateIndexStmt) {
 		return
 	}
 
-	// Rewrite CREATE VECTOR INDEX into CREATE COLUMNAR INDEX
-	if stmt.KeyType == ast.IndexKeyTypeVector {
-		if stmt.IndexOption.Tp != pmodel.IndexTypeInvalid && stmt.IndexOption.Tp != pmodel.IndexTypeHNSW {
+	// Rewrite CREATE VECTOR INDEX into CREATE COLUMNAR INDEX (HNSW/default),
+	// but keep it as non-columnar when USING SPFresh.
+	isVector := stmt.KeyType == ast.IndexKeyTypeVector
+	if isVector {
+		switch stmt.IndexOption.Tp {
+		case pmodel.IndexTypeInvalid, pmodel.IndexTypeHNSW:
+			stmt.KeyType = ast.IndexKeyTypeColumnar
+			stmt.IndexOption.Tp = pmodel.IndexTypeVector
+		case pmodel.IndexTypeSPFresh:
+			// keep as non-columnar vector index
+		default:
 			p.err = dbterror.ErrUnsupportedIndexType.FastGen("'USING %s' is not supported for VECTOR INDEX", stmt.IndexOption.Tp)
 			return
 		}
-		stmt.KeyType = ast.IndexKeyTypeColumnar
-		stmt.IndexOption.Tp = pmodel.IndexTypeVector
 	}
 	// Rewrite CREATE FULLTEXT INDEX into CREATE COLUMNAR INDEX
 	if stmt.KeyType == ast.IndexKeyTypeFulltext {
@@ -1265,7 +1277,7 @@ func (p *preprocessor) checkCreateIndexGrammar(stmt *ast.CreateIndexStmt) {
 		stmt.IndexOption.Tp = pmodel.IndexTypeFulltext
 	}
 
-	p.err = checkIndexOptions(stmt.KeyType == ast.IndexKeyTypeColumnar, stmt.IndexOption)
+	p.err = checkIndexOptions(stmt.KeyType == ast.IndexKeyTypeColumnar, isVector, stmt.IndexOption)
 	if p.err != nil {
 		return
 	}
@@ -1273,14 +1285,20 @@ func (p *preprocessor) checkCreateIndexGrammar(stmt *ast.CreateIndexStmt) {
 }
 
 func (p *preprocessor) checkConstraintGrammar(stmt *ast.Constraint) {
-	// Rewrite VECTOR INDEX into COLUMNAR INDEX
-	if stmt.Tp == ast.ConstraintVector {
-		if stmt.Option.Tp != pmodel.IndexTypeInvalid && stmt.Option.Tp != pmodel.IndexTypeHNSW {
+	// Rewrite VECTOR INDEX into COLUMNAR INDEX (HNSW/default),
+	// but keep it as non-columnar when USING SPFresh.
+	isVector := stmt.Tp == ast.ConstraintVector
+	if isVector {
+		switch stmt.Option.Tp {
+		case pmodel.IndexTypeInvalid, pmodel.IndexTypeHNSW:
+			stmt.Tp = ast.ConstraintColumnar
+			stmt.Option.Tp = pmodel.IndexTypeVector
+		case pmodel.IndexTypeSPFresh:
+			// keep as non-columnar vector index
+		default:
 			p.err = dbterror.ErrUnsupportedIndexType.FastGen("'USING %s' is not supported for VECTOR INDEX", stmt.Option.Tp)
 			return
 		}
-		stmt.Tp = ast.ConstraintColumnar
-		stmt.Option.Tp = pmodel.IndexTypeVector
 	}
 	// Rewrite FULLTEXT INDEX into COLUMNAR INDEX
 	if stmt.Tp == ast.ConstraintFulltext {
@@ -1292,7 +1310,7 @@ func (p *preprocessor) checkConstraintGrammar(stmt *ast.Constraint) {
 		stmt.Option.Tp = pmodel.IndexTypeFulltext
 	}
 
-	p.err = checkIndexOptions(stmt.Tp == ast.ConstraintColumnar, stmt.Option)
+	p.err = checkIndexOptions(stmt.Tp == ast.ConstraintColumnar, isVector, stmt.Option)
 	if p.err != nil {
 		return
 	}

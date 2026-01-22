@@ -54,6 +54,8 @@ type engineInfo struct {
 	unique       bool
 	openedEngine *backend.OpenedEngine
 	closedEngine *backend.ClosedEngine
+	// closeErr records the first error encountered in Close() which should block Import().
+	closeErr error
 
 	uuid        uuid.UUID
 	cfg         *backend.EngineConfig
@@ -111,6 +113,7 @@ func (ei *engineInfo) Close(cleanup bool) {
 	if err != nil {
 		logutil.Logger(ei.ctx).Error(LitErrCloseWriterErr, zap.Error(err),
 			zap.Int64("job ID", ei.jobID), zap.Int64("index ID", ei.indexID))
+		ei.setCloseErr(err)
 	}
 
 	indexEngine := ei.openedEngine
@@ -118,6 +121,7 @@ func (ei *engineInfo) Close(cleanup bool) {
 	if err != nil {
 		logutil.Logger(ei.ctx).Error(LitErrCloseEngineErr, zap.Error(err),
 			zap.Int64("job ID", ei.jobID), zap.Int64("index ID", ei.indexID))
+		ei.setCloseErr(err)
 		return
 	}
 	ei.openedEngine = nil
@@ -134,6 +138,9 @@ func (ei *engineInfo) Close(cleanup bool) {
 }
 
 func (ei *engineInfo) Import() error {
+	if ei.closeErr != nil {
+		return ei.closeErr
+	}
 	if ei.closedEngine == nil {
 		return nil
 	}
@@ -159,6 +166,13 @@ func (ei *engineInfo) Cleanup() {
 			zap.Int64("job ID", ei.jobID), zap.Int64("index ID", ei.indexID))
 	}
 	ei.closedEngine = nil
+}
+
+func (ei *engineInfo) setCloseErr(err error) {
+	if err == nil || ei.closeErr != nil {
+		return
+	}
+	ei.closeErr = err
 }
 
 // writerContext is used to keep a lightning local writer for each backfill worker.

@@ -754,6 +754,7 @@ import (
 	metadata              "METADATA"
 	min                   "MIN"
 	hnsw                  "HNSW"
+	spfresh               "SPFRESH"
 	next_row_id           "NEXT_ROW_ID"
 	now                   "NOW"
 	optRuleBlacklist      "OPT_RULE_BLACKLIST"
@@ -6713,6 +6714,10 @@ IndexTypeName:
 |	"HNSW"
 	{
 		$$ = model.IndexTypeHNSW
+	}
+|	"SPFRESH"
+	{
+		$$ = model.IndexTypeSPFresh
 	}
 
 IndexInvisible:

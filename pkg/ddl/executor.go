@@ -31,6 +31,7 @@ import (
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
 	"github.com/pingcap/tidb/pkg/config"
+	"github.com/pingcap/tidb/pkg/ddl/ingest"
 	"github.com/pingcap/tidb/pkg/ddl/label"
 	"github.com/pingcap/tidb/pkg/ddl/logutil"
 	"github.com/pingcap/tidb/pkg/ddl/resourcegroup"
@@ -1827,6 +1828,8 @@ func (e *executor) AlterTable(ctx context.Context, sctx sessionctx.Context, stmt
 				}
 			case ast.ConstraintColumnar:
 				err = e.createColumnarIndex(sctx, ident, pmodel.NewCIStr(constr.Name), spec.Constraint.Keys, constr.Option, constr.IfNotExists)
+			case ast.ConstraintVector:
+				err = e.createSPFreshVectorIndex(sctx, ident, pmodel.NewCIStr(constr.Name), spec.Constraint.Keys, constr.Option, constr.IfNotExists)
 			default:
 				// Nothing to do now.
 			}
@@ -4853,6 +4856,98 @@ func (e *executor) createColumnarIndex(sctx sessionctx.Context, ti ast.Ident, in
 	return errors.Trace(err)
 }
 
+func (e *executor) createSPFreshVectorIndex(
+	sctx sessionctx.Context,
+	ti ast.Ident,
+	indexName pmodel.CIStr,
+	indexPartSpecifications []*ast.IndexPartSpecification,
+	indexOption *ast.IndexOption,
+	ifNotExists bool,
+) error {
+	schema, t, err := e.getSchemaAndTableByIdent(ti)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	if t.Meta().TableCacheStatusType != model.TableCacheStatusDisable {
+		return errors.Trace(dbterror.ErrOptOnCacheTable.GenWithStackByArgs("Create Index"))
+	}
+
+	if !config.EnableRemoteBackend() {
+		return dbterror.ErrUnsupportedIndexType.FastGen("SPFresh vector index requires remote backend; set TiKVAPIServiceAddr (tikv_api_service_addr)")
+	}
+	if !ingest.LitInitialized {
+		return dbterror.ErrUnsupportedIndexType.FastGen("SPFresh vector index requires ingest environment to be initialized")
+	}
+
+	metaBuildCtx := NewMetaBuildContextWithSctx(sctx)
+	indexName, _, err = checkIndexNameAndColumns(metaBuildCtx, t, indexName, indexPartSpecifications, pmodel.ColumnarIndexTypeVector, ifNotExists)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	if len(indexName.L) == 0 {
+		// IF NOT EXISTS + duplicated name.
+		return nil
+	}
+
+	tblInfo := t.Meta()
+	_, funcExpr, err := buildVectorInfoWithCheck(indexPartSpecifications, indexOption, tblInfo)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	// Validate index columns now (before job enqueued).
+	_, _, err = buildIndexColumns(metaBuildCtx, tblInfo.Columns, indexPartSpecifications, pmodel.ColumnarIndexTypeVector)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	// May be truncate comment here, when index comment too long and sql_mode is strict.
+	if indexOption != nil {
+		sessionVars := sctx.GetSessionVars()
+		if _, err = validateCommentLength(sessionVars.StmtCtx.ErrCtx(), sessionVars.SQLMode, indexName.String(), &indexOption.Comment, dbterror.ErrTooLongIndexComment); err != nil {
+			return errors.Trace(err)
+		}
+	}
+
+	job := buildAddIndexJobWithoutTypeAndArgs(sctx, schema, t)
+	job.Version = model.GetJobVerInUse()
+	job.Type = model.ActionAddIndex
+	job.CDCWriteSource = sctx.GetSessionVars().CDCWriteSource
+
+	err = initJobReorgMetaFromVariables(job, sctx)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	// SPFresh vector index backfill must use ingest (remote backend).
+	job.ReorgMeta.ReorgTp = model.ReorgTypeLitMerge
+
+	// ExprNode is not JSON-serializable in job args; keep it in FuncExpr instead.
+	indexPartSpecifications[0].Expr = nil
+
+	args := &model.ModifyIndexArgs{
+		IndexArgs: []*model.IndexArg{{
+			Unique:                  false,
+			IndexName:               indexName,
+			IndexPartSpecifications: indexPartSpecifications,
+			IndexOption:             indexOption,
+			Global:                  false,
+			FuncExpr:                funcExpr,
+			IsColumnar:              false,
+			ColumnarIndexType:       pmodel.ColumnarIndexTypeNA,
+		}},
+		OpType: model.OpAddIndex,
+	}
+
+	err = e.doDDLJob2(sctx, job, args)
+	// key exists, but if_not_exists flags is true, so we ignore this error.
+	if dbterror.ErrDupKeyName.Equal(err) && ifNotExists {
+		sctx.GetSessionVars().StmtCtx.AppendNote(err)
+		return nil
+	}
+	return errors.Trace(err)
+}
+
 func buildAddIndexJobWithoutTypeAndArgs(ctx sessionctx.Context, schema *model.DBInfo, t table.Table) *model.Job {
 	charset, collate := ctx.GetSessionVars().GetCharsetInfo()
 	job := &model.Job{
@@ -4903,6 +4998,8 @@ func (e *executor) createIndex(ctx sessionctx.Context, ti ast.Ident, keyType ast
 	switch keyType {
 	case ast.IndexKeyTypeSpatial:
 		return dbterror.ErrUnsupportedIndexType.GenWithStack("SPATIAL index is not supported")
+	case ast.IndexKeyTypeVector:
+		return e.createSPFreshVectorIndex(ctx, ti, indexName, indexPartSpecifications, indexOption, ifNotExists)
 	case ast.IndexKeyTypeColumnar:
 		return e.createColumnarIndex(ctx, ti, indexName, indexPartSpecifications, indexOption, ifNotExists)
 	}

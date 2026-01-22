@@ -44,6 +44,8 @@ type VectorIndexKind string
 const (
 	// VectorIndexKindHNSW is HNSW index.
 	VectorIndexKindHNSW VectorIndexKind = "HNSW"
+	// VectorIndexKindSPFresh is SPFresh index.
+	VectorIndexKindSPFresh VectorIndexKind = "SPFresh"
 )
 
 // IndexableFnNameToDistanceMetric maps a distance function name to the distance metric.
@@ -61,7 +63,7 @@ var IndexableDistanceMetricToFnName = map[DistanceMetric]string{
 
 // VectorIndexInfo is the information of vector index of a column.
 type VectorIndexInfo struct {
-	// Kind is the kind of vector index. Currently only HNSW is supported.
+	// Kind is the kind of vector index.
 	Kind VectorIndexKind `json:"kind"`
 	// Dimension is the dimension of the vector.
 	Dimension uint64 `json:"dimension"`
@@ -137,7 +139,11 @@ func (index *IndexInfo) IsPublic() bool {
 // IsColumnarIndex checks whether the index is a columnar index.
 // Columnar index only exists in TiFlash, no actual index data need to be written to KV layer.
 func (index *IndexInfo) IsColumnarIndex() bool {
-	return index.VectorInfo != nil || index.FullTextInfo != nil
+	// SPFresh vector index is not a columnar index; it is stored in KV layer.
+	if index.FullTextInfo != nil || (index.VectorInfo != nil && index.Tp != model.IndexTypeSPFresh) {
+		return true
+	}
+	return false
 }
 
 // GetColumnarIndexType returns the type of columnar index.

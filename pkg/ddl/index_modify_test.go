@@ -27,7 +27,9 @@ import (
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
+	"github.com/pingcap/tidb/pkg/config"
 	"github.com/pingcap/tidb/pkg/ddl"
+	ingesttestutil "github.com/pingcap/tidb/pkg/ddl/ingest/testutil"
 	testddlutil "github.com/pingcap/tidb/pkg/ddl/testutil"
 	"github.com/pingcap/tidb/pkg/domain/infosync"
 	"github.com/pingcap/tidb/pkg/errno"
@@ -1169,6 +1171,18 @@ func TestCreateTableWithVectorIndex(t *testing.T) {
 	tk.MustContainErrMsg("create table t(a int, b vector(3), vector index((VEC_COSINE_DISTANCE(b))) USING HNSW);",
 		"columnar store (TiFlash) must be deployed in the cluster in order to use columnar index")
 
+	// SPFresh vector index is a non-columnar index, so it should work without TiFlash.
+	tk.MustExec("create table t_spfresh(a int, b vector(3), vector index((VEC_COSINE_DISTANCE(b))) USING SPFresh);")
+	tbl, err := dom.InfoSchema().TableByName(context.Background(), pmodel.NewCIStr("test"), pmodel.NewCIStr("t_spfresh"))
+	require.NoError(t, err)
+	require.Nil(t, tbl.Meta().TiFlashReplica)
+	require.Equal(t, 1, len(tbl.Meta().Indices))
+	require.Equal(t, pmodel.IndexTypeSPFresh, tbl.Meta().Indices[0].Tp)
+	require.NotNil(t, tbl.Meta().Indices[0].VectorInfo)
+	require.Equal(t, model.VectorIndexKindSPFresh, tbl.Meta().Indices[0].VectorInfo.Kind)
+	require.False(t, tbl.Meta().Indices[0].IsColumnarIndex())
+	tk.MustExec("drop table t_spfresh")
+
 	// test TiFlash store count is 2
 	store, dom = testkit.CreateMockStoreAndDomainWithSchemaLease(t, tiflashReplicaLease, mockstore.WithMockTiFlash(2))
 	tk = testkit.NewTestKit(t, store)
@@ -1194,6 +1208,88 @@ func TestCreateTableWithVectorIndex(t *testing.T) {
 	// a vector index with invisible
 	tk.MustContainErrMsg("create table t(a int, b vector(3), vector index((VEC_COSINE_DISTANCE(b))) USING HNSW INVISIBLE)",
 		"INVISIBLE can not be used in VECTOR INDEX")
+}
+
+func TestSPFreshVectorIndexRequiresRemoteBackend(t *testing.T) {
+	store, _ := testkit.CreateMockStoreAndDomain(t)
+	tk := testkit.NewTestKit(t, store)
+	tk.MustExec("use test")
+	tk.MustExec("create table t(a int, b vector(3));")
+	tk.MustContainErrMsg("alter table t add vector index idx((VEC_COSINE_DISTANCE(b))) USING SPFresh;",
+		"SPFresh vector index requires remote backend")
+}
+
+func TestCreateSPFreshVectorIndexRequiresRemoteBackend(t *testing.T) {
+	store, _ := testkit.CreateMockStoreAndDomain(t)
+	tk := testkit.NewTestKit(t, store)
+	tk.MustExec("use test")
+	tk.MustExec("create table t(a int, b vector(3));")
+	tk.MustContainErrMsg("create vector index idx on t ((VEC_COSINE_DISTANCE(b))) USING SPFresh;",
+		"SPFresh vector index requires remote backend")
+}
+
+func TestVectorIndexDistanceFunctionArgsValidation(t *testing.T) {
+	restore := config.RestoreFunc()
+	config.UpdateGlobal(func(conf *config.Config) {
+		conf.TiKVAPIServiceAddr = "http://127.0.0.1:1234"
+	})
+	defer restore()
+
+	store, _ := testkit.CreateMockStoreAndDomain(t)
+	defer ingesttestutil.InjectMockBackendMgr(t, store)()
+	tk := testkit.NewTestKit(t, store)
+	tk.MustExec("use test")
+	tk.MustExec("create table t(a int, b vector(3));")
+	tk.MustContainErrMsg("alter table t add vector index idx((VEC_COSINE_DISTANCE())) USING SPFresh;",
+		"a vector distance function must have exactly one argument")
+}
+
+func TestAddSPFreshVectorIndexIsNotColumnar(t *testing.T) {
+	restore := config.RestoreFunc()
+	config.UpdateGlobal(func(conf *config.Config) {
+		conf.TiKVAPIServiceAddr = "http://127.0.0.1:1234"
+	})
+	defer restore()
+
+	store, dom := testkit.CreateMockStoreAndDomain(t)
+	defer ingesttestutil.InjectMockBackendMgr(t, store)()
+	tk := testkit.NewTestKit(t, store)
+	tk.MustExec("use test")
+	tk.MustExec("create table t(a int, b vector(3));")
+	tk.MustExec("alter table t add vector index idx((VEC_COSINE_DISTANCE(b))) USING SPFresh;")
+
+	tbl, err := dom.InfoSchema().TableByName(context.Background(), pmodel.NewCIStr("test"), pmodel.NewCIStr("t"))
+	require.NoError(t, err)
+	require.Nil(t, tbl.Meta().TiFlashReplica)
+	require.Equal(t, 1, len(tbl.Meta().Indices))
+	require.Equal(t, pmodel.IndexTypeSPFresh, tbl.Meta().Indices[0].Tp)
+	require.NotNil(t, tbl.Meta().Indices[0].VectorInfo)
+	require.Equal(t, model.VectorIndexKindSPFresh, tbl.Meta().Indices[0].VectorInfo.Kind)
+	require.False(t, tbl.Meta().Indices[0].IsColumnarIndex())
+}
+
+func TestCreateSPFreshVectorIndexIsNotColumnar(t *testing.T) {
+	restore := config.RestoreFunc()
+	config.UpdateGlobal(func(conf *config.Config) {
+		conf.TiKVAPIServiceAddr = "http://127.0.0.1:1234"
+	})
+	defer restore()
+
+	store, dom := testkit.CreateMockStoreAndDomain(t)
+	defer ingesttestutil.InjectMockBackendMgr(t, store)()
+	tk := testkit.NewTestKit(t, store)
+	tk.MustExec("use test")
+	tk.MustExec("create table t(a int, b vector(3));")
+	tk.MustExec("create vector index idx on t ((VEC_COSINE_DISTANCE(b))) USING SPFresh;")
+
+	tbl, err := dom.InfoSchema().TableByName(context.Background(), pmodel.NewCIStr("test"), pmodel.NewCIStr("t"))
+	require.NoError(t, err)
+	require.Nil(t, tbl.Meta().TiFlashReplica)
+	require.Equal(t, 1, len(tbl.Meta().Indices))
+	require.Equal(t, pmodel.IndexTypeSPFresh, tbl.Meta().Indices[0].Tp)
+	require.NotNil(t, tbl.Meta().Indices[0].VectorInfo)
+	require.Equal(t, model.VectorIndexKindSPFresh, tbl.Meta().Indices[0].VectorInfo.Kind)
+	require.False(t, tbl.Meta().Indices[0].IsColumnarIndex())
 }
 
 func TestVectorColumnWithIndex(t *testing.T) {

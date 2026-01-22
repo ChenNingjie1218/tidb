@@ -433,6 +433,7 @@ var tokenMap = map[string]int{
 	"HISTORY":                        history,
 	"HISTOGRAM":                      histogram,
 	"HNSW":                           hnsw,
+	"SPFRESH":                        spfresh,
 	"HOSTS":                          hosts,
 	"HOUR_MICROSECOND":               hourMicrosecond,
 	"HOUR_MINUTE":                    hourMinute,

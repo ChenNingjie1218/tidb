@@ -111,6 +111,14 @@ type EngineConfig struct {
 	EstimatedDataSize int64
 	// ValidCheckpoint indicates whether the checkpoint is valid
 	ValidCheckpoint bool
+
+	// VectorIndex indicates this engine is used to backfill a vector index.
+	// When set (currently only for SPFresh), the remote backend uses the
+	// /vector_load API and the written KVs are encoded as handle+vector records
+	// instead of index KVs.
+	//
+	// Note: This is currently only supported by the remote backend.
+	VectorIndex *model.VectorIndexInfo
 }
 
 // LocalEngineConfig is the configuration used for local backend in OpenEngine.

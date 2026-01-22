@@ -1069,7 +1069,8 @@ func setEmptyConstraintName(namesMap map[string]bool, constr *ast.Constraint) {
 		var colName string
 		for _, keyPart := range constr.Keys {
 			if keyPart.Expr != nil {
-				colName = getAnonymousIndexPrefix(constr.Option != nil && constr.Option.Tp == pmodel.IndexTypeVector)
+				isVector := constr.Tp == ast.ConstraintVector || (constr.Option != nil && constr.Option.Tp == pmodel.IndexTypeVector)
+				colName = getAnonymousIndexPrefix(isVector)
 			}
 		}
 		if colName == "" {
@@ -1302,7 +1303,7 @@ func BuildTableInfo(
 	foreignKeyID := tbInfo.MaxForeignKeyID
 	for _, constr := range constraints {
 		var hiddenCols []*model.ColumnInfo
-		if constr.Tp != ast.ConstraintColumnar {
+		if constr.Tp != ast.ConstraintColumnar && constr.Tp != ast.ConstraintVector {
 			// Build hidden columns if necessary.
 			hiddenCols, err = buildHiddenColumnInfoWithCheck(ctx, constr.Keys, pmodel.NewCIStr(constr.Name), tbInfo, tblColumns)
 			if err != nil {
@@ -1384,6 +1385,9 @@ func BuildTableInfo(
 			indexName = mysql.PrimaryKeyName
 		case ast.ConstraintUniq, ast.ConstraintUniqKey, ast.ConstraintUniqIndex:
 			unique = true
+		case ast.ConstraintVector:
+			// SPFresh VECTOR INDEX is stored in KV layer (non-columnar).
+			// Keep ColumnarIndexType as NA to avoid TiFlash-related behaviors.
 		case ast.ConstraintColumnar:
 			switch constr.Option.Tp {
 			case pmodel.IndexTypeVector:

@@ -17,6 +17,8 @@ package ingest
 import (
 	"github.com/pingcap/errors"
 	"github.com/pingcap/tidb/pkg/lightning/backend"
+	"github.com/pingcap/tidb/pkg/lightning/backend/remote"
+	"github.com/pingcap/tidb/pkg/meta/model"
 	"github.com/pingcap/tidb/pkg/table"
 	"github.com/pingcap/tidb/pkg/util/logutil"
 	"go.uber.org/zap"
@@ -60,6 +62,12 @@ func (bc *litBackendCtx) Register(indexIDs []int64, uniques []bool, jobID, dataS
 	tableID := tbl.Meta().ID
 	for i, indexID := range indexIDs {
 		cfg := generateLocalEngineConfig(ts, tableID, jobID, indexID, dataSize)
+		if idxInfo := model.FindIndexInfoByID(tbl.Meta().Indices, indexID); idxInfo != nil && idxInfo.VectorInfo != nil && idxInfo.VectorInfo.Kind == model.VectorIndexKindSPFresh {
+			if _, ok := bc.backend.(*remote.Backend); !ok {
+				return nil, errors.New("vector index ingest requires remote backend")
+			}
+			cfg.VectorIndex = idxInfo.VectorInfo
+		}
 
 		openedEngine, err := mgr.OpenEngine(bc.ctx, cfg, tbl.Meta().Name.L, int32(indexID))
 		if err != nil {

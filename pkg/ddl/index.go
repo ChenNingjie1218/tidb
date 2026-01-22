@@ -367,7 +367,14 @@ func BuildIndexInfo(
 		Unique:  isUnique,
 	}
 
-	switch columnarIndexType {
+	// ColumnarIndexTypeVector is also used to represent vector-index semantics (vector metadata +
+	// special column checks). For SPFresh (stored in KV, non-columnar), the caller may pass NA.
+	effectiveColumnarIndexType := columnarIndexType
+	if effectiveColumnarIndexType == pmodel.ColumnarIndexTypeNA && indexOption != nil && indexOption.Tp == pmodel.IndexTypeSPFresh {
+		effectiveColumnarIndexType = pmodel.ColumnarIndexTypeVector
+	}
+
+	switch effectiveColumnarIndexType {
 	case pmodel.ColumnarIndexTypeNA:
 		// Do nothing.
 	case pmodel.ColumnarIndexTypeVector:
@@ -388,7 +395,7 @@ func BuildIndexInfo(
 
 	var err error
 	allTableColumns := tblInfo.Columns
-	idxInfo.Columns, idxInfo.MVIndex, err = buildIndexColumns(ctx, allTableColumns, indexPartSpecifications, columnarIndexType)
+	idxInfo.Columns, idxInfo.MVIndex, err = buildIndexColumns(ctx, allTableColumns, indexPartSpecifications, effectiveColumnarIndexType)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -424,9 +431,12 @@ func buildVectorInfoWithCheck(indexPartSpecifications []*ast.IndexPartSpecificat
 	if !ok {
 		return nil, "", dbterror.ErrUnsupportedAddColumnarIndex.FastGenByArgs("a vector distance function must be specified")
 	}
+	if len(f.Args) != 1 {
+		return nil, "", dbterror.ErrUnsupportedAddColumnarIndex.FastGenByArgs("a vector distance function must have exactly one argument")
+	}
 	distanceMetric, ok := model.IndexableFnNameToDistanceMetric[f.FnName.L]
 	if !ok {
-		return nil, "", dbterror.ErrUnsupportedAddColumnarIndex.FastGenByArgs("currently only VEC_L2_DISTANCE and VEC_COSINE_DISTANCE is supported in vector index")
+		return nil, "", dbterror.ErrUnsupportedAddColumnarIndex.FastGenByArgs("currently only VEC_L2_DISTANCE and VEC_COSINE_DISTANCE are supported in vector index")
 	}
 	colExpr, ok := f.Args[0].(*ast.ColumnNameExpr)
 	if !ok {
@@ -460,12 +470,16 @@ func buildVectorInfoWithCheck(indexPartSpecifications []*ast.IndexPartSpecificat
 		return nil, "", errors.Trace(err)
 	}
 
-	// It's used for build buildIndexColumns.
+	// It's used to build index columns.
 	idxPart.Column = &ast.ColumnName{Name: colInfo.Name}
 	idxPart.Length = types.UnspecifiedLength
 
+	kind := model.VectorIndexKindHNSW
+	if indexOption != nil && indexOption.Tp == pmodel.IndexTypeSPFresh {
+		kind = model.VectorIndexKindSPFresh
+	}
 	return &model.VectorIndexInfo{
-		Kind:           model.VectorIndexKindHNSW,
+		Kind:           kind,
 		Dimension:      uint64(colInfo.FieldType.GetFlen()),
 		DistanceMetric: distanceMetric,
 	}, exprStr, nil
@@ -1126,6 +1140,18 @@ func (w *worker) onCreateIndex(jobCtx *jobContext, job *model.Job, isPK bool) (v
 
 	allIndexInfos := make([]*model.IndexInfo, 0, len(args.IndexArgs))
 	for _, arg := range args.IndexArgs {
+		// For SPFresh vector index (non-columnar), the index part expression is stored in FuncExpr
+		// to keep job args JSON-serializable.
+		if !arg.IsColumnar && arg.FuncExpr != "" {
+			arg.IndexPartSpecifications[0].Expr, err = generatedexpr.ParseExpression(arg.FuncExpr)
+			if err != nil {
+				job.State = model.JobStateCancelled
+				return ver, errors.Trace(err)
+			}
+			defer func(idxPart *ast.IndexPartSpecification) {
+				idxPart.Expr = nil
+			}(arg.IndexPartSpecifications[0])
+		}
 		indexInfo, err := checkAndBuildIndexInfo(job, tblInfo, pmodel.ColumnarIndexTypeNA, job.Type == model.ActionAddPrimaryKey, arg)
 		if err != nil {
 			job.State = model.JobStateCancelled
@@ -2335,6 +2361,42 @@ func getLocalWriterConfig(indexCnt, writerCnt int) *backend.LocalWriterConfig {
 	return writerCfg
 }
 
+func writeVectorIndexRecord(
+	ctx context.Context,
+	writer ingest.Writer,
+	vecInfo *model.VectorIndexInfo,
+	idxData []types.Datum,
+	handle kv.Handle,
+) error {
+	// For vector index, we don't need to encode index KVs. Instead, we send
+	// handle+vector records to the remote backend and let TiKV build the index.
+	//
+	// The remote backend expects:
+	//   u16(handle_len) || handle || f32[dims]
+	//
+	// We use Datum's VectorFloat32 on-wire format:
+	//   u32(dims) || f32[dims]
+	//
+	// so we strip the first 4 bytes (dims).
+	if len(idxData) != 1 {
+		return errors.Errorf("invalid vector index columns length %d", len(idxData))
+	}
+	if idxData[0].IsNull() {
+		return nil
+	}
+	vec := idxData[0].GetVectorFloat32()
+	expectedDims := int(vecInfo.Dimension)
+	if vec.Len() != expectedDims {
+		return errors.Errorf("vector dimension mismatch, expected %d, got %d", expectedDims, vec.Len())
+	}
+	serialized := vec.ZeroCopySerialize()
+	expectedLen := 4 + expectedDims*4
+	if len(serialized) != expectedLen {
+		return errors.Errorf("invalid vector encoding length %d, expected %d", len(serialized), expectedLen)
+	}
+	return errors.Trace(writer.WriteRow(ctx, handle.Encoded(), serialized[4:], nil))
+}
+
 func writeChunk(
 	ctx context.Context,
 	writers []ingest.Writer,
@@ -2397,6 +2459,12 @@ func writeChunk(
 			idxDataBuf = ExtractDatumByOffsets(ectx,
 				row, copCtx.IndexColumnOutputOffsets(idxID), c.ExprColumnInfos, idxDataBuf)
 			idxData := idxDataBuf[:len(index.Meta().Columns)]
+			if vecInfo := index.Meta().VectorInfo; vecInfo != nil && vecInfo.Kind == model.VectorIndexKindSPFresh {
+				if err := writeVectorIndexRecord(ctx, writers[i], vecInfo, idxData, h); err != nil {
+					return 0, nil, err
+				}
+				continue
+			}
 			var rsData []types.Datum
 			if needRestoreForIndexes[i] {
 				rsData = getRestoreData(c.TableInfo, copCtx.IndexInfo(idxID), c.PrimaryKeyInfo, restoreDataBuf)

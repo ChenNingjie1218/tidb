@@ -210,6 +210,8 @@ func (t IndexType) String() string {
 		return "HNSW"
 	case IndexTypeFulltext:
 		return "FULLTEXT"
+	case IndexTypeSPFresh:
+		return "SPFRESH"
 	default:
 		return ""
 	}
@@ -227,6 +229,9 @@ const (
 	// It will be rewritten into IndexTypeVector after preprocessor phase.
 	IndexTypeHNSW
 	IndexTypeFulltext
+	// IndexTypeSPFresh is only used in AST for VECTOR INDEX.
+	// It will be rewritten into a non-columnar vector index after preprocessor phase.
+	IndexTypeSPFresh
 )
 
 // ColumnarIndexType is the type of columnar index.

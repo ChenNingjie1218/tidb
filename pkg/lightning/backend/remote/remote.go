@@ -43,6 +43,7 @@ import (
 	"github.com/pingcap/tidb/pkg/lightning/errormanager"
 	"github.com/pingcap/tidb/pkg/lightning/log"
 	"github.com/pingcap/tidb/pkg/lightning/metric"
+	"github.com/pingcap/tidb/pkg/meta/model"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/tikv/client-go/v2/oracle"
 	tikvclient "github.com/tikv/client-go/v2/tikv"
@@ -83,6 +84,13 @@ const (
 	maxConnsPerHost = 10
 )
 
+type taskType uint8
+
+const (
+	taskTypeLoadData taskType = iota
+	taskTypeVectorLoad
+)
+
 // LoadDataStates is json data that returned by remote server GET API.
 type LoadDataStates struct {
 	TaskID          string `json:"task-id"`
@@ -94,6 +102,15 @@ type LoadDataStates struct {
 	TotalKVs        int64  `json:"total-kvs"`
 
 	DuplicateEntries []duplicateEntry `json:"duplicated-entries"`
+}
+
+// VectorLoadStates is json data that returned by remote server /vector_load GET API.
+type VectorLoadStates struct {
+	TaskID   string `json:"task_id"`
+	Status   string `json:"status"`
+	Canceled bool   `json:"canceled"`
+	Finished bool   `json:"finished"`
+	Error    string `json:"error"`
 }
 
 type duplicateEntry struct {
@@ -338,14 +355,19 @@ func (b *Backend) OpenEngine(ctx context.Context, cfg *backend.EngineConfig, eng
 	ts := oracle.ComposeTS(physical, logical)
 
 	loadDataTaskID := genLoadDataTaskID(b.keyspaceID, cfg)
+	tt := taskTypeLoadData
+	if cfg.VectorIndex != nil && cfg.VectorIndex.Kind == model.VectorIndexKindSPFresh {
+		tt = taskTypeVectorLoad
+	}
 	var retryCounter prometheus.Counter
 	if b.metrics != nil {
 		retryCounter = b.metrics.RemoteClientRetryCounter.WithLabelValues(loadDataTaskID)
 	}
-	e, _ := b.engines.LoadOrStore(engineUUID, &engine{
+	e, loaded := b.engines.LoadOrStore(engineUUID, &engine{
 		ctx:            ctx,
 		logger:         log.With(zap.String("loadDataTaskID", loadDataTaskID)),
 		loadDataTaskID: loadDataTaskID,
+		engineID:       cfg.EngineID,
 		ts:             ts,
 		tbl:            cfg.TableInfo,
 		addr:           b.workerAddr,
@@ -353,12 +375,23 @@ func (b *Backend) OpenEngine(ctx context.Context, cfg *backend.EngineConfig, eng
 		writers:        sync.Map{},
 		httpClient:     b.httpClient,
 		backend:        b,
+		taskType:       tt,
+		vectorIndex:    cfg.VectorIndex,
 
 		retryCounter: retryCounter,
 	})
 	engine := e.(*engine)
+	// If engine already exists (e.g. resume or retry), these fields should
+	// already be set correctly from the initial creation. We only need to
+	// verify consistency, not update them, to avoid data races.
+	if loaded && engine.taskType != tt {
+		b.logger.Warn("engine task type mismatch on reload",
+			zap.String("loadDataTaskID", loadDataTaskID),
+			zap.Uint8("existing", uint8(engine.taskType)),
+			zap.Uint8("new", uint8(tt)))
+	}
 	if cfg.ValidCheckpoint {
-		exist, err := b.checkLoadDataTask(ctx, cfg)
+		exist, err := b.checkTask(ctx, cfg)
 		if err != nil {
 			return err
 		}
@@ -370,7 +403,11 @@ func (b *Backend) OpenEngine(ctx context.Context, cfg *backend.EngineConfig, eng
 
 	if engine.loadDataTaskID == loadDataTaskID {
 		// newly created engine.
-		err = b.loadDataInit(ctx, engine, cfg.EstimatedDataSize)
+		if engine.taskType == taskTypeVectorLoad {
+			err = b.vectorLoadInit(ctx, engine)
+		} else {
+			err = b.loadDataInit(ctx, engine, cfg.EstimatedDataSize)
+		}
 		if err != nil {
 			b.engines.Delete(engineUUID)
 			return err
@@ -433,11 +470,94 @@ func (b *Backend) loadDataInit(ctx context.Context, engine *engine, dataSize int
 	}
 }
 
+type vectorLoadInitRequest struct {
+	KeyspaceID     uint32 `json:"keyspace_id"`
+	TableID        int64  `json:"table_id"`
+	IndexID        int64  `json:"index_id"`
+	Dims           uint64 `json:"dims"`
+	DistanceMetric string `json:"distance_metric"`
+	Seed           uint64 `json:"seed"`
+}
+
+func vectorDistanceMetricToAPI(metric model.DistanceMetric) (string, error) {
+	switch metric {
+	case model.DistanceMetricL2:
+		return "l2", nil
+	case model.DistanceMetricCosine:
+		return "cosine", nil
+	case model.DistanceMetricInnerProduct:
+		return "inner_product", nil
+	default:
+		return "", errors.Errorf("unknown vector distance metric %q", metric)
+	}
+}
+
+func (b *Backend) vectorLoadInit(ctx context.Context, engine *engine) error {
+	if engine.vectorIndex == nil {
+		return errors.New("vector index info is not set")
+	}
+	distMetric, err := vectorDistanceMetricToAPI(engine.vectorIndex.DistanceMetric)
+	if err != nil {
+		return err
+	}
+	body, err := json.Marshal(&vectorLoadInitRequest{
+		KeyspaceID:     b.keyspaceID,
+		TableID:        engine.tbl.ID,
+		IndexID:        int64(engine.engineID),
+		Dims:           engine.vectorIndex.Dimension,
+		DistanceMetric: distMetric,
+		Seed:           0,
+	})
+	if err != nil {
+		return err
+	}
+
+	headers := map[string]string{
+		"Content-Type": "application/json",
+	}
+	for {
+		url := fmt.Sprintf("%s/vector_load?cluster_id=%d&task_id=%s", engine.addr, engine.clusterID, engine.loadDataTaskID)
+		client := *b.httpClient
+		client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		}
+
+		resp, err := sendRequestWithRetryWithHeaders(ctx, &client, "POST", url, body, headers, engine.retryCounter)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode == http.StatusFound {
+			engine.addr = strings.TrimSuffix(resp.Header.Get("Location"), "/vector_load")
+			b.logger.Info("redirect to vectorLoad worker",
+				zap.String("taskID", engine.loadDataTaskID),
+				zap.String("worker addr", engine.addr))
+			continue
+		}
+		if resp.StatusCode != http.StatusOK {
+			msg, readErr := io.ReadAll(resp.Body)
+			if readErr == nil && strings.TrimSpace(string(msg)) == taskExitsMsg {
+				b.logger.Info("vectorLoad task has inited in vector_load worker",
+					zap.String("taskID", engine.loadDataTaskID),
+					zap.String("worker addr", engine.addr))
+				return nil
+			}
+			b.logger.Error("failed to init vector load task",
+				zap.String("taskID", engine.loadDataTaskID),
+				zap.String("status", resp.Status),
+				zap.ByteString("msg", msg))
+			return ErrInitTask
+		}
+		return nil
+	}
+}
+
 // CloseEngine closes backend engine by uuid.
 func (b *Backend) CloseEngine(ctx context.Context, cfg *backend.EngineConfig, engineUUID uuid.UUID) error {
 	engine, err := b.getEngine(engineUUID)
 	if err != nil {
-		exist, err := b.checkLoadDataTask(ctx, cfg)
+		exist, err := b.checkTask(ctx, cfg)
 		if err != nil {
 			return err
 		}
@@ -476,6 +596,13 @@ func (b *Backend) CloseEngine(ctx context.Context, cfg *backend.EngineConfig, en
 	}
 
 	return err
+}
+
+func (b *Backend) checkTask(ctx context.Context, cfg *backend.EngineConfig) (bool, error) {
+	if cfg.VectorIndex != nil && cfg.VectorIndex.Kind == model.VectorIndexKindSPFresh {
+		return b.checkVectorLoadTask(ctx, cfg)
+	}
+	return b.checkLoadDataTask(ctx, cfg)
 }
 
 func (b *Backend) checkLoadDataTask(ctx context.Context, cfg *backend.EngineConfig) (bool, error) {
@@ -522,11 +649,99 @@ func (b *Backend) checkLoadDataTask(ctx context.Context, cfg *backend.EngineConf
 	}
 }
 
+func (b *Backend) checkVectorLoadTask(ctx context.Context, cfg *backend.EngineConfig) (bool, error) {
+	clusterID := b.pdCtl.GetPDClient().GetClusterID(ctx)
+	taskID := genLoadDataTaskID(b.keyspaceID, cfg)
+	addr := b.workerAddr
+
+	var retryCounter prometheus.Counter
+	if b.metrics != nil {
+		retryCounter = b.metrics.RemoteClientRetryCounter.WithLabelValues(taskID)
+	}
+	for {
+		url := fmt.Sprintf("%s/vector_load?cluster_id=%d&task_id=%s", addr, clusterID, taskID)
+		client := *b.httpClient
+		client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		}
+
+		resp, err := sendRequestWithRetry(ctx, &client, "GET", url, nil, retryCounter)
+		if err != nil {
+			return false, err
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode == http.StatusFound {
+			addr = strings.TrimSuffix(resp.Header.Get("Location"), "/vector_load")
+			b.logger.Info("redirect to vectorLoad worker",
+				zap.String("taskID", taskID),
+				zap.String("worker addr", addr))
+			continue
+		}
+		if resp.StatusCode != http.StatusOK {
+			if resp.StatusCode == http.StatusNotFound {
+				return false, nil
+			}
+			msg, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return false, err
+			}
+			b.logger.Warn("failed to get vector load task", zap.String("status", resp.Status), zap.String("msg", string(msg)))
+			return false, ErrGetTaskState
+		}
+		return true, nil
+	}
+}
+
+func (b *Backend) importVectorLoadEngine(ctx context.Context, engine *engine) error {
+	if err := b.vectorLoadFinalize(ctx, engine); err != nil {
+		return err
+	}
+	start := time.Now()
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			states, err := b.vectorLoadGetStates(ctx, engine)
+			if err != nil {
+				return err
+			}
+			if states.Canceled || strings.EqualFold(states.Status, "canceled") {
+				b.logger.Error("vectorLoad canceled",
+					zap.String("taskID", engine.loadDataTaskID),
+					zap.String("error", states.Error))
+				return ErrTaskCanceled
+			}
+			if states.Error != "" || strings.EqualFold(states.Status, "error") {
+				b.logger.Error("vectorLoad failed",
+					zap.String("taskID", engine.loadDataTaskID),
+					zap.String("status", states.Status),
+					zap.String("error", states.Error))
+				return errors.New(states.Error)
+			}
+			if states.Finished || strings.EqualFold(states.Status, "finished") {
+				b.logger.Info("vectorLoad finished",
+					zap.String("db", engine.tbl.DB),
+					zap.String("table", engine.tbl.Name),
+					zap.String("taskID", engine.loadDataTaskID),
+					zap.Duration("elapsed", time.Since(start)))
+				return nil
+			}
+		}
+	}
+}
+
 // ImportEngine imports an engine to TiKV.
 func (b *Backend) ImportEngine(ctx context.Context, engineUUID uuid.UUID, regionSplitSize, regionSplitKeys int64) error {
 	engine, err := b.getEngine(engineUUID)
 	if err != nil {
 		return err
+	}
+	if engine.taskType == taskTypeVectorLoad {
+		return b.importVectorLoadEngine(ctx, engine)
 	}
 	err = b.loadDataBuild(ctx, engine, regionSplitSize, regionSplitKeys)
 	if err != nil {
@@ -693,17 +908,45 @@ func (b *Backend) loadDataGetStates(ctx context.Context, engine *engine) (*LoadD
 	return state, nil
 }
 
+func (b *Backend) vectorLoadFinalize(ctx context.Context, engine *engine) error {
+	url := fmt.Sprintf("%s/vector_load?cluster_id=%d&task_id=%s&finalize=true", engine.addr, engine.clusterID, engine.loadDataTaskID)
+	_, err := sendRequest(ctx, b.httpClient, "POST", url, nil, engine.retryCounter)
+	return err
+}
+
+func (b *Backend) vectorLoadGetStates(ctx context.Context, engine *engine) (*VectorLoadStates, error) {
+	url := fmt.Sprintf("%s/vector_load?cluster_id=%d&task_id=%s", engine.addr, engine.clusterID, engine.loadDataTaskID)
+	data, err := sendRequest(ctx, b.httpClient, "GET", url, nil, engine.retryCounter)
+	if err != nil {
+		return nil, err
+	}
+	state := new(VectorLoadStates)
+	if err := json.Unmarshal(data, state); err != nil {
+		return nil, err
+	}
+	return state, nil
+}
+
 // CleanupEngine cleanup the engine and reclaim the space.
 func (b *Backend) CleanupEngine(ctx context.Context, engineUUID uuid.UUID) error {
 	engine, err := b.getEngine(engineUUID)
 	if err != nil {
 		return err
 	}
+	if engine.taskType == taskTypeVectorLoad {
+		return b.vectorLoadCleanUp(ctx, engine)
+	}
 	return b.loadDataCleanUp(ctx, engine)
 }
 
 func (b *Backend) loadDataCleanUp(ctx context.Context, engine *engine) error {
 	url := fmt.Sprintf("%s/load_data?cluster_id=%d&task_id=%s", engine.addr, engine.clusterID, engine.loadDataTaskID)
+	_, err := sendRequest(ctx, b.httpClient, "DELETE", url, nil, engine.retryCounter)
+	return err
+}
+
+func (b *Backend) vectorLoadCleanUp(ctx context.Context, engine *engine) error {
+	url := fmt.Sprintf("%s/vector_load?cluster_id=%d&task_id=%s", engine.addr, engine.clusterID, engine.loadDataTaskID)
 	_, err := sendRequest(ctx, b.httpClient, "DELETE", url, nil, engine.retryCounter)
 	return err
 }
@@ -779,6 +1022,9 @@ type engine struct {
 	ctx            context.Context
 	logger         log.Logger
 	loadDataTaskID string
+	engineID       int32
+	taskType       taskType
+	vectorIndex    *model.VectorIndexInfo
 	ts             uint64
 	tbl            *checkpoints.TidbTableInfo
 	writers        sync.Map
@@ -826,6 +1072,17 @@ type writer struct {
 
 const batchSize int = 8 * 1024 * 1024
 
+func (w *writer) appendVectorLoadPair(lenBuf []byte, pair common.KvPair) error {
+	if len(pair.Key) > (1<<16 - 1) {
+		return errors.Errorf("vector load handle length %d exceeds max uint16", len(pair.Key))
+	}
+	binary.LittleEndian.PutUint16(lenBuf[:2], uint16(len(pair.Key)))
+	w.buf = append(w.buf, lenBuf[:2]...)
+	w.buf = append(w.buf, pair.Key...)
+	w.buf = append(w.buf, pair.Val...)
+	return nil
+}
+
 func (w *writer) AppendRows(
 	ctx context.Context,
 	columnNames []string,
@@ -835,16 +1092,23 @@ func (w *writer) AppendRows(
 	if len(kvs) == 0 {
 		return nil
 	}
-	lenBuf := make([]byte, 4)
+	var lenBuf [4]byte
 	for _, pair := range kvs {
+		if w.e.taskType == taskTypeVectorLoad {
+			if err := w.appendVectorLoadPair(lenBuf[:], pair); err != nil {
+				return err
+			}
+			continue
+		}
+
 		binary.LittleEndian.PutUint16(lenBuf[:2], uint16(len(pair.Key)+len(w.keyspace)))
 		w.buf = append(w.buf, lenBuf[:2]...)
 		w.buf = append(w.buf, w.keyspace...)
 		w.buf = append(w.buf, pair.Key...)
-		binary.LittleEndian.PutUint32(lenBuf, uint32(len(pair.Val)))
-		w.buf = append(w.buf, lenBuf...)
+		binary.LittleEndian.PutUint32(lenBuf[:], uint32(len(pair.Val)))
+		w.buf = append(w.buf, lenBuf[:]...)
 		w.buf = append(w.buf, pair.Val...)
-		binary.LittleEndian.PutUint16(lenBuf, uint16(len(pair.RowID)))
+		binary.LittleEndian.PutUint16(lenBuf[:2], uint16(len(pair.RowID)))
 		w.buf = append(w.buf, lenBuf[:2]...)
 		w.buf = append(w.buf, pair.RowID...)
 	}

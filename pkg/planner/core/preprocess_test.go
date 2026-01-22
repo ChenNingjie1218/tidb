@@ -24,7 +24,9 @@ import (
 	"github.com/pingcap/tidb/pkg/infoschema"
 	"github.com/pingcap/tidb/pkg/meta/model"
 	"github.com/pingcap/tidb/pkg/parser"
+	"github.com/pingcap/tidb/pkg/parser/ast"
 	"github.com/pingcap/tidb/pkg/parser/format"
+	pmodel "github.com/pingcap/tidb/pkg/parser/model"
 	"github.com/pingcap/tidb/pkg/parser/mysql"
 	"github.com/pingcap/tidb/pkg/parser/terror"
 	"github.com/pingcap/tidb/pkg/planner/core"
@@ -35,6 +37,7 @@ import (
 	"github.com/pingcap/tidb/pkg/types"
 	"github.com/pingcap/tidb/pkg/util/dbterror"
 	"github.com/pingcap/tidb/pkg/util/dbterror/plannererrors"
+	"github.com/pingcap/tidb/pkg/util/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -286,11 +289,14 @@ func TestValidator(t *testing.T) {
 		// Note: USING COLUMNAR is currently not supported in CSE.
 		{"ALTER TABLE t ADD VECTOR INDEX (a, (VEC_COSINE_DISTANCE(a))) USING HNSW COMMENT 'a'", false, errors.New(`[ddl:8200]VECTOR INDEX must specify an expression like ((VEC_XX_DISTANCE(<COLUMN>)))`)},
 		{"ALTER TABLE t ADD VECTOR INDEX ((VEC_COSINE_DISTANCE(a))) USING HYPO COMMENT 'a'", false, errors.New(`[ddl:8200]'USING HYPO' is not supported for VECTOR INDEX`)},
+		{"ALTER TABLE t ADD VECTOR INDEX ((VEC_COSINE_DISTANCE(a))) USING SPFresh COMMENT 'a'", false, nil},
+		{"ALTER TABLE t ADD VECTOR INDEX ((VEC_COSINE_DISTANCE(a))) ADD_COLUMNAR_REPLICA_ON_DEMAND USING SPFresh COMMENT 'a'", false, errors.New(`[ddl:8200]ADD_COLUMNAR_REPLICA_ON_DEMAND can be only used in columnar index`)},
 		// {"ALTER TABLE t ADD COLUMNAR INDEX (a)", false, errors.New(`[ddl:8200]COLUMNAR INDEX must specify 'USING <index_type>'`)},
 		// {"ALTER TABLE t ADD COLUMNAR INDEX (a, b) USING INVERTED COMMENT 'a'", false, errors.New(`[ddl:8200]COLUMNAR INDEX of INVERTED type must specify one column name`)},
 		// {"ALTER TABLE t ADD COLUMNAR INDEX (a) USING HYPO COMMENT 'a'", false, errors.New(`[ddl:8200]'USING HYPO' is not supported for COLUMNAR INDEX`)},
 		// {"ALTER TABLE t ADD COLUMNAR INDEX ((a - 1)) USING HYPO COMMENT 'a'", false, errors.New(`[ddl:8200]'USING HYPO' is not supported for COLUMNAR INDEX`)},
 		{"ALTER TABLE t ADD INDEX (a) USING HNSW", false, errors.New(`[ddl:8200]'USING HNSW' can be only used for VECTOR INDEX`)},
+		{"ALTER TABLE t ADD INDEX (a) USING SPFresh", false, errors.New(`[ddl:8200]'USING SPFresh' can be only used for VECTOR INDEX`)},
 		// {"ALTER TABLE t ADD INDEX (a) USING INVERTED", false, errors.New(`[ddl:8200]'USING INVERTED' can be only used for COLUMNAR INDEX`)},
 		// {"ALTER TABLE t ADD INDEX (a) USING VECTOR", false, errors.New(`[ddl:8200]'USING VECTOR' can be only used for COLUMNAR INDEX`)},
 		{"CREATE VECTOR INDEX idx ON t (a) USING HNSW ", false, errors.New(`[ddl:8200]VECTOR INDEX must specify an expression like ((VEC_XX_DISTANCE(<COLUMN>)))`)},
@@ -337,6 +343,55 @@ func TestValidator(t *testing.T) {
 	for _, tt := range tests {
 		runSQL(t, tk.Session(), is, tt.sql, tt.inPrepare, tt.err)
 	}
+}
+
+func TestVectorIndexRewriteInPreprocess(t *testing.T) {
+	sctx := mock.NewContext()
+	sctx.GetSessionVars().CurrentDB = "test"
+
+	is := infoschema.MockInfoSchema([]*model.TableInfo{core.MockSignedTable()})
+
+	preprocessOne := func(sql string) ast.StmtNode {
+		stmts, err := session.Parse(sctx, sql)
+		require.NoErrorf(t, err, "sql: %s", sql)
+		require.Len(t, stmts, 1)
+		stmt := stmts[0]
+
+		nodeW := resolve.NewNodeW(stmt)
+		err = core.Preprocess(
+			context.Background(),
+			sctx,
+			nodeW,
+			core.WithPreprocessorReturn(&core.PreprocessorReturn{InfoSchema: is}),
+		)
+		require.NoErrorf(t, err, "sql: %s", sql)
+		return stmt
+	}
+
+	// HNSW/default: VECTOR INDEX is rewritten to COLUMNAR INDEX (USING VECTOR).
+	createHNSW := preprocessOne("CREATE TABLE t_hnsw(a int, b vector(3), vector index((VEC_COSINE_DISTANCE(b))) USING HNSW);").(*ast.CreateTableStmt)
+	require.Len(t, createHNSW.Constraints, 1)
+	require.Equal(t, ast.ConstraintColumnar, createHNSW.Constraints[0].Tp)
+	require.NotNil(t, createHNSW.Constraints[0].Option)
+	require.Equal(t, pmodel.IndexTypeVector, createHNSW.Constraints[0].Option.Tp)
+
+	// SPFresh: keep non-columnar VECTOR INDEX in AST (no rewrite to COLUMNAR INDEX).
+	createSPFresh := preprocessOne("CREATE TABLE t_spfresh(a int, b vector(3), vector index((VEC_COSINE_DISTANCE(b))) USING SPFresh);").(*ast.CreateTableStmt)
+	require.Len(t, createSPFresh.Constraints, 1)
+	require.Equal(t, ast.ConstraintVector, createSPFresh.Constraints[0].Tp)
+	require.NotNil(t, createSPFresh.Constraints[0].Option)
+	require.Equal(t, pmodel.IndexTypeSPFresh, createSPFresh.Constraints[0].Option.Tp)
+
+	// CREATE VECTOR INDEX follows the same rewrite rule: HNSW/default -> COLUMNAR, SPFresh -> non-columnar.
+	createIndexHNSW := preprocessOne("CREATE VECTOR INDEX idx_hnsw ON t ((VEC_COSINE_DISTANCE(a))) USING HNSW;").(*ast.CreateIndexStmt)
+	require.Equal(t, ast.IndexKeyTypeColumnar, createIndexHNSW.KeyType)
+	require.NotNil(t, createIndexHNSW.IndexOption)
+	require.Equal(t, pmodel.IndexTypeVector, createIndexHNSW.IndexOption.Tp)
+
+	createIndexSPFresh := preprocessOne("CREATE VECTOR INDEX idx_spfresh ON t ((VEC_COSINE_DISTANCE(a))) USING SPFresh;").(*ast.CreateIndexStmt)
+	require.Equal(t, ast.IndexKeyTypeVector, createIndexSPFresh.KeyType)
+	require.NotNil(t, createIndexSPFresh.IndexOption)
+	require.Equal(t, pmodel.IndexTypeSPFresh, createIndexSPFresh.IndexOption.Tp)
 }
 
 func TestForeignKey(t *testing.T) {

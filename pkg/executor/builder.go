@@ -277,6 +277,8 @@ func (b *executorBuilder) build(p base.Plan) exec.Executor {
 		return b.buildProjection(v)
 	case *plannercore.PhysicalMemTable:
 		return b.buildMemTable(v)
+	case *plannercore.PhysicalSPFreshVectorScan:
+		return b.buildSPFreshVectorSearch(v)
 	case *plannercore.PhysicalTableDual:
 		return b.buildTableDual(v)
 	case *plannercore.PhysicalApply:
@@ -2170,6 +2172,13 @@ func (b *executorBuilder) buildTableDual(v *plannercore.PhysicalTableDual) exec.
 		numDualRows:    v.RowCount,
 	}
 	return e
+}
+
+func (b *executorBuilder) buildSPFreshVectorSearch(v *plannercore.PhysicalSPFreshVectorScan) exec.Executor {
+	return &SPFreshVectorSearchExec{
+		BaseExecutor: exec.NewBaseExecutor(b.ctx, v.Schema(), v.ID()),
+		plan:         v,
+	}
 }
 
 // `getSnapshotTS` returns for-update-ts if in insert/update/delete/lock statement otherwise the isolation read ts

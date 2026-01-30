@@ -32,6 +32,8 @@ go_library(
         "partition_prune.go",
         "pb_to_plan.go",
         "physical_plans.go",
+        "physical_spfresh_vector_scan_plan_cache.go",
+        "spfresh_distance_projection.go",
         "plan.go",
         "plan_cache.go",
         "plan_cache_instance.go",

@@ -1,0 +1,13 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "spfreshpb",
+    srcs = ["vector_search.pb.go"],
+    importpath = "github.com/pingcap/tidb/pkg/executor/spfresh/spfreshpb",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@com_github_gogo_protobuf//gogoproto",
+        "@com_github_gogo_protobuf//proto",
+    ],
+)
+

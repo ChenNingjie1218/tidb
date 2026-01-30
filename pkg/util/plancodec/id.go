@@ -39,6 +39,8 @@ const (
 	TypePartitionUnion = "PartitionUnion"
 	// TypeTableScan is the type of TableScan.
 	TypeTableScan = "TableScan"
+	// TypeSPFreshVectorScan is the type of SPFreshVectorScan.
+	TypeSPFreshVectorScan = "SPFreshVectorScan"
 	// TypeMemTableScan is the type of TableScan.
 	TypeMemTableScan = "MemTableScan"
 	// TypeUnionScan is the type of UnionScan.
@@ -204,6 +206,7 @@ const (
 	typeExpandID              int = 58
 	typeImportIntoID          int = 59
 	TypeScalarSubQueryID      int = 60
+	typeSPFreshVectorScanID   int = 61
 )
 
 // TypeStringToPhysicalID converts the plan type string to plan id.
@@ -231,6 +234,8 @@ func TypeStringToPhysicalID(tp string) int {
 		return typePartitionUnionID
 	case TypeTableScan:
 		return typeTableScanID
+	case TypeSPFreshVectorScan:
+		return typeSPFreshVectorScanID
 	case TypeMemTableScan:
 		return typeMemTableScanID
 	case TypeUnionScan:
@@ -359,6 +364,8 @@ func PhysicalIDToTypeString(id int) string {
 		return TypePartitionUnion
 	case typeTableScanID:
 		return TypeTableScan
+	case typeSPFreshVectorScanID:
+		return TypeSPFreshVectorScan
 	case typeMemTableScanID:
 		return TypeMemTableScan
 	case typeUnionScanID:

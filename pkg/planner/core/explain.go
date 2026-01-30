@@ -335,6 +335,55 @@ func (p *PhysicalTableScan) OperatorInfo(normalized bool) string {
 	return buffer.String()
 }
 
+// ExplainInfo implements Plan interface.
+func (p *PhysicalSPFreshVectorScan) ExplainInfo() string {
+	return p.AccessObject().String() + ", " + p.OperatorInfo(false)
+}
+
+// ExplainNormalizedInfo implements Plan interface.
+func (p *PhysicalSPFreshVectorScan) ExplainNormalizedInfo() string {
+	return p.AccessObject().NormalizedString() + ", " + p.OperatorInfo(true)
+}
+
+// OperatorInfo implements dataAccesser interface.
+func (p *PhysicalSPFreshVectorScan) OperatorInfo(normalized bool) string {
+	var buffer strings.Builder
+	buffer.WriteString("spfresh:")
+	if p.Index == nil || p.Index.VectorInfo == nil {
+		buffer.WriteString("?")
+	} else {
+		buffer.WriteString(string(p.Index.VectorInfo.DistanceMetric))
+	}
+	buffer.WriteString("(")
+	colName := "?"
+	if p.Table != nil && p.Index != nil && len(p.Index.Columns) > 0 {
+		offset := p.Index.Columns[0].Offset
+		if offset >= 0 && offset < len(p.Table.Columns) {
+			colName = p.Table.Columns[offset].Name.L
+		}
+	}
+	buffer.WriteString(colName)
+	buffer.WriteString("..")
+	if normalized {
+		buffer.WriteString("[?]")
+	} else {
+		buffer.WriteString(p.QueryVec.TruncatedString())
+	}
+	buffer.WriteString(", limit:")
+	if normalized {
+		buffer.WriteString("?")
+	} else {
+		buffer.WriteString(fmt.Sprint(p.TopK))
+	}
+	buffer.WriteString(")")
+	if p.EnableDistanceProj {
+		buffer.WriteString("->")
+		cols := p.Schema().Columns
+		buffer.WriteString(cols[len(cols)-1].String())
+	}
+	return buffer.String()
+}
+
 func (p *PhysicalTableScan) haveCorCol() bool {
 	for _, cond := range p.AccessCondition {
 		if len(expression.ExtractCorColumns(cond)) > 0 {

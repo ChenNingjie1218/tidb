@@ -2004,6 +2004,48 @@ func (ts *PhysicalTableScan) appendExtraHandleCol(ds *logicalop.DataSource) (*ex
 // convertToIndexScan converts the DataSource to index scan with idx.
 func convertToIndexScan(ds *logicalop.DataSource, prop *property.PhysicalProperty,
 	candidate *candidatePath, _ *optimizetrace.PhysicalOptimizeOp) (task base.Task, err error) {
+	// SPFresh vector index is not a normal KV index. It must not be used as a regular IndexScan.
+	// The proper read path is a RootTask-only executor calling /vector_search.
+	if candidate.path.Index.VectorInfo != nil && candidate.path.Index.VectorInfo.Kind == model.VectorIndexKindSPFresh {
+		if prop.VectorProp.VectorHelper == nil {
+			return base.InvalidTask, nil
+		}
+		if !candidate.isMatchProp {
+			return base.InvalidTask, nil
+		}
+		if prop.TaskTp != property.RootTaskType {
+			return base.InvalidTask, nil
+		}
+		if !config.EnableRemoteBackend() {
+			return base.InvalidTask, nil
+		}
+		if ds.TableInfo.GetPartitionInfo() != nil && ds.PartitionDefIdx == nil {
+			// Multi-partition queries require merging TopK results.
+			return base.InvalidTask, nil
+		}
+		// Reject any filters for now.
+		if len(ds.PushedDownConds) > 0 {
+			return base.InvalidTask, nil
+		}
+
+		stats := util.DeriveLimitStats(ds.StatsInfo(), float64(prop.VectorProp.TopK))
+		scan := PhysicalSPFreshVectorScan{
+			Table:            ds.TableInfo,
+			Columns:          util.CloneColInfos(ds.Columns),
+			DBName:           ds.DBName,
+			TableAsName:      ds.TableAsName,
+			Index:            candidate.path.Index,
+			TopK:             prop.VectorProp.TopK,
+			QueryVec:         prop.VectorProp.Vec,
+			isPartition:      ds.PartitionDefIdx != nil,
+			physicalTableID:  ds.PhysicalTableID,
+			SPFreshQueryInfo: &struct{}{},
+		}.Init(ds.SCtx(), stats, ds.QueryBlockOffset())
+		scan.SetSchema(ds.Schema().Clone())
+		rt := &RootTask{}
+		rt.SetPlan(scan)
+		return rt, nil
+	}
 	if candidate.path.Index.MVIndex {
 		// MVIndex is special since different index rows may return the same _row_id and this can break some assumptions of IndexReader.
 		// Currently only support using IndexMerge to access MVIndex instead of IndexReader.

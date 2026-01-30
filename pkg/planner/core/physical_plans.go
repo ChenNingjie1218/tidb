@@ -1154,6 +1154,72 @@ func (ts *PhysicalTableScan) MemoryUsage() (sum int64) {
 	return
 }
 
+// PhysicalSPFreshVectorScan represents a root-only scan plan for SPFresh vector index.
+type PhysicalSPFreshVectorScan struct {
+	physicalSchemaProducer
+
+	Table   *model.TableInfo    `plan-cache-clone:"shallow"`
+	Columns []*model.ColumnInfo `plan-cache-clone:"shallow"`
+	DBName  pmodel.CIStr        `plan-cache-clone:"shallow"`
+
+	TableAsName *pmodel.CIStr `plan-cache-clone:"shallow"`
+
+	Index *model.IndexInfo `plan-cache-clone:"shallow"`
+
+	TopK uint32
+
+	QueryVec types.VectorFloat32
+
+	EnableDistanceProj bool
+
+	isPartition     bool
+	physicalTableID int64
+
+	SPFreshQueryInfo *struct{} `plan-cache-clone:"must-nil"`
+}
+
+// IsPartition returns true and the physical table ID if it works on a partition.
+func (p *PhysicalSPFreshVectorScan) IsPartition() (bool, int64) {
+	return p.isPartition, p.physicalTableID
+}
+
+// Clone implements op.PhysicalPlan interface.
+func (p *PhysicalSPFreshVectorScan) Clone(newCtx base.PlanContext) (base.PhysicalPlan, error) {
+	clonedScan := new(PhysicalSPFreshVectorScan)
+	*clonedScan = *p
+	clonedScan.SetSCtx(newCtx)
+	prod, err := p.physicalSchemaProducer.cloneWithSelf(newCtx, clonedScan)
+	if err != nil {
+		return nil, err
+	}
+	clonedScan.physicalSchemaProducer = *prod
+	if p.Table != nil {
+		clonedScan.Table = p.Table.Clone()
+	}
+	clonedScan.Columns = util.CloneColInfos(p.Columns)
+	if p.Index != nil {
+		clonedScan.Index = p.Index.Clone()
+	}
+	return clonedScan, nil
+}
+
+const emptyPhysicalSPFreshVectorScanSize = int64(unsafe.Sizeof(PhysicalSPFreshVectorScan{}))
+
+// MemoryUsage returns the memory usage of PhysicalSPFreshVectorScan.
+func (p *PhysicalSPFreshVectorScan) MemoryUsage() (sum int64) {
+	if p == nil {
+		return
+	}
+
+	sum = emptyPhysicalSPFreshVectorScanSize + p.physicalSchemaProducer.MemoryUsage() + p.DBName.MemoryUsage() + size.SizeOfSlice
+	if p.TableAsName != nil {
+		sum += p.TableAsName.MemoryUsage()
+	}
+	sum += int64(cap(p.Columns)) * size.SizeOfPointer
+	sum += int64(cap(p.QueryVec.ZeroCopySerialize()))
+	return
+}
+
 // PhysicalProjection is the physical operator of projection.
 type PhysicalProjection struct {
 	physicalSchemaProducer

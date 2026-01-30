@@ -838,6 +838,18 @@ func (p *PhysicalTableScan) ResolveIndicesItself() (err error) {
 }
 
 // ResolveIndices implements Plan interface.
+func (p *PhysicalSPFreshVectorScan) ResolveIndices() (err error) {
+	err = p.physicalSchemaProducer.ResolveIndices()
+	if err != nil {
+		return err
+	}
+	for i, column := range p.schema.Columns {
+		column.Index = i
+	}
+	return nil
+}
+
+// ResolveIndices implements Plan interface.
 func (p *Update) ResolveIndices() (err error) {
 	err = p.baseSchemaProducer.ResolveIndices()
 	if err != nil {

@@ -187,6 +187,13 @@ func (p PhysicalIndexScan) Init(ctx base.PlanContext, offset int) *PhysicalIndex
 	return &p
 }
 
+// Init initializes PhysicalSPFreshVectorScan.
+func (p PhysicalSPFreshVectorScan) Init(ctx base.PlanContext, stats *property.StatsInfo, offset int) *PhysicalSPFreshVectorScan {
+	p.BasePhysicalPlan = physicalop.NewBasePhysicalPlan(ctx, plancodec.TypeSPFreshVectorScan, &p, offset)
+	p.SetStats(stats)
+	return &p
+}
+
 // Init initializes PhysicalMemTable.
 func (p PhysicalMemTable) Init(ctx base.PlanContext, stats *property.StatsInfo, offset int) *PhysicalMemTable {
 	p.BasePhysicalPlan = physicalop.NewBasePhysicalPlan(ctx, plancodec.TypeMemTableScan, &p, offset)

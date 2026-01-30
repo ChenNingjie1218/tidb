@@ -2235,7 +2235,7 @@ func getPhysTopN(lt *logicalop.LogicalTopN, prop *property.PhysicalProperty) []b
 	if mppAllowed {
 		allTaskTypes = append(allTaskTypes, property.MppTaskType)
 	}
-	ret := make([]base.PhysicalPlan, 0, len(allTaskTypes))
+	ret := make([]base.PhysicalPlan, 0, len(allTaskTypes)+2)
 	for _, tp := range allTaskTypes {
 		resultProp := &property.PhysicalProperty{TaskTp: tp, ExpectedCnt: math.MaxFloat64, CTEProducerStatus: prop.CTEProducerStatus}
 		topN := PhysicalTopN{
@@ -2247,36 +2247,60 @@ func getPhysTopN(lt *logicalop.LogicalTopN, prop *property.PhysicalProperty) []b
 		topN.SetSchema(lt.Schema())
 		ret = append(ret, topN)
 	}
-	// If we can generate MPP task and there's vector distance function in the order by column.
-	// We will try to generate a property for possible vector indexes.
+
+	// If there is a vector distance function in the order by column, generate an extra property for possible vector indexes.
+	// Note: This is required for exploring vector-index paths in both RootTask (SPFresh) and MPPTask (TiFlash/HNSW).
+	if len(lt.ByItems) != 1 {
+		return ret
+	}
+	vs := expression.ExtractVectorHelper(lt.ByItems[0].Expr)
+	if vs == nil {
+		return ret
+	}
+	// Currently vector index only accepts ascending order.
+	if lt.ByItems[0].Desc {
+		return ret
+	}
+	// Currently, we only deal with the case the TopN is directly above a DataSource.
+	ds, ok := lt.Children()[0].(*logicalop.DataSource)
+	if !ok {
+		return ret
+	}
+	// Reject any filters.
+	if len(ds.PushedDownConds) > 0 {
+		return ret
+	}
+
+	topK := uint32(lt.Count + lt.Offset)
+
+	// Respect LIMIT_TO_COP hint. If it's applicable, don't explore the RootTask vector-index path.
+	if !lt.PreferLimitToCop {
+		resultProp := &property.PhysicalProperty{
+			TaskTp:            property.RootTaskType,
+			ExpectedCnt:       math.MaxFloat64,
+			CTEProducerStatus: prop.CTEProducerStatus,
+		}
+		resultProp.VectorProp.VectorHelper = vs
+		resultProp.VectorProp.TopK = topK
+		topN := PhysicalTopN{
+			ByItems:     lt.ByItems,
+			PartitionBy: lt.PartitionBy,
+			Count:       lt.Count,
+			Offset:      lt.Offset,
+		}.Init(lt.SCtx(), lt.StatsInfo(), lt.QueryBlockOffset(), resultProp)
+		topN.SetSchema(lt.Schema())
+		ret = append(ret, topN)
+	}
+
+	// Explore MPP vector-index path (TiFlash/HNSW).
 	if mppAllowed {
-		if len(lt.ByItems) != 1 {
-			return ret
-		}
-		vs := expression.ExtractVectorHelper(lt.ByItems[0].Expr)
-		if vs == nil {
-			return ret
-		}
-		// Currently vector index only accept ascending order.
-		if lt.ByItems[0].Desc {
-			return ret
-		}
-		// Currently, we only deal with the case the TopN is directly above a DataSource.
-		ds, ok := lt.Children()[0].(*logicalop.DataSource)
-		if !ok {
-			return ret
-		}
-		// Reject any filters.
-		if len(ds.PushedDownConds) > 0 {
-			return ret
-		}
 		resultProp := &property.PhysicalProperty{
 			TaskTp:            property.MppTaskType,
 			ExpectedCnt:       math.MaxFloat64,
 			CTEProducerStatus: prop.CTEProducerStatus,
 		}
 		resultProp.VectorProp.VectorHelper = vs
-		resultProp.VectorProp.TopK = uint32(lt.Count + lt.Offset)
+		resultProp.VectorProp.TopK = topK
 		topN := PhysicalTopN{
 			ByItems:     lt.ByItems,
 			PartitionBy: lt.PartitionBy,

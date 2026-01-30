@@ -374,7 +374,7 @@ func (p *PhysicalProperty) HashCode() []byte {
 	if p.hashcode != nil {
 		return p.hashcode
 	}
-	hashcodeSize := 8 + 8 + 8 + (16+8)*len(p.SortItems) + 8
+	hashcodeSize := 8 + 8 + 8 + (16+8)*len(p.SortItems) + 8 + 8 + 16 + 8 + 8
 	p.hashcode = make([]byte, 0, hashcodeSize)
 	if p.CanAddEnforcer {
 		p.hashcode = codec.EncodeInt(p.hashcode, 1)
@@ -396,12 +396,13 @@ func (p *PhysicalProperty) HashCode() []byte {
 		for _, col := range p.MPPPartitionCols {
 			p.hashcode = append(p.hashcode, col.hashCode()...)
 		}
-		if p.VectorProp.VectorHelper != nil {
-			// We only accpect the vector information from the TopN which is directly above the DataSource.
-			// So it's safe to not hash the vector constant.
-			p.hashcode = append(p.hashcode, p.VectorProp.Column.HashCode()...)
-			p.hashcode = codec.EncodeInt(p.hashcode, int64(p.VectorProp.FnPbCode))
-		}
+	}
+	if p.VectorProp.VectorHelper != nil {
+		// We only accept the vector information from the TopN which is directly above the DataSource.
+		// So it's safe to not hash the vector constant.
+		p.hashcode = append(p.hashcode, p.VectorProp.Column.HashCode()...)
+		p.hashcode = codec.EncodeInt(p.hashcode, int64(p.VectorProp.FnPbCode))
+		p.hashcode = codec.EncodeInt(p.hashcode, int64(p.VectorProp.TopK))
 	}
 	p.hashcode = append(p.hashcode, codec.EncodeInt(nil, int64(p.CTEProducerStatus))...)
 	return p.hashcode
@@ -425,6 +426,7 @@ func (p *PhysicalProperty) CloneEssentialFields() *PhysicalProperty {
 		RejectSort:            p.RejectSort,
 		CTEProducerStatus:     p.CTEProducerStatus,
 	}
+	prop.VectorProp = p.VectorProp
 	return prop
 }
 

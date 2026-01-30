@@ -448,6 +448,22 @@ func (p *PhysicalIndexScan) GetPlanCostVer1(_ property.TaskType, option *optimiz
 	return p.PlanCost, nil
 }
 
+// GetPlanCostVer1 calculates the cost of the plan if it has not been calculated yet and returns the cost.
+func (p *PhysicalSPFreshVectorScan) GetPlanCostVer1(_ property.TaskType, option *optimizetrace.PlanCostOption) (float64, error) {
+	costFlag := option.CostFlag
+	if p.PlanCostInit && !hasCostFlag(costFlag, costusage.CostFlagRecalculate) {
+		return p.PlanCost, nil
+	}
+
+	sessVars := p.SCtx().GetSessionVars()
+	startupCost := sessVars.GetNetworkFactor(p.Table)
+	perRowCost := sessVars.GetNetworkFactor(p.Table) + sessVars.GetCPUFactor()
+
+	p.PlanCost = startupCost + float64(p.TopK)*perRowCost
+	p.PlanCostInit = true
+	return p.PlanCost, nil
+}
+
 // GetCost computes the cost of index join operator and its children.
 func (p *PhysicalIndexJoin) GetCost(outerCnt, innerCnt, outerCost, innerCost float64, costFlag uint64) float64 {
 	var cpuCost float64

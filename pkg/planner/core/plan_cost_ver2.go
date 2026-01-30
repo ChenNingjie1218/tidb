@@ -214,6 +214,24 @@ func (p *PhysicalTableScan) GetPlanCostVer2(taskType property.TaskType, option *
 }
 
 // GetPlanCostVer2 returns the plan-cost of this sub-plan, which is:
+// plan-cost = spfresh-start + spfresh-topk
+func (p *PhysicalSPFreshVectorScan) GetPlanCostVer2(taskType property.TaskType, option *optimizetrace.PlanCostOption) (costusage.CostVer2, error) {
+	if p.PlanCostInit && !hasCostFlag(option.CostFlag, costusage.CostFlagRecalculate) {
+		return p.PlanCostVer2, nil
+	}
+
+	startCost := costusage.NewCostVer2(option, defaultVer2Factors.ANNIndexStart, defaultVer2Factors.ANNIndexStart.Value, func() string {
+		return fmt.Sprintf("spfresh-start(%v)", defaultVer2Factors.ANNIndexStart)
+	})
+	topKCost := costusage.NewCostVer2(option, defaultVer2Factors.ANNIndexScanRow, float64(p.TopK)*defaultVer2Factors.ANNIndexScanRow.Value, func() string {
+		return fmt.Sprintf("spfresh-topk(%v*%v)", p.TopK, defaultVer2Factors.ANNIndexScanRow)
+	})
+	p.PlanCostVer2 = costusage.SumCostVer2(startCost, topKCost)
+	p.PlanCostInit = true
+	return p.PlanCostVer2, nil
+}
+
+// GetPlanCostVer2 returns the plan-cost of this sub-plan, which is:
 // plan-cost = (child-cost + net-cost) / concurrency
 // net-cost = rows * row-size * net-factor
 func (p *PhysicalIndexReader) GetPlanCostVer2(taskType property.TaskType, option *optimizetrace.PlanCostOption) (costusage.CostVer2, error) {

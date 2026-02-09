@@ -973,6 +973,8 @@ const (
 	TpFKCascadeRuntimeStats
 	// TpRURuntimeStats is the tp for RURuntimeStats
 	TpRURuntimeStats
+	// TpVectorSearchRuntimeStats is the tp for VectorSearchRuntimeStats
+	TpVectorSearchRuntimeStats
 )
 
 // RuntimeStats is used to express the executor runtime information.

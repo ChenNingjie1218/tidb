@@ -1125,12 +1125,19 @@ func skylinePruning(ds *logicalop.DataSource, prop *property.PhysicalProperty) [
 		if path.IsTablePath() {
 			currentCandidate = getTableCandidate(ds, path, prop)
 		} else {
-			if !(len(path.AccessConds) > 0 || !prop.IsSortItemEmpty() || path.Forced || path.IsSingleScan) {
+			// VectorProp encodes a vector-distance order-by requirement, but it does not populate SortItems.
+			// For vector TopK queries, we still need to keep vector-index paths as candidates even when:
+			// - there is no access condition, and
+			// - the index is not covering (IsSingleScan==false).
+			//
+			// Otherwise, SPFresh/TiFlash vector indexes won't be explored unless forced by USE_INDEX.
+			hasVectorProp := prop.VectorProp.VectorHelper != nil && path.Index != nil && path.Index.VectorInfo != nil
+			if !(len(path.AccessConds) > 0 || !prop.IsSortItemEmpty() || path.Forced || path.IsSingleScan || hasVectorProp) {
 				continue
 			}
 			// We will use index to generate physical plan if any of the following conditions is satisfied:
 			// 1. This path's access cond is not nil.
-			// 2. We have a non-empty prop to match.
+			// 2. We have a non-empty prop (SortItems / VectorProp) to match.
 			// 3. This index is forced to choose.
 			// 4. The needed columns are all covered by index columns(and handleCol).
 			currentCandidate = getIndexCandidate(ds, path, prop)

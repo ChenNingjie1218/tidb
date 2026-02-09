@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -132,6 +133,95 @@ func TestSPFreshVectorSearchExec_RequestAndDecode(t *testing.T) {
 	// vec should also be skipped after distance projection rewrite.
 	require.Len(t, reqPB.RequiredColumns, 1)
 	require.Equal(t, int32(mysql.TypeLong), reqPB.RequiredColumns[0].Tp)
+}
+
+func TestSPFreshVectorSearchExec_ExplainAnalyzeStats(t *testing.T) {
+	executor.ResetSPFreshVectorSearchForTest()
+
+	const (
+		partitionsScanned uint64 = 7
+		vectorsScanned    uint64 = 123
+		tableLookupKeys   uint64 = 45
+		tableLookupBytes  uint64 = 6789
+	)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/vector_search" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+
+		body, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		require.NoError(t, r.Body.Close())
+
+		reqPB := &spfreshpb.VectorSearchRequest{}
+		require.NoError(t, proto.Unmarshal(body, reqPB))
+
+		respPB := &spfreshpb.VectorSearchResponse{
+			Rows: []*spfreshpb.VectorSearchRow{
+				{
+					HandleBytes:  kv.IntHandle(1).Encoded(),
+					Distance:     0,
+					ColumnValues: make([][]byte, len(reqPB.RequiredColumns)),
+				},
+			},
+			Stats: &spfreshpb.VectorSearchStats{
+				PartitionsScanned: partitionsScanned,
+				VectorsScanned:    vectorsScanned,
+				TableLookupKeys:   tableLookupKeys,
+				TableLookupBytes:  tableLookupBytes,
+			},
+		}
+		respBytes, err := proto.Marshal(respPB)
+		require.NoError(t, err)
+		w.Header().Set("Content-Type", "application/x-protobuf")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(respBytes)
+	}))
+	t.Cleanup(srv.Close)
+
+	restore := config.RestoreFunc()
+	t.Cleanup(restore)
+	config.UpdateGlobal(func(conf *config.Config) {
+		conf.TiKVAPIServiceAddr = srv.URL
+	})
+
+	store, _ := testkit.CreateMockStoreAndDomain(t)
+	t.Cleanup(ingesttestutil.InjectMockBackendMgr(t, store))
+
+	tk := testkit.NewTestKit(t, store)
+	tk.MustExec("use test")
+	tk.MustExec("drop table if exists t_spfresh_stats")
+	tk.MustExec("create table t_spfresh_stats(id int primary key, vec vector(3))")
+	tk.MustExec("create vector index idx_vec on t_spfresh_stats ((vec_l2_distance(vec))) using spfresh")
+	tk.MustExec("insert into t_spfresh_stats values (1,'[0,0,0]')")
+
+	rows := tk.MustQuery("explain analyze select /*+ USE_INDEX(t_spfresh_stats, idx_vec) */ id from t_spfresh_stats order by vec_l2_distance(vec, '[0,0,0]') limit 1").Rows()
+	found := false
+	for _, row := range rows {
+		if len(row) == 0 {
+			continue
+		}
+		id, ok := row[0].(string)
+		require.True(t, ok)
+		if !strings.Contains(id, "SPFreshVectorScan") {
+			continue
+		}
+
+		found = true
+		var cols []string
+		for _, c := range row {
+			cols = append(cols, c.(string))
+		}
+		all := strings.Join(cols, " | ")
+		require.Contains(t, all, "vector_search: {")
+		require.Contains(t, all, fmt.Sprintf("partitions_scanned: %d", partitionsScanned))
+		require.Contains(t, all, fmt.Sprintf("vectors_scanned: %d", vectorsScanned))
+		require.Contains(t, all, fmt.Sprintf("table_lookup_keys: %d", tableLookupKeys))
+		require.Contains(t, all, fmt.Sprintf("table_lookup_bytes: %d", tableLookupBytes))
+	}
+	require.True(t, found)
 }
 
 func TestSPFreshVectorSearchExec_Redirect(t *testing.T) {

@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/pingcap/errors"
+	"github.com/pingcap/tidb/pkg/config"
 	"github.com/pingcap/tidb/pkg/expression"
 	"github.com/pingcap/tidb/pkg/infoschema"
 	"github.com/pingcap/tidb/pkg/meta/model"
@@ -346,6 +347,12 @@ func TestValidator(t *testing.T) {
 }
 
 func TestVectorIndexRewriteInPreprocess(t *testing.T) {
+	restore := config.RestoreFunc()
+	t.Cleanup(restore)
+	config.UpdateGlobal(func(conf *config.Config) {
+		conf.TiKVAPIServiceAddr = ""
+	})
+
 	sctx := mock.NewContext()
 	sctx.GetSessionVars().CurrentDB = "test"
 
@@ -392,6 +399,22 @@ func TestVectorIndexRewriteInPreprocess(t *testing.T) {
 	require.Equal(t, ast.IndexKeyTypeVector, createIndexSPFresh.KeyType)
 	require.NotNil(t, createIndexSPFresh.IndexOption)
 	require.Equal(t, pmodel.IndexTypeSPFresh, createIndexSPFresh.IndexOption.Tp)
+
+	// With remote backend configured, VECTOR INDEX defaults to SPFresh when USING is omitted.
+	config.UpdateGlobal(func(conf *config.Config) {
+		conf.TiKVAPIServiceAddr = "http://127.0.0.1:1234"
+	})
+
+	createDefault := preprocessOne("CREATE TABLE t_default(a int, b vector(3), vector index((VEC_COSINE_DISTANCE(b))));").(*ast.CreateTableStmt)
+	require.Len(t, createDefault.Constraints, 1)
+	require.Equal(t, ast.ConstraintVector, createDefault.Constraints[0].Tp)
+	require.NotNil(t, createDefault.Constraints[0].Option)
+	require.Equal(t, pmodel.IndexTypeSPFresh, createDefault.Constraints[0].Option.Tp)
+
+	createIndexDefault := preprocessOne("CREATE VECTOR INDEX idx_default ON t ((VEC_COSINE_DISTANCE(a)));").(*ast.CreateIndexStmt)
+	require.Equal(t, ast.IndexKeyTypeVector, createIndexDefault.KeyType)
+	require.NotNil(t, createIndexDefault.IndexOption)
+	require.Equal(t, pmodel.IndexTypeSPFresh, createIndexDefault.IndexOption.Tp)
 }
 
 func TestForeignKey(t *testing.T) {

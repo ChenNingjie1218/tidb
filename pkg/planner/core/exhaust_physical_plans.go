@@ -2253,17 +2253,49 @@ func getPhysTopN(lt *logicalop.LogicalTopN, prop *property.PhysicalProperty) []b
 	if len(lt.ByItems) != 1 {
 		return ret
 	}
-	vs := expression.ExtractVectorHelper(lt.ByItems[0].Expr)
-	if vs == nil {
-		return ret
-	}
 	// Currently vector index only accepts ascending order.
 	if lt.ByItems[0].Desc {
 		return ret
 	}
-	// Currently, we only deal with the case the TopN is directly above a DataSource.
-	ds, ok := lt.Children()[0].(*logicalop.DataSource)
-	if !ok {
+
+	// Accept vector-distance order-by in two shapes:
+	//  1) TopN(order by vec_*_distance(vec_col, const)) -> DataSource
+	//  2) TopN(order by Column(distance)) -> Projection(distance=vec_*_distance(vec_col, const)) -> DataSource
+	//
+	// Case (2) commonly appears after column pruning, as it avoids carrying the heavy vector column through TopN.
+	var (
+		ds *logicalop.DataSource
+		vs *expression.VectorHelper
+	)
+	vs = expression.ExtractVectorHelper(lt.ByItems[0].Expr)
+	switch child := lt.Children()[0].(type) {
+	case *logicalop.DataSource:
+		ds = child
+	case *logicalop.LogicalProjection:
+		if len(child.Children()) != 1 {
+			return ret
+		}
+		inner, ok := child.Children()[0].(*logicalop.DataSource)
+		if !ok {
+			return ret
+		}
+		ds = inner
+		// If TopN orders by a projected distance column, recover the vector helper from the projection expression.
+		if vs == nil {
+			orderByCol, ok := lt.ByItems[0].Expr.(*expression.Column)
+			if !ok {
+				return ret
+			}
+			orderIdx := child.Schema().ColumnIndex(orderByCol)
+			if orderIdx < 0 || orderIdx >= len(child.Exprs) {
+				return ret
+			}
+			vs = expression.ExtractVectorHelper(child.Exprs[orderIdx])
+		}
+	default:
+		return ret
+	}
+	if vs == nil {
 		return ret
 	}
 	// Reject any filters.

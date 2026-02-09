@@ -127,6 +127,17 @@ func (e *SPFreshVectorSearchExec) Open(ctx context.Context) error {
 		return err
 	}
 
+	if resp.Stats != nil {
+		if coll := e.Ctx().GetSessionVars().StmtCtx.RuntimeStatsColl; coll != nil {
+			coll.RegisterStats(e.ID(), &vectorSearchRuntimeStats{
+				PartitionsScanned: resp.Stats.PartitionsScanned,
+				VectorsScanned:    resp.Stats.VectorsScanned,
+				TableLookupKeys:   resp.Stats.TableLookupKeys,
+				TableLookupBytes:  resp.Stats.TableLookupBytes,
+			})
+		}
+	}
+
 	maxRows := int(reqPB.TopK) * int(reqPB.OversampleFactor)
 	if maxRows > 0 && len(resp.Rows) > maxRows {
 		return errors.Errorf("spfresh /vector_search returns too many rows: %d > %d", len(resp.Rows), maxRows)

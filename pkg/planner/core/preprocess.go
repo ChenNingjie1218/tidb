@@ -1254,10 +1254,25 @@ func (p *preprocessor) checkCreateIndexGrammar(stmt *ast.CreateIndexStmt) {
 
 	// Rewrite CREATE VECTOR INDEX into CREATE COLUMNAR INDEX (HNSW/default),
 	// but keep it as non-columnar when USING SPFresh.
+	//
+	// In CSE deployments, SPFresh is backed by the remote backend (tikv-api-service-addr). When it is configured,
+	// default CREATE VECTOR INDEX (without USING) should prefer SPFresh, so users can build a KV-backed vector index
+	// without requiring an explicit USING clause.
 	isVector := stmt.KeyType == ast.IndexKeyTypeVector
 	if isVector {
+		if stmt.IndexOption == nil {
+			stmt.IndexOption = &ast.IndexOption{Tp: pmodel.IndexTypeInvalid}
+		}
 		switch stmt.IndexOption.Tp {
-		case pmodel.IndexTypeInvalid, pmodel.IndexTypeHNSW:
+		case pmodel.IndexTypeInvalid:
+			if config.EnableRemoteBackend() {
+				stmt.IndexOption.Tp = pmodel.IndexTypeSPFresh
+				// keep as non-columnar vector index
+			} else {
+				stmt.KeyType = ast.IndexKeyTypeColumnar
+				stmt.IndexOption.Tp = pmodel.IndexTypeVector
+			}
+		case pmodel.IndexTypeHNSW:
 			stmt.KeyType = ast.IndexKeyTypeColumnar
 			stmt.IndexOption.Tp = pmodel.IndexTypeVector
 		case pmodel.IndexTypeSPFresh:
@@ -1287,10 +1302,24 @@ func (p *preprocessor) checkCreateIndexGrammar(stmt *ast.CreateIndexStmt) {
 func (p *preprocessor) checkConstraintGrammar(stmt *ast.Constraint) {
 	// Rewrite VECTOR INDEX into COLUMNAR INDEX (HNSW/default),
 	// but keep it as non-columnar when USING SPFresh.
+	//
+	// When the remote backend is configured, default VECTOR INDEX (without USING) should prefer SPFresh so the index
+	// can be built and queried on KV (via SPFreshVectorScan) without requiring an explicit USING clause.
 	isVector := stmt.Tp == ast.ConstraintVector
 	if isVector {
+		if stmt.Option == nil {
+			stmt.Option = &ast.IndexOption{Tp: pmodel.IndexTypeInvalid}
+		}
 		switch stmt.Option.Tp {
-		case pmodel.IndexTypeInvalid, pmodel.IndexTypeHNSW:
+		case pmodel.IndexTypeInvalid:
+			if config.EnableRemoteBackend() {
+				stmt.Option.Tp = pmodel.IndexTypeSPFresh
+				// keep as non-columnar vector index
+			} else {
+				stmt.Tp = ast.ConstraintColumnar
+				stmt.Option.Tp = pmodel.IndexTypeVector
+			}
+		case pmodel.IndexTypeHNSW:
 			stmt.Tp = ast.ConstraintColumnar
 			stmt.Option.Tp = pmodel.IndexTypeVector
 		case pmodel.IndexTypeSPFresh:

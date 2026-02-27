@@ -139,10 +139,17 @@ func TestSPFreshVectorSearchExec_ExplainAnalyzeStats(t *testing.T) {
 	executor.ResetSPFreshVectorSearchForTest()
 
 	const (
-		partitionsScanned uint64 = 7
-		vectorsScanned    uint64 = 123
-		tableLookupKeys   uint64 = 45
-		tableLookupBytes  uint64 = 6789
+		partitionsScanned   uint64 = 7
+		vectorsScanned      uint64 = 123
+		tableLookupKeys     uint64 = 45
+		tableLookupBytes    uint64 = 6789
+		permitMicros        uint64 = 11_000
+		configMicros        uint64 = 12_000
+		indexOpenMicros     uint64 = 13_000
+		searchMicros        uint64 = 14_000
+		tableLookupMicros   uint64 = 15_000
+		tikvClientRPCCount  uint64 = 16
+		tikvClientRPCMicros uint64 = 16_000
 	)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -167,10 +174,17 @@ func TestSPFreshVectorSearchExec_ExplainAnalyzeStats(t *testing.T) {
 				},
 			},
 			Stats: &spfreshpb.VectorSearchStats{
-				PartitionsScanned: partitionsScanned,
-				VectorsScanned:    vectorsScanned,
-				TableLookupKeys:   tableLookupKeys,
-				TableLookupBytes:  tableLookupBytes,
+				PartitionsScanned:   partitionsScanned,
+				VectorsScanned:      vectorsScanned,
+				TableLookupKeys:     tableLookupKeys,
+				TableLookupBytes:    tableLookupBytes,
+				PermitMicros:        permitMicros,
+				ConfigMicros:        configMicros,
+				IndexOpenMicros:     indexOpenMicros,
+				SearchMicros:        searchMicros,
+				TableLookupMicros:   tableLookupMicros,
+				TikvClientRpcCount:  tikvClientRPCCount,
+				TikvClientRpcMicros: tikvClientRPCMicros,
 			},
 		}
 		respBytes, err := proto.Marshal(respPB)
@@ -220,6 +234,13 @@ func TestSPFreshVectorSearchExec_ExplainAnalyzeStats(t *testing.T) {
 		require.Contains(t, all, fmt.Sprintf("vectors_scanned: %d", vectorsScanned))
 		require.Contains(t, all, fmt.Sprintf("table_lookup_keys: %d", tableLookupKeys))
 		require.Contains(t, all, fmt.Sprintf("table_lookup_bytes: %d", tableLookupBytes))
+		require.Contains(t, all, "permit: 11ms")
+		require.Contains(t, all, "config: 12ms")
+		require.Contains(t, all, "index_open: 13ms")
+		require.Contains(t, all, "search: 14ms")
+		require.Contains(t, all, "table_lookup: 15ms")
+		require.Contains(t, all, fmt.Sprintf("tikv_client_rpc_count: %d", tikvClientRPCCount))
+		require.Contains(t, all, "tikv_client_rpc: 16ms")
 	}
 	require.True(t, found)
 }

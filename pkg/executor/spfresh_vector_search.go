@@ -130,10 +130,17 @@ func (e *SPFreshVectorSearchExec) Open(ctx context.Context) error {
 	if resp.Stats != nil {
 		if coll := e.Ctx().GetSessionVars().StmtCtx.RuntimeStatsColl; coll != nil {
 			coll.RegisterStats(e.ID(), &vectorSearchRuntimeStats{
-				PartitionsScanned: resp.Stats.PartitionsScanned,
-				VectorsScanned:    resp.Stats.VectorsScanned,
-				TableLookupKeys:   resp.Stats.TableLookupKeys,
-				TableLookupBytes:  resp.Stats.TableLookupBytes,
+				PartitionsScanned:   resp.Stats.PartitionsScanned,
+				VectorsScanned:      resp.Stats.VectorsScanned,
+				TableLookupKeys:     resp.Stats.TableLookupKeys,
+				TableLookupBytes:    resp.Stats.TableLookupBytes,
+				PermitMicros:        resp.Stats.PermitMicros,
+				ConfigMicros:        resp.Stats.ConfigMicros,
+				IndexOpenMicros:     resp.Stats.IndexOpenMicros,
+				SearchMicros:        resp.Stats.SearchMicros,
+				TableLookupMicros:   resp.Stats.TableLookupMicros,
+				TiKVClientRPCCount:  resp.Stats.TikvClientRpcCount,
+				TiKVClientRPCMicros: resp.Stats.TikvClientRpcMicros,
 			})
 		}
 	}

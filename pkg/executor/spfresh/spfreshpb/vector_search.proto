@@ -68,5 +68,14 @@ message VectorSearchStats {
   uint64 vectors_scanned = 2;
   uint64 table_lookup_keys = 3;
   uint64 table_lookup_bytes = 4;
+  // Time costs of each major stage in microseconds.
+  uint64 permit_micros = 5;
+  uint64 config_micros = 6;
+  uint64 index_open_micros = 7;
+  uint64 search_micros = 8;
+  uint64 table_lookup_micros = 9;
+  // Aggregated tikv-client RPC stats (best-effort) for this /vector_search
+  // request.
+  uint64 tikv_client_rpc_count = 10;
+  uint64 tikv_client_rpc_micros = 11;
 }
-

@@ -2310,6 +2310,8 @@ var defaultSysVars = []*SysVar{
 		s.EnableVectorizedExpression = TiDBOptOn(val)
 		return nil
 	}},
+	{Scope: ScopeGlobal | ScopeSession, Name: TiDBSPFreshVectorSearchReadOnly, Value: On, Type: TypeBool},
+	{Scope: ScopeGlobal | ScopeSession, Name: TiDBSPFreshVectorSearchBaseBeamSize, Value: "0", Type: TypeUnsigned, MinValue: 0, MaxValue: math.MaxUint32},
 	{Scope: ScopeGlobal | ScopeSession, Name: TiDBEnableFastAnalyze, Value: BoolToOnOff(DefTiDBUseFastAnalyze), Type: TypeBool,
 		Validation: func(vars *SessionVars, normalizedValue string, originalValue string, scope ScopeFlag) (string, error) {
 			if TiDBOptOn(normalizedValue) {

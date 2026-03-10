@@ -46,10 +46,15 @@ message VectorSearchRequest {
 
   repeated ColumnInfo required_columns = 7;
 
-  // Optional tuning/debug parameters.
-  uint32 max_batches = 8;
-  uint32 oversample_factor = 9;
-  bool debug = 10;
+  // Optional tuning parameters.
+  uint32 oversample_factor = 8;
+  // If zero, the server uses its default base beam size.
+  uint32 base_beam_size = 9;
+
+  // read_only disables background fixups (split/merge) triggered by search
+  // observations. When enabled, the server must not enqueue fixups and should
+  // avoid starting any background fixup workers.
+  bool read_only = 10;
 }
 
 message VectorSearchResponse {

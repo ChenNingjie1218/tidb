@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -20,6 +21,7 @@ import (
 	"github.com/pingcap/tidb/pkg/parser/mysql"
 	plannercore "github.com/pingcap/tidb/pkg/planner/core"
 	"github.com/pingcap/tidb/pkg/sessionctx"
+	"github.com/pingcap/tidb/pkg/sessionctx/variable"
 	"github.com/pingcap/tidb/pkg/sessiontxn"
 	"github.com/pingcap/tidb/pkg/table"
 	"github.com/pingcap/tidb/pkg/table/tables"
@@ -117,9 +119,21 @@ func (e *SPFreshVectorSearchExec) Open(ctx context.Context) error {
 		TopK:             e.plan.TopK,
 		QueryVectorF32Le: queryVecBytes,
 		RequiredColumns:  e.requiredColumns,
-		MaxBatches:       1,
 		OversampleFactor: 1,
-		Debug:            false,
+	}
+	if v, ok := e.Ctx().GetSessionVars().GetSystemVar(variable.TiDBSPFreshVectorSearchBaseBeamSize); ok {
+		beamSize, err := strconv.ParseUint(v, 10, 32)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		reqPB.BaseBeamSize = uint32(beamSize)
+	}
+	if v, ok := e.Ctx().GetSessionVars().GetSystemVar(variable.TiDBSPFreshVectorSearchReadOnly); ok {
+		reqPB.ReadOnly = variable.TiDBOptOn(v)
+	} else {
+		// Defensive fallback. The sysvar should always exist, but default to the
+		// legacy behavior (read-only, no fixups) if it does not.
+		reqPB.ReadOnly = true
 	}
 
 	resp, err := e.vectorSearch(ctx, clusterID, keyspaceID, reqPB)

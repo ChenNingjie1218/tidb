@@ -119,6 +119,7 @@ func TestSPFreshVectorSearchExec_RequestAndDecode(t *testing.T) {
 	require.Equal(t, uint32(3), reqPB.TopK)
 	require.True(t, tk.Session().GetSessionVars().StmtCtx.VectorSearchIsANNQuery)
 	require.Equal(t, uint32(3), tk.Session().GetSessionVars().StmtCtx.VectorSearchTopK)
+	require.True(t, reqPB.ReadOnly)
 
 	clusterIDStr, _ := gotClusterID.Load().(string)
 	require.NotEmpty(t, clusterIDStr)
@@ -133,6 +134,16 @@ func TestSPFreshVectorSearchExec_RequestAndDecode(t *testing.T) {
 	// vec should also be skipped after distance projection rewrite.
 	require.Len(t, reqPB.RequiredColumns, 1)
 	require.Equal(t, int32(mysql.TypeLong), reqPB.RequiredColumns[0].Tp)
+	require.Equal(t, uint32(0), reqPB.BaseBeamSize)
+
+	tk.MustExec("set tidb_spfresh_vector_search_read_only = off")
+	tk.MustExec("set tidb_spfresh_vector_search_base_beam_size = 123")
+	tk.MustQuery("select /*+ USE_INDEX(t_spfresh_exec, idx_vec) */ id, a from t_spfresh_exec order by vec_l2_distance(vec, '[1,2,3]') limit 1 offset 2").
+		Check(testkit.Rows("3 42"))
+	reqPB = gotReq.Load()
+	require.NotNil(t, reqPB)
+	require.False(t, reqPB.ReadOnly)
+	require.Equal(t, uint32(123), reqPB.BaseBeamSize)
 }
 
 func TestSPFreshVectorSearchExec_ExplainAnalyzeStats(t *testing.T) {

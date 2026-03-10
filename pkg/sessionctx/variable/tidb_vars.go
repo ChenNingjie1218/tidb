@@ -601,6 +601,14 @@ const (
 	// TiDBEnableVectorizedExpression is used to control whether to enable the vectorized expression evaluation.
 	TiDBEnableVectorizedExpression = "tidb_enable_vectorized_expression"
 
+	// TiDBSPFreshVectorSearchReadOnly controls whether SPFresh `/vector_search`
+	// runs in read-only mode (no background fixups).
+	TiDBSPFreshVectorSearchReadOnly = "tidb_spfresh_vector_search_read_only"
+
+	// TiDBSPFreshVectorSearchBaseBeamSize controls SPFresh `/vector_search`
+	// base beam size. A value of 0 means using worker defaults.
+	TiDBSPFreshVectorSearchBaseBeamSize = "tidb_spfresh_vector_search_base_beam_size"
+
 	// TiDBOptJoinReorderThreshold defines the threshold less than which
 	// we'll choose a rather time-consuming algorithm to calculate the join order.
 	TiDBOptJoinReorderThreshold = "tidb_opt_join_reorder_threshold"

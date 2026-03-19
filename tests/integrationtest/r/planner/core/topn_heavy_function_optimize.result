@@ -1,4 +1,3 @@
-set tidb_cost_model_version=1;
 set session tidb_opt_projection_push_down=1;
 drop table if exists recipes;
 create table recipes (

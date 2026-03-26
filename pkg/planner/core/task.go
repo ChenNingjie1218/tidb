@@ -861,13 +861,13 @@ func getPushedDownTopN(p *physicalop.PhysicalTopN, childPlan base.PhysicalPlan, 
 	fixValue := fixcontrol.GetBoolWithDefault(p.SCtx().GetSessionVars().GetOptimizerFixControlMap(), fixcontrol.Fix56318, true)
 	// HeavyFunctionOptimize: if TopN's ByItems is a HeavyFunction (currently mainly for Vector Search), we will change
 	// the ByItems in order to reuse the function result.
-	byItemIndex := make([]int, 0)
+	heavyByItemIndexes := make([]int, 0)
 	for i, byItem := range p.ByItems {
 		if ContainHeavyFunction(byItem.Expr) {
-			byItemIndex = append(byItemIndex, i)
+			heavyByItemIndexes = append(heavyByItemIndexes, i)
 		}
 	}
-	if fixValue && len(byItemIndex) > 0 {
+	if fixValue && len(heavyByItemIndexes) > 0 {
 		x, err := p.Clone(p.SCtx())
 		if err != nil {
 			return nil, nil
@@ -917,7 +917,7 @@ func getPushedDownTopN(p *physicalop.PhysicalTopN, childPlan base.PhysicalPlan, 
 			DistanceCol *expression.Column
 		}
 		distanceCols := make([]DistanceColItem, 0)
-		for _, idx := range byItemIndex {
+		for _, idx := range heavyByItemIndexes {
 			bottomProjExprs = append(bottomProjExprs, newGlobalTopN.ByItems[idx].Expr)
 			distanceCol := &expression.Column{
 				UniqueID: newGlobalTopN.SCtx().GetSessionVars().AllocPlanColumnID(),
@@ -956,8 +956,8 @@ func getPushedDownTopN(p *physicalop.PhysicalTopN, childPlan base.PhysicalPlan, 
 		topN.SetChildren(bottomProj)
 
 		// Only try to skip scanning the vector column when the first order-by item is the vector
-		// distance (i.e. it has been rewritten to the distance column).
-		if len(byItemIndex) == 1 && byItemIndex[0] == 0 {
+		// distance (i.e. vector index can be chosen).
+		if len(heavyByItemIndexes) == 1 && heavyByItemIndexes[0] == 0 {
 			tryReturnDistanceFromIndex(topN, newGlobalTopN, childPlan, bottomProj)
 		}
 		return topN, newGlobalTopN
